@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FMEA Platform</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #BFDBFE; border-radius: 4px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ORG = { id:"o1", name:"Acme Financial Services" };
+
+const HIERARCHY = [
+  { id:"p1", name:"Payments Platform", projects:[
+    { id:"pr1", name:"Payment Gateway API", components:[
+      { id:"c1", name:"checkout_service.py", locked:true  },
+      { id:"c2", name:"processor.py",         locked:true  },
+    ]},
+    { id:"pr2", name:"Billing Service", components:[
+      { id:"c3", name:"invoice_engine.py",    locked:false },
+    ]},
+  ]},
+  { id:"p2", name:"Identity & Access", projects:[
+    { id:"pr3", name:"Auth Service", components:[
+      { id:"c4", name:"auth/login.py",        locked:true  },
+      { id:"c5", name:"auth/middleware.py",   locked:false },
+    ]},
+  ]},
+];
+
+const ALL_RISKS = [
+  { id:1, name:"SQL Injection via login form",         s:9,o:7,d:6, rpn:378, priority:"Critical", status:"Open",        comp:"checkout_service.py", project:"pr1", portfolio:"p1", owner:"Dev Team",      impact:"Full database compromise — GDPR breach exposure £2.1M" },
+  { id:2, name:"Race condition in payment processing", s:9,o:5,d:8, rpn:360, priority:"Critical", status:"In Progress", comp:"processor.py",         project:"pr1", portfolio:"p1", owner:"Payments Team", impact:"Duplicate charges, financial loss, audit failure" },
+  { id:3, name:"Hardcoded API credentials exposure",   s:8,o:6,d:5, rpn:240, priority:"High",     status:"Open",        comp:"invoice_engine.py",    project:"pr2", portfolio:"p1", owner:"Dev Team",      impact:"Third-party system breach via credential reuse" },
+  { id:4, name:"JWT authentication bypass",            s:8,o:4,d:7, rpn:224, priority:"High",     status:"Reviewing",   comp:"auth/login.py",        project:"pr3", portfolio:"p2", owner:"Security Team", impact:"Unauthorised access to any customer account" },
+  { id:5, name:"Missing CSRF tokens on endpoints",     s:6,o:5,d:5, rpn:150, priority:"Medium",   status:"Open",        comp:"auth/middleware.py",   project:"pr3", portfolio:"p2", owner:"Dev Team",      impact:"Account takeover via social engineering" },
+  { id:6, name:"Insecure direct object reference",     s:7,o:4,d:5, rpn:140, priority:"Medium",   status:"Mitigated",   comp:"auth/login.py",        project:"pr3", portfolio:"p2", owner:"Dev Team",      impact:"Cross-customer data leakage" },
+  { id:7, name:"DoS via unvalidated file upload",      s:6,o:3,d:6, rpn:108, priority:"Medium",   status:"Open",        comp:"checkout_service.py",  project:"pr1", portfolio:"p1", owner:"Dev Team",      impact:"Service outage, customer disruption" },
+];
+
+const FIXES = {
+  1: ["Use parameterised queries — SQLAlchemy ORM or cursor.execute with tuple params", "Validate and sanitise all user-supplied input at controller layer", "Enable WAF SQLi rules, alert on pattern matches"],
+  2: ["Implement distributed locks via Redis SETNX with TTL", "Add idempotency keys to all payment endpoints", "Roll back and alert on duplicate detection within 5s window"],
+  3: ["Move all credentials to AWS Secrets Manager or HashiCorp Vault", "Rotate every exposed key immediately; revoke old ones", "Add detect-secrets pre-commit hook to block credential commits"],
+  4: ["Enforce RS256; reject HS256 and 'none' algorithms at middleware", "Implement token binding + short-lived access tokens (15 min TTL)", "Anomaly detection on JWT claim changes per session"],
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROCESS NAV — same 6 steps for every persona
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PROCESS_STEPS = [
+  { id:"scan",       label:"Context & Scan",     icon:"🔍", step:1 },
+  { id:"scenarios",  label:"Failure Scenarios",  icon:"⚠️",  step:2 },
+  { id:"scoring",    label:"Risk Scoring",       icon:"📊", step:3 },
+  { id:"mitigations",label:"Mitigations",        icon:"🛠️", step:4 },
+  { id:"remediation",label:"Auto-Remediation",  icon:"🔧", step:5 },
+  { id:"dashboard",  label:"Dashboard",          icon:"📈", step:6 },
+];
+
+// Per persona: which steps are "primary" (full opacity) vs "available" (slightly muted)
+// All steps always visible — content adapts. Executive sees remediation greyed.
+const PERSONA_PRIMARY = {
+  developer:         ["scan","scenarios","remediation"],
+  risk_manager:      ["scenarios","scoring","mitigations","dashboard"],
+  sre:               ["mitigations","remediation"],
+  security_engineer: ["scenarios","scoring"],
+  executive:         ["scoring","mitigations","dashboard"],
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSONAS + SCOPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PERSONAS = [
+  { id:"developer",         label:"Developer",         icon:"💻", desc:"Scan & analyse code"    },
+  { id:"risk_manager",      label:"Risk Manager",      icon:"📊", desc:"Manage & track risks"   },
+  { id:"sre",               label:"SRE",               icon:"🛠️", desc:"Remediate & mitigate"   },
+  { id:"security_engineer", label:"Security Engineer", icon:"🔐", desc:"Review & adjust scores" },
+  { id:"executive",         label:"Executive",         icon:"📈", desc:"Business risk overview" },
+];
+
+const PERSONA_DEFAULT_SCOPE = {
+  developer:"component", risk_manager:"project", sre:"component", security_engineer:"component", executive:"portfolio",
+};
+const PERSONA_SCOPE_OPTIONS = {
+  developer:         ["component"],
+  sre:               ["component","project"],
+  security_engineer: ["component","project","portfolio"],
+  risk_manager:      ["project","portfolio","org"],
+  executive:         ["portfolio","org"],
+};
+const SCOPE_LABEL = { component:"Component", project:"Project", portfolio:"Portfolio", org:"Organisation" };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PRI = {
+  Critical:{ badge:"bg-red-100 text-red-700",       dot:"bg-red-500"    },
+  High:    { badge:"bg-orange-100 text-orange-700", dot:"bg-orange-500" },
+  Medium:  { badge:"bg-amber-100 text-amber-700",   dot:"bg-amber-400"  },
+  Low:     { badge:"bg-green-100 text-green-700",   dot:"bg-green-500"  },
+};
+const STA = {
+  "Open":        "bg-gray-100 text-gray-600",
+  "In Progress": "bg-blue-100 text-blue-700",
+  "Reviewing":   "bg-purple-100 text-purple-700",
+  "Mitigated":   "bg-green-100 text-green-700",
+};
+
+const Chip  = ({label,cls}) => <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>;
+const PChip = ({p}) => <Chip label={p} cls={PRI[p]?.badge||"bg-gray-100 text-gray-600"} />;
+
+function KCard({label,value,sub,color="text-gray-900",accent}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm relative overflow-hidden">
+      {accent && <div className={`absolute top-0 left-0 w-1 h-full ${accent} rounded-l-2xl`}/>}
+      <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-2">{label}</p>
+      <p className={`text-3xl font-bold ${color} leading-none`}>{value}</p>
+      {sub && <p className="text-xs text-gray-400 mt-2">{sub}</p>}
+    </div>
+  );
+}
+
+function ScopeHeader({scopeLabel, name, sub}) {
+  return (
+    <div className="mb-6">
+      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-0.5">{scopeLabel}</p>
+      <h2 className="text-xl font-bold text-gray-900">{name}</h2>
+      {sub && <p className="text-sm text-gray-400 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function filterRisks(sel, scope) {
+  if (scope==="org")       return ALL_RISKS;
+  if (scope==="portfolio") return ALL_RISKS.filter(r=>r.portfolio===sel.portfolioId);
+  if (scope==="project")   return ALL_RISKS.filter(r=>r.project===sel.projectId);
+  if (scope==="component") return ALL_RISKS.filter(r=>r.comp===sel.componentName);
+  return ALL_RISKS;
+}
+
+function getSelectionLabel(sel, scope) {
+  if (scope==="org") return ORG.name;
+  const portfolio = HIERARCHY.find(p=>p.id===sel.portfolioId);
+  if (scope==="portfolio") return portfolio?.name||"—";
+  const project = portfolio?.projects.find(p=>p.id===sel.projectId);
+  if (scope==="project") return project?.name||"—";
+  return sel.componentName||"—";
+}
+
+function aggregateBy(risks, groupFn, labelFn) {
+  const map = {};
+  risks.forEach(r => {
+    const key = groupFn(r);
+    if (!map[key]) map[key] = { label:labelFn(r), risks:[] };
+    map[key].risks.push(r);
+  });
+  return Object.values(map).map(g => ({
+    ...g,
+    total:    g.risks.length,
+    critical: g.risks.filter(r=>r.priority==="Critical").length,
+    high:     g.risks.filter(r=>r.priority==="High").length,
+    maxRpn:   Math.max(...g.risks.map(r=>r.rpn)),
+    mitigated:g.risks.filter(r=>r.status==="Mitigated").length,
+  })).sort((a,b)=>b.maxRpn-a.maxRpn);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED UI COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function KpiRow({risks}) {
+  const avg = risks.length ? Math.round(risks.reduce((a,r)=>a+r.rpn,0)/risks.length) : 0;
+  return (
+    <div className="grid grid-cols-4 gap-4 mb-6">
+      <KCard label="Total Risks"  value={risks.length} sub="in scope" accent="bg-gray-300"/>
+      <KCard label="Critical"     value={risks.filter(r=>r.priority==="Critical").length} color="text-red-600"    sub="Immediate action" accent="bg-red-400"/>
+      <KCard label="High"         value={risks.filter(r=>r.priority==="High").length}     color="text-orange-500" sub="Within 7 days"    accent="bg-orange-400"/>
+      <KCard label="Avg RPN"      value={avg} sub="Risk priority number" accent="bg-blue-400"/>
+    </div>
+  );
+}
+
+function RiskTable({risks, showComp=false, onPick}) {
+  const [detail, setDetail] = useState(null);
+  const cols = ["Failure Mode", ...(showComp?["Component"]:[]), "S","O","D","RPN","Priority","Status"];
+  return (
+    <div className="flex gap-4">
+      <div className="flex-1 bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-100">
+            <tr>{cols.map(h=><th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {risks.length===0 && <tr><td colSpan={cols.length} className="px-4 py-12 text-center text-gray-300 text-sm">No risks in scope</td></tr>}
+            {risks.map(r=>(
+              <tr key={r.id} onClick={()=>{ setDetail(detail?.id===r.id?null:r); onPick&&onPick(r); }}
+                className={`border-b border-gray-50 cursor-pointer transition-colors ${detail?.id===r.id?"bg-blue-50":"hover:bg-gray-50"}`}>
+                <td className="px-4 py-3 font-medium text-gray-800">{r.name}</td>
+                {showComp && <td className="px-4 py-3 font-mono text-xs text-gray-400">{r.comp}</td>}
+                {[r.s,r.o,r.d].map((v,i)=><td key={i} className="px-4 py-3 text-center text-sm font-medium text-gray-600">{v}</td>)}
+                <td className="px-4 py-3 font-bold text-gray-900">{r.rpn}</td>
+                <td className="px-4 py-3"><PChip p={r.priority}/></td>
+                <td className="px-4 py-3"><Chip label={r.status} cls={STA[r.status]}/></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {detail && (
+        <div className="w-64 flex-shrink-0 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <div className="flex justify-between items-start mb-4">
+            <h3 className="font-bold text-gray-900 text-sm leading-snug pr-2">{detail.name}</h3>
+            <button onClick={()=>setDetail(null)} className="text-gray-300 hover:text-gray-500 text-lg">×</button>
+          </div>
+          <div className="space-y-3 text-sm">
+            <div><p className="text-xs text-gray-400 mb-0.5">Component</p><p className="font-mono text-xs text-blue-700">{detail.comp}</p></div>
+            <div><p className="text-xs text-gray-400 mb-0.5">Owner</p><p className="text-sm text-gray-700">{detail.owner}</p></div>
+            <div><p className="text-xs text-gray-400 mb-0.5">Business Impact</p><p className="text-xs text-gray-700 leading-relaxed">{detail.impact}</p></div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+              {[["S",detail.s,"text-red-600"],["O",detail.o,"text-orange-500"],["D",detail.d,"text-blue-600"]].map(([l,v,c])=>(
+                <div key={l} className="bg-gray-50 rounded-xl p-2"><p className="text-xs text-gray-400">{l}</p><p className={`text-xl font-bold ${c}`}>{v}</p></div>
+              ))}
+            </div>
+            <div className="bg-gray-900 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-400 mb-0.5">RPN</p>
+              <p className="text-3xl font-bold text-white">{detail.rpn}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AggTable({rows, groupLabel}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 border-b border-gray-100">
+          <tr>{[groupLabel,"Risks","Critical","High","Highest RPN","Remediated"].map(h=>
+            <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map(row=>{
+            const pct = Math.round((row.mitigated/Math.max(row.total,1))*100);
+            const top = row.critical>0?"Critical":row.high>0?"High":"Medium";
+            return (
+              <tr key={row.label} className="border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer">
+                <td className="px-4 py-3 font-semibold text-gray-800">{row.label}</td>
+                <td className="px-4 py-3 text-center text-gray-600">{row.total}</td>
+                <td className="px-4 py-3 text-center font-bold text-red-600">{row.critical||"—"}</td>
+                <td className="px-4 py-3 text-center font-bold text-orange-500">{row.high||"—"}</td>
+                <td className="px-4 py-3"><div className="flex items-center gap-2"><span className="font-bold text-gray-900">{row.maxRpn}</span><PChip p={top}/></div></td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-green-400 rounded-full" style={{width:`${pct}%`}}/></div>
+                    <span className="text-xs text-gray-400">{pct}%</span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIERARCHY TREE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HierarchyTree({persona, sel, onSelect}) {
+  const scopeOptions = PERSONA_SCOPE_OPTIONS[persona];
+  const [openP,  setOpenP]  = useState(["p1","p2"]);
+  const [openPr, setOpenPr] = useState(["pr1","pr2","pr3"]);
+  const tP  = id => setOpenP( s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
+  const tPr = id => setOpenPr(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
+
+  const canPick = level => scopeOptions.includes(level);
+
+  return (
+    <div className="py-2 overflow-y-auto scrollbar-thin" style={{maxHeight:"calc(100vh - 360px)"}}>
+      {HIERARCHY.map(portfolio => {
+        const pOpen   = openP.includes(portfolio.id);
+        const pActive = sel.portfolioId===portfolio.id && !sel.projectId;
+        return (
+          <div key={portfolio.id} className="mb-0.5">
+            <div onClick={()=>{ if(canPick("portfolio")) onSelect({portfolioId:portfolio.id,projectId:null,componentId:null,componentName:null}); tP(portfolio.id); }}
+              className={`flex items-center gap-1.5 mx-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${pActive&&canPick("portfolio")?"bg-blue-600":"hover:bg-blue-200"}`}>
+              <span className={`text-xs w-3 flex-shrink-0 ${pActive&&canPick("portfolio")?"text-blue-200":"text-gray-400"}`}>{pOpen?"▾":"▸"}</span>
+              <span className="text-xs">📁</span>
+              <span className={`text-xs font-semibold truncate flex-1 ${pActive&&canPick("portfolio")?"text-white":"text-gray-700"}`}>{portfolio.name}</span>
+            </div>
+            {pOpen && portfolio.projects.map(project => {
+              const prOpen   = openPr.includes(project.id);
+              const prActive = sel.projectId===project.id && !sel.componentId;
+              return (
+                <div key={project.id} className="ml-3">
+                  <div onClick={()=>{ if(canPick("project")) onSelect({portfolioId:portfolio.id,projectId:project.id,componentId:null,componentName:null}); tPr(project.id); }}
+                    className={`flex items-center gap-1.5 mx-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${prActive&&canPick("project")?"bg-blue-600":"hover:bg-blue-200"}`}>
+                    <span className={`text-xs w-3 flex-shrink-0 ${prActive&&canPick("project")?"text-blue-200":"text-gray-400"}`}>{prOpen?"▾":"▸"}</span>
+                    <span className="text-xs">🗂️</span>
+                    <span className={`text-xs font-medium truncate flex-1 ${prActive&&canPick("project")?"text-white":"text-gray-600"}`}>{project.name}</span>
+                  </div>
+                  {prOpen && canPick("component") && project.components.map(comp=>{
+                    const cActive = sel.componentId===comp.id;
+                    return (
+                      <div key={comp.id} onClick={()=>onSelect({portfolioId:portfolio.id,projectId:project.id,componentId:comp.id,componentName:comp.name})}
+                        className={`flex items-center gap-1.5 ml-5 mr-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${cActive?"bg-blue-600":"hover:bg-blue-200"}`}>
+                        <span className="text-xs">📄</span>
+                        <span className={`text-xs font-mono truncate flex-1 ${cActive?"text-white":"text-gray-600"}`}>{comp.name}</span>
+                        <span className={`text-xs ${cActive?"text-blue-200":comp.locked?"text-blue-400":"text-gray-300"}`}>{comp.locked?"🔒":"🔓"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAGE VIEWS — one per process step, content adapts per persona + scope
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── 1. CONTEXT & SCAN ────────────────────────────────────────────────────────
+function ScanPage({persona, sel, scope}) {
+  const [code,setCode]   = useState("");
+  const [tab,setTab]     = useState("paste");
+  const [scanning,setSc] = useState(false);
+  const [done,setDone]   = useState(false);
+  const label = getSelectionLabel(sel, scope);
+  const risks = filterRisks(sel, scope);
+
+  const run = () => { setSc(true); setDone(false); setTimeout(()=>{setSc(false);setDone(true);},1800); };
+
+  // Executive / Risk Manager: show scan status overview instead of code scanner
+  if (persona==="executive" || (persona==="risk_manager" && scope!=="project")) {
+    const rows = aggregateBy(risks, r=>r.portfolio, r=>HIERARCHY.find(p=>p.id===r.portfolio)?.name||r.portfolio);
+    return (
+      <div className="p-8">
+        <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub="Scan status across your scope"/>
+        <KpiRow risks={risks}/>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="font-bold text-gray-800 text-sm">Scan Status</h3>
+            <span className="text-xs text-gray-400">Last scan: Today 09:41</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>{["Scope","Risks","Last Scan","Lock Status","Coverage"].map(h=><th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map(row=>(
+                <tr key={row.label} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-4 py-3 font-semibold text-gray-800">{row.label}</td>
+                  <td className="px-4 py-3 text-center">{row.total}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">24 May 2026</td>
+                  <td className="px-4 py-3"><span className="text-green-600 text-xs font-semibold">🔒 Locked</span></td>
+                  <td className="px-4 py-3"><span className="text-xs text-gray-500">100%</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // Developer / SRE / Security Engineer: code scanner
+  return (
+    <div className="p-8 max-w-3xl">
+      <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label||"Select a component"} sub="Run an FMEA scan to identify failure modes"/>
+      <div className="flex gap-1.5 mb-4 bg-gray-100 p-1 rounded-xl w-fit">
+        {[["paste","📋 Paste"],["file","📁 Upload"],["github","🔗 GitHub"]].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${tab===t?"bg-white text-gray-900 shadow-sm":"text-gray-500 hover:text-gray-700"}`}>{l}</button>
+        ))}
+      </div>
+      {tab==="github"?(
+        <input className="w-full p-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" placeholder="https://github.com/owner/repo/blob/main/checkout_service.py"/>
+      ):tab==="file"?(
+        <div className="w-full h-36 rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-300 hover:border-blue-300 hover:text-blue-300 cursor-pointer transition-colors">
+          <span className="text-3xl mb-2">📁</span><p className="text-sm">Drop file here or click to browse</p>
+        </div>
+      ):(
+        <textarea className="w-full h-44 p-4 rounded-xl border border-gray-200 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none bg-gray-50"
+          placeholder={"def process_payment(amount, card):\n    query = f\"SELECT * FROM orders WHERE id={amount}\"\n    # paste your code here…"}
+          value={code} onChange={e=>setCode(e.target.value)}/>
+      )}
+      <div className="mt-4 flex items-center gap-3">
+        <button onClick={run} disabled={(!code.trim()&&tab==="paste")||scanning}
+          className="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-40 transition-colors inline-flex items-center gap-2 shadow-sm">
+          {scanning?<><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full"/>Scanning…</>:<>▶ Run FMEA Scan</>}
+        </button>
+        {!sel.componentName && <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">← Select a component from the sidebar</p>}
+      </div>
+      {done && (
+        <div className="mt-5 p-5 rounded-2xl border border-green-200 bg-green-50">
+          <p className="font-bold text-green-800 mb-2">✅ Scan complete — 4 failure scenarios identified</p>
+          <div className="flex flex-wrap gap-4 text-sm text-green-700 mb-2">
+            <span>🔴 2 Critical</span><span>🟠 1 High</span><span>🟡 1 Medium</span><span>Highest RPN: <strong>378</strong></span>
+          </div>
+          <p className="text-xs text-green-600">🔒 Scenarios locked — consistent on every rescan</p>
+        </div>
+      )}
+      {/* Scan history below */}
+      <div className="mt-8">
+        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Recent Scans</h3>
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>{["Component","Date","Scenarios","RPN","Status"].map(h=><th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {[["checkout_service.py","24 May 2026","7","378","🔒 Locked"],["processor.py","18 May 2026","5","360","🔒 Locked"],["auth/login.py","10 May 2026","6","290","🔒 Locked"]].map(([c,d,sc,rp,lk])=>(
+                <tr key={d} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer">
+                  <td className="px-4 py-3 font-mono text-sm text-blue-700">{c}</td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">{d}</td>
+                  <td className="px-4 py-3 text-gray-700">{sc}</td>
+                  <td className="px-4 py-3 font-bold text-red-600">{rp}</td>
+                  <td className="px-4 py-3 text-green-600 text-xs font-semibold">{lk}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 2. FAILURE SCENARIOS ──────────────────────────────────────────────────────
+function ScenariosPage({persona, sel, scope}) {
+  const risks = filterRisks(sel, scope);
+  const label = getSelectionLabel(sel, scope);
+  const showComp = scope!=="component";
+
+  if (scope==="org") {
+    const rows = aggregateBy(ALL_RISKS, r=>r.portfolio, r=>HIERARCHY.find(p=>p.id===r.portfolio)?.name||r.portfolio);
+    return (<div className="p-8"><ScopeHeader scopeLabel="Organisation" name={label} sub={`${ALL_RISKS.length} scenarios across all portfolios`}/><KpiRow risks={ALL_RISKS}/><AggTable rows={rows} groupLabel="Portfolio"/></div>);
+  }
+  if (scope==="portfolio") {
+    const portfolio = HIERARCHY.find(p=>p.id===sel.portfolioId);
+    const rows = aggregateBy(risks, r=>r.project, r=>portfolio?.projects.find(p=>p.id===r.project)?.name||r.project);
+    return (<div className="p-8"><ScopeHeader scopeLabel="Portfolio" name={label} sub={`${risks.length} scenarios across projects`}/><KpiRow risks={risks}/><AggTable rows={rows} groupLabel="Project"/></div>);
+  }
+
+  return (
+    <div className="p-8">
+      <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub={`${risks.length} failure scenarios identified`}/>
+      <KpiRow risks={risks}/>
+      <RiskTable risks={risks} showComp={showComp}/>
+    </div>
+  );
+}
+
+// ── 3. RISK SCORING ───────────────────────────────────────────────────────────
+function ScoringPage({persona, sel, scope}) {
+  const risks = filterRisks(sel, scope);
+  const label = getSelectionLabel(sel, scope);
+  const [selRisk, setSelRisk] = useState(ALL_RISKS[0]);
+  const [adj,     setAdj]     = useState({s:ALL_RISKS[0].s, o:ALL_RISKS[0].o, d:ALL_RISKS[0].d});
+  const [reason,  setReason]  = useState("");
+  const [log,     setLog]     = useState([]);
+  const pick = r => { setSelRisk(r); setAdj({s:r.s,o:r.o,d:r.d}); setReason(""); };
+  const newRpn  = adj.s*adj.o*adj.d;
+  const changed = adj.s!==selRisk.s||adj.o!==selRisk.o||adj.d!==selRisk.d;
+  const propose = () => { if(!reason.trim()) return; setLog(p=>[{risk:selRisk.name,from:selRisk.rpn,to:newRpn,reason,date:new Date().toLocaleDateString("en-GB")},...p]); setReason(""); };
+
+  // Executive / Risk Manager at portfolio/org: bar chart view only
+  if (persona==="executive" || scope==="org" || scope==="portfolio") {
+    const sorted = [...risks].sort((a,b)=>b.rpn-a.rpn);
+    return (
+      <div className="p-8">
+        <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub="RPN scores across scope"/>
+        <KpiRow risks={risks}/>
+        <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+          <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wide mb-5">Risk Priority Numbers</h3>
+          {sorted.map(r=>(
+            <div key={r.id} className="mb-4">
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-gray-600 truncate flex-1 pr-4">{r.name} {scope!=="component"&&<span className="text-gray-300 font-mono">· {r.comp}</span>}</span>
+                <span className="font-bold text-gray-900 flex-shrink-0">{r.rpn}</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${PRI[r.priority]?.dot}`} style={{width:`${(r.rpn/400)*100}%`,transition:"width 0.4s"}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Security Engineer / Risk Manager at project/component: interactive adjustment
+  return (
+    <div className="p-8">
+      <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub={persona==="security_engineer"?"Review and adjust RPN scores — human in the loop":"RPN scores and breakdown"}/>
+      <div className="flex gap-5">
+        {/* Risk list */}
+        <div className="w-60 flex-shrink-0 space-y-1.5 overflow-y-auto scrollbar-thin" style={{maxHeight:"calc(100vh - 220px)"}}>
+          {risks.map(r=>(
+            <button key={r.id} onClick={()=>pick(r)}
+              className={`w-full text-left p-3 rounded-xl border transition-all ${selRisk.id===r.id?"border-blue-300 bg-blue-50":"border-gray-100 bg-white hover:border-blue-200"}`}>
+              <div className="flex justify-between items-center mb-1"><PChip p={r.priority}/><span className="text-xs font-bold text-gray-700">{r.rpn}</span></div>
+              <p className="text-xs font-semibold text-gray-800 leading-snug">{r.name}</p>
+              <p className="text-xs text-gray-400 mt-0.5 font-mono">{r.comp}</p>
+            </button>
+          ))}
+        </div>
+        {/* Detail panel */}
+        <div className="flex-1 space-y-4">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <h3 className="font-bold text-gray-900 mb-1">{selRisk.name}</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed">{selRisk.impact}</p>
+            {[["Severity (S)","s","text-red-500","How severe is the business impact?"],
+              ["Occurrence (O)","o","text-orange-500","How likely is this to be exploited?"],
+              ["Detection (D)","d","text-blue-500","How hard is it to detect before harm?"]].map(([lbl,key,col,hint])=>(
+              <div key={key} className="mb-6">
+                <div className="flex justify-between items-start mb-2">
+                  <div><p className="text-sm font-semibold text-gray-700">{lbl}</p><p className="text-xs text-gray-400">{hint}</p></div>
+                  <span className={`text-2xl font-bold ${col}`}>{adj[key]}</span>
+                </div>
+                <input type="range" min="1" max="10" value={adj[key]}
+                  onChange={e=>setAdj(p=>({...p,[key]:+e.target.value}))}
+                  disabled={persona!=="security_engineer"}
+                  className="w-full accent-blue-600 disabled:opacity-60"/>
+                <div className="flex justify-between text-xs text-gray-300 mt-0.5"><span>1 · Low</span><span>5 · Medium</span><span>10 · High</span></div>
+              </div>
+            ))}
+            <div className="flex items-center gap-6 pt-5 border-t border-gray-100">
+              <div className="text-center"><p className="text-xs text-gray-400 mb-1">Current RPN</p><p className="text-3xl font-bold text-gray-300">{selRisk.rpn}</p></div>
+              <span className="text-gray-200 text-xl">→</span>
+              <div className="text-center"><p className="text-xs text-gray-400 mb-1">{changed?"Proposed":"RPN"}</p>
+                <p className={`text-3xl font-bold ${changed?(newRpn>selRisk.rpn?"text-red-500":"text-green-600"):"text-gray-900"}`}>{newRpn}</p>
+              </div>
+              {changed && <span className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${newRpn>selRisk.rpn?"bg-red-50 border-red-200 text-red-700":"bg-green-50 border-green-200 text-green-700"}`}>{newRpn>selRisk.rpn?"▲ Escalated":"▼ De-prioritised"}</span>}
+            </div>
+          </div>
+          {persona==="security_engineer" && changed && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+              <label className="block text-sm font-bold text-gray-700 mb-2">Justification <span className="text-red-400">*</span></label>
+              <textarea className="w-full h-20 p-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none bg-gray-50"
+                placeholder="Explain the adjustment — this goes to the audit trail…" value={reason} onChange={e=>setReason(e.target.value)}/>
+              <div className="flex items-center justify-between mt-3">
+                <button onClick={propose} disabled={!reason.trim()}
+                  className="px-5 py-2 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 disabled:opacity-40 shadow-sm">Propose Adjustment</button>
+                {log.length>0 && <span className="text-xs text-gray-400">{log.length} adjustment{log.length>1?"s":""} in audit trail</span>}
+              </div>
+            </div>
+          )}
+          {/* Audit trail inline for security engineer */}
+          {persona==="security_engineer" && log.length>0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Audit Trail</h4>
+              <div className="space-y-2">
+                {log.map((e,i)=>(
+                  <div key={i} className="flex justify-between items-start py-2 border-b border-gray-50 last:border-0">
+                    <div><p className="text-xs font-semibold text-gray-700">{e.risk}</p><p className="text-xs text-gray-400 italic mt-0.5">"{e.reason}"</p></div>
+                    <div className="text-right ml-4 flex-shrink-0">
+                      <p className="text-sm font-bold"><span className="text-gray-300 line-through mr-1">{e.from}</span><span className={e.to<e.from?"text-green-600":"text-red-600"}>{e.to}</span></p>
+                      <p className="text-xs text-gray-300">{e.date}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 4. MITIGATIONS ────────────────────────────────────────────────────────────
+function MitigationsPage({persona, sel, scope}) {
+  const risks = filterRisks(sel, scope);
+  const label = getSelectionLabel(sel, scope);
+  const [statuses, setStatuses] = useState(()=>Object.fromEntries(ALL_RISKS.map(r=>[r.id,r.status])));
+  const [expanded, setExpanded] = useState(null);
+  const update = (id,st) => setStatuses(p=>({...p,[id]:st}));
+  const sorted  = [...risks].sort((a,b)=>b.rpn-a.rpn);
+  const open     = risks.filter(r=>statuses[r.id]==="Open").length;
+  const inprog   = risks.filter(r=>statuses[r.id]==="In Progress").length;
+  const done     = risks.filter(r=>statuses[r.id]==="Mitigated").length;
+
+  // Executive / Risk Manager at higher scopes: summary table
+  if (persona==="executive" || scope==="org" || scope==="portfolio") {
+    const rows = scope==="org"
+      ? aggregateBy(ALL_RISKS, r=>r.portfolio, r=>HIERARCHY.find(p=>p.id===r.portfolio)?.name||r.portfolio)
+      : aggregateBy(risks, r=>r.project, r=>HIERARCHY.find(p=>p.id===sel.portfolioId)?.projects.find(pr=>pr.id===r.project)?.name||r.project);
+    return (
+      <div className="p-8">
+        <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub="Mitigation status across scope"/>
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <KCard label="Open"        value={risks.filter(r=>statuses[r.id]==="Open").length}        color="text-red-600"    accent="bg-red-400"/>
+          <KCard label="In Progress" value={risks.filter(r=>statuses[r.id]==="In Progress").length} color="text-blue-600"   accent="bg-blue-400"/>
+          <KCard label="Reviewing"   value={risks.filter(r=>statuses[r.id]==="Reviewing").length}   color="text-purple-600" accent="bg-purple-400"/>
+          <KCard label="Mitigated"   value={risks.filter(r=>statuses[r.id]==="Mitigated").length}   color="text-green-600"  accent="bg-green-400" sub={`${Math.round(risks.filter(r=>statuses[r.id]==="Mitigated").length/Math.max(risks.length,1)*100)}% resolved`}/>
+        </div>
+        <AggTable rows={rows} groupLabel={scope==="org"?"Portfolio":"Project"}/>
+      </div>
+    );
+  }
+
+  // Developer / SRE / Security Engineer / Risk Manager at project/component: action queue
+  const canAct = persona==="sre" || persona==="developer";
+  return (
+    <div className="p-8">
+      <div className="flex items-start justify-between mb-6">
+        <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub="Mitigation queue — sorted by RPN"/>
+        <div className="flex gap-3">
+          {[["Open",open,"text-red-600","bg-red-50"],["In Progress",inprog,"text-blue-600","bg-blue-50"],["Mitigated",done,"text-green-600","bg-green-50"]].map(([l,v,c,bg])=>(
+            <div key={l} className={`${bg} rounded-xl px-4 py-2 text-center`}><p className={`text-xl font-bold ${c}`}>{v}</p><p className="text-xs text-gray-400">{l}</p></div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        {sorted.map(r=>{
+          const st=statuses[r.id]; const exp=expanded===r.id;
+          return (
+            <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-3 p-4 cursor-pointer" onClick={()=>setExpanded(exp?null:r.id)}>
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-white text-xs flex-shrink-0 ${r.priority==="Critical"?"bg-red-500":r.priority==="High"?"bg-orange-500":"bg-amber-400"}`}>{r.rpn}</div>
+                <div className="flex-1 min-w-0"><p className="font-semibold text-gray-800 text-sm truncate">{r.name}</p><p className="text-xs text-gray-400 mt-0.5 font-mono">{r.comp}</p></div>
+                <PChip p={r.priority}/>
+                <Chip label={st} cls={STA[st]}/>
+                {canAct && (
+                  <div className="flex gap-2 flex-shrink-0">
+                    {st==="Open"        && <button onClick={e=>{e.stopPropagation();update(r.id,"In Progress")}} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700">Start Fix</button>}
+                    {st==="In Progress" && <button onClick={e=>{e.stopPropagation();update(r.id,"Mitigated")}}  className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700">Mark Done</button>}
+                    {st==="Mitigated"   && <span className="text-green-500 text-xs font-bold">✓ Done</span>}
+                  </div>
+                )}
+                <span className="text-gray-300 text-xs">{exp?"▴":"▾"}</span>
+              </div>
+              {exp && FIXES[r.id] && (
+                <div className="border-t border-gray-100 bg-gray-50 px-5 py-4">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Recommended Fixes</p>
+                  <ul className="space-y-2">{FIXES[r.id].map((f,i)=><li key={i} className="flex gap-2 text-sm text-gray-700"><span className="text-blue-400 font-bold">→</span>{f}</li>)}</ul>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── 5. AUTO-REMEDIATION ───────────────────────────────────────────────────────
+function RemediationPage({persona, sel, scope}) {
+  const risks  = filterRisks(sel, scope);
+  const label  = getSelectionLabel(sel, scope);
+  const sorted = [...risks].filter(r=>r.id<=4).sort((a,b)=>b.rpn-a.rpn);
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState(null);
+
+  const runAll = () => {
+    setRunning(true);
+    setTimeout(()=>{
+      setResults(sorted.map(r=>({ ...r, afterRpn: Math.round(r.rpn*0.55), diff:`--- a/${r.comp}\n+++ b/${r.comp}\n@@ -12,7 +12,7 @@\n-    ${r.name.split(" ")[0].toLowerCase()} = unsanitised_input\n+    ${r.name.split(" ")[0].toLowerCase()} = sanitise(input, strict=True)` })));
+      setRunning(false);
+    }, 2200);
+  };
+
+  // Executive: read-only status
+  if (persona==="executive") {
+    return (
+      <div className="p-8">
+        <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub="Auto-remediation is handled by development and SRE teams"/>
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-3">
+          <span className="text-2xl">ℹ️</span>
+          <div><p className="font-bold text-amber-800 text-sm">Visibility only</p><p className="text-sm text-amber-700 mt-1">Auto-remediation is executed by developers and SREs. This view shows the remediation pipeline status.</p></div>
+        </div>
+        <div className="mt-6 grid grid-cols-3 gap-4">
+          <KCard label="Queued"     value={sorted.length} sub="awaiting fix"   accent="bg-gray-300"/>
+          <KCard label="In Progress" value="1"            sub="being fixed"    accent="bg-blue-400" color="text-blue-600"/>
+          <KCard label="Applied"     value="0"            sub="RPNs validated" accent="bg-green-400" color="text-green-600"/>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-8">
+      <ScopeHeader scopeLabel={SCOPE_LABEL[scope]} name={label} sub="AI-generated code fixes with before / after RPN validation"/>
+      {/* Priority queue */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-5">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="font-bold text-gray-800 text-sm">Remediation Queue — highest RPN first</h3>
+          <button onClick={runAll} disabled={running}
+            className="px-5 py-2 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 disabled:opacity-40 inline-flex items-center gap-2 shadow-sm">
+            {running?<><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full"/>Generating fixes…</>:"⚡ Remediate All by Priority"}
+          </button>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-100">
+            <tr>{["Failure Mode","Component","Before RPN","After RPN","Delta","Status"].map(h=><th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {sorted.map(r=>{
+              const res = results?.find(x=>x.id===r.id);
+              return (
+                <tr key={r.id} className="border-b border-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">{r.name}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-400">{r.comp}</td>
+                  <td className="px-4 py-3 font-bold text-gray-700">{r.rpn}</td>
+                  <td className="px-4 py-3 font-bold">{res?<span className="text-green-600">{res.afterRpn}</span>:<span className="text-gray-300">—</span>}</td>
+                  <td className="px-4 py-3">{res?<span className="text-green-600 font-bold text-sm">↓ {r.rpn-res.afterRpn}</span>:<span className="text-gray-200">—</span>}</td>
+                  <td className="px-4 py-3"><Chip label={res?"✓ Applied":running?"Generating…":"Queued"} cls={res?"bg-green-100 text-green-700":running?"bg-blue-100 text-blue-700":"bg-gray-100 text-gray-500"}/></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {/* Per-fix detail */}
+      {results && (
+        <div className="space-y-3">
+          {results.map(r=>(
+            <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div><p className="font-bold text-gray-800 text-sm">{r.name}</p><p className="text-xs text-gray-400 font-mono mt-0.5">{r.comp}</p></div>
+                <div className="flex items-center gap-3">
+                  <div className="text-center"><p className="text-xs text-gray-400">Before</p><p className="text-lg font-bold text-gray-400 line-through">{r.rpn}</p></div>
+                  <span className="text-gray-300">→</span>
+                  <div className="text-center"><p className="text-xs text-gray-400">After</p><p className="text-lg font-bold text-green-600">{r.afterRpn}</p></div>
+                  <span className="px-2 py-1 bg-green-50 text-green-700 text-xs font-bold rounded-lg border border-green-200">🟢 −{r.rpn-r.afterRpn}</span>
+                </div>
+              </div>
+              <div className="p-5">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Code Diff</p>
+                <pre className="bg-gray-900 text-green-400 text-xs p-4 rounded-xl overflow-x-auto font-mono leading-relaxed">{r.diff}</pre>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 6. DASHBOARD ──────────────────────────────────────────────────────────────
+function DashboardPage({persona, sel, scope}) {
+  const risks  = scope==="org"?ALL_RISKS:filterRisks(sel, scope);
+  const label  = getSelectionLabel(sel, scope);
+  const critical  = risks.filter(r=>r.priority==="Critical").length;
+  const open      = risks.filter(r=>r.status==="Open").length;
+  const mitigated = risks.filter(r=>r.status==="Mitigated").length;
+  const avgRpn    = risks.length?Math.round(risks.reduce((a,r)=>a+r.rpn,0)/risks.length):0;
+
+  const aggRows = scope==="org"
+    ? aggregateBy(ALL_RISKS, r=>r.portfolio, r=>HIERARCHY.find(p=>p.id===r.portfolio)?.name||r.portfolio)
+    : aggregateBy(risks, r=>r.project, r=>HIERARCHY.find(p=>p.id===sel.portfolioId)?.projects.find(pr=>pr.id===r.project)?.name||r.project);
+
+  return (
+    <div className="p-8">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-0.5">{SCOPE_LABEL[scope]}</p>
+          <h2 className="text-xl font-bold text-gray-900">{label}</h2>
+        </div>
+        <span className="text-xs text-gray-400 bg-white border border-gray-100 shadow-sm px-3 py-1.5 rounded-full">Last scan: Today 09:41 · 🔒 Locked</span>
+      </div>
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {critical>0
+          ? <div className="bg-red-600 text-white rounded-2xl p-5 shadow-sm"><p className="text-red-200 text-xs uppercase tracking-wide mb-1">Critical</p><p className="text-4xl font-bold">{critical}</p><p className="text-red-200 text-xs mt-1">Board escalation</p></div>
+          : <KCard label="Critical" value="0" color="text-green-600" sub="None — well done" accent="bg-green-400"/>}
+        <KCard label={scope==="org"?"Org Risk Score":"Portfolio Risk Score"} value={avgRpn}    color="text-orange-600" sub="Avg RPN · threshold 200" accent="bg-orange-400"/>
+        <KCard label="Open Issues"  value={open}      color="text-red-600"    sub={`${risks.length-open} being addressed`} accent="bg-red-300"/>
+        <KCard label="Remediated"   value={`${Math.round(mitigated/Math.max(risks.length,1)*100)}%`} color="text-green-600" sub={`${mitigated} of ${risks.length}`} accent="bg-green-400"/>
+      </div>
+      <div className="grid grid-cols-2 gap-5">
+        <div>
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{scope==="org"?"Risk by Portfolio":"Risk by Project"}</h3>
+          <AggTable rows={aggRows} groupLabel={scope==="org"?"Portfolio":"Project"}/>
+        </div>
+        <div className="space-y-4">
+          {critical>0 && (
+            <div className="bg-red-50 border border-red-100 rounded-2xl p-5">
+              <p className="font-bold text-red-800 text-sm mb-2">⚠️ Board-level Attention Required</p>
+              <p className="text-sm text-red-700 leading-relaxed">Critical vulnerabilities carry estimated regulatory exposure of <strong>£4.2M</strong> under GDPR and PCI-DSS. Immediate remediation required.</p>
+            </div>
+          )}
+          <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Remediation Progress</h3>
+            {[["Open",open,"bg-red-400"],["In Progress",1,"bg-blue-400"],["Reviewing",1,"bg-purple-400"],["Mitigated",mitigated,"bg-green-400"]].map(([l,count,c])=>(
+              <div key={l} className="flex items-center gap-3 mb-3">
+                <span className="text-xs text-gray-500 w-24">{l}</span>
+                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${c} transition-all`} style={{width:`${(count/Math.max(risks.length,1))*100}%`}}/></div>
+                <span className="text-xs font-bold text-gray-600 w-4 text-right">{count}</span>
+              </div>
+            ))}
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Top Risks</h3>
+            {risks.sort((a,b)=>b.rpn-a.rpn).slice(0,3).map(r=>(
+              <div key={r.id} className="flex items-center gap-3 mb-3 last:mb-0">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${PRI[r.priority]?.dot}`}/>
+                <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-gray-700 truncate">{r.name}</p><p className="text-xs text-gray-400 font-mono">{r.comp}</p></div>
+                <span className="text-sm font-bold text-gray-800 flex-shrink-0">{r.rpn}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIDEBAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Sidebar({persona, step, sel, scope, onPersona, onStep, onSelect, onScope}) {
+  const [personaOpen, setPersonaOpen] = useState(false);
+  const current      = PERSONAS.find(p=>p.id===persona);
+  const primarySteps = PERSONA_PRIMARY[persona];
+  const scopeOptions = PERSONA_SCOPE_OPTIONS[persona];
+
+  return (
+    <div className="w-56 flex-shrink-0 h-screen flex flex-col" style={{backgroundColor:"#DBEAFE"}}>
+      {/* Brand */}
+      <div className="px-4 pt-5 pb-4 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center text-white text-sm font-black shadow-sm">FM</div>
+          <div><p className="font-black text-gray-900 text-sm leading-tight">FMEA Platform</p><p className="text-xs text-blue-500">Risk Intelligence</p></div>
+        </div>
+      </div>
+
+      {/* Persona */}
+      <div className="px-3 pb-3 flex-shrink-0">
+        <button onClick={()=>setPersonaOpen(!personaOpen)}
+          className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white shadow-sm hover:shadow-md transition-all border border-blue-100">
+          <span className="text-lg">{current.icon}</span>
+          <div className="flex-1 min-w-0 text-left"><p className="text-sm font-bold text-gray-900 leading-tight">{current.label}</p><p className="text-xs text-gray-400 truncate">{current.desc}</p></div>
+          <span className="text-gray-300 text-xs">{personaOpen?"▴":"▾"}</span>
+        </button>
+        {personaOpen && (
+          <div className="mt-1.5 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-20 relative">
+            {PERSONAS.map(p=>(
+              <button key={p.id} onClick={()=>{onPersona(p.id);setPersonaOpen(false);}}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${p.id===persona?"bg-blue-50":"hover:bg-gray-50"}`}>
+                <span className="text-base">{p.icon}</span>
+                <div><p className="text-sm font-semibold text-gray-800">{p.label}</p><p className="text-xs text-gray-400">{p.desc}</p></div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Scope switcher */}
+      {scopeOptions.length>1 && (
+        <div className="px-3 pb-3 flex-shrink-0">
+          <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1.5 px-1">View level</p>
+          <div className="flex flex-col gap-0.5">
+            {scopeOptions.map(l=>(
+              <button key={l} onClick={()=>onScope(l)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors text-left
+                  ${scope===l?"bg-blue-600 text-white shadow-sm":"text-gray-600 hover:bg-blue-200"}`}>
+                <span>{l==="component"?"📄":l==="project"?"🗂️":l==="portfolio"?"📁":"🏢"}</span>
+                {SCOPE_LABEL[l]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hierarchy tree */}
+      <div className="flex-1 overflow-hidden flex flex-col border-t border-blue-200">
+        <p className="px-4 pt-2.5 pb-1 text-xs font-bold text-blue-400 uppercase tracking-wider flex-shrink-0">Workspace</p>
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <HierarchyTree persona={persona} sel={sel} onSelect={onSelect}/>
+        </div>
+      </div>
+
+      {/* Process steps nav */}
+      <div className="px-3 py-3 border-t border-blue-200 flex-shrink-0">
+        <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2 px-1">Process</p>
+        {PROCESS_STEPS.map(s=>{
+          const isPrimary = primarySteps.includes(s.id);
+          const isActive  = step===s.id;
+          return (
+            <button key={s.id} onClick={()=>onStep(s.id)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs mb-0.5 transition-colors text-left font-semibold
+                ${isActive
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : isPrimary
+                  ? "text-gray-700 hover:bg-blue-200"
+                  : "text-gray-400 hover:bg-blue-100"}`}>
+              <span className={isActive?"":"opacity-70"}>{s.icon}</span>
+              <span className="flex-1">{s.label}</span>
+              {!isPrimary && !isActive && <span className="text-gray-300 text-xs">·</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* User */}
+      <div className="px-4 py-3 border-t border-blue-200 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">{current.label[0]}</div>
+          <div><p className="text-xs font-bold text-gray-700">{current.label}</p><p className="text-xs text-blue-400">demo@fmea.io</p></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HEADER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Header({persona, step, sel, scope}) {
+  const current  = PERSONAS.find(p=>p.id===persona);
+  const stepInfo = PROCESS_STEPS.find(s=>s.id===step);
+  const portfolio= HIERARCHY.find(p=>p.id===sel.portfolioId);
+  const project  = portfolio?.projects.find(p=>p.id===sel.projectId);
+
+  const crumbs = [{label:ORG.name}];
+  if (["portfolio","project","component"].includes(scope)&&portfolio) crumbs.push({label:portfolio.name});
+  if (["project","component"].includes(scope)&&project)              crumbs.push({label:project.name});
+  if (scope==="component"&&sel.componentName)                        crumbs.push({label:sel.componentName, mono:true});
+
+  return (
+    <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-4 flex-shrink-0 shadow-sm">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1 text-xs mb-0.5">
+          {crumbs.map((c,i)=>(
+            <span key={i} className="flex items-center gap-1">
+              {i>0&&<span className="text-gray-200 mx-0.5">/</span>}
+              <span className={`${c.mono?"font-mono":"font-medium"} ${i<crumbs.length-1?"text-gray-300":"text-gray-600"}`}>{c.label}</span>
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <span>{stepInfo?.icon}</span>
+          <p className="text-sm font-bold text-gray-900">{stepInfo?.label}</p>
+          <span className="text-xs text-gray-300">·</span>
+          <p className="text-xs text-gray-400">Step {stepInfo?.step} of {PROCESS_STEPS.length}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <span className="text-xs text-gray-400 font-medium mr-1">{current.icon} {current.label}</span>
+        <button className="w-8 h-8 rounded-lg hover:bg-gray-100 text-gray-400 text-sm flex items-center justify-center">🔔</button>
+        <button className="w-8 h-8 rounded-lg hover:bg-gray-100 text-gray-400 text-sm flex items-center justify-center">⚙️</button>
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-green-50 border border-green-200 ml-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block"/>
+          <span className="text-xs text-green-700 font-semibold">Live</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APP
+// ─────────────────────────────────────────────────────────────────────────────
+
+function App() {
+  const [persona, setPersona] = useState("risk_manager");
+  const [step,    setStep]    = useState("scenarios");
+  const [scope,   setScope]   = useState("project");
+  const [sel,     setSel]     = useState({portfolioId:"p1", projectId:"pr1", componentId:"c1", componentName:"checkout_service.py"});
+
+  const switchPersona = p => {
+    setPersona(p);
+    const defaultScope = PERSONA_DEFAULT_SCOPE[p];
+    setScope(defaultScope);
+    setStep(PROCESS_STEPS.find(s=>PERSONA_PRIMARY[p].includes(s.id))?.id || "scenarios");
+    if (defaultScope==="portfolio") setSel(s=>({...s, projectId:null, componentId:null, componentName:null}));
+    if (defaultScope==="org")       setSel({portfolioId:null, projectId:null, componentId:null, componentName:null});
+    if (defaultScope==="component") setSel(s=>({portfolioId:s.portfolioId||"p1", projectId:s.projectId||"pr1", componentId:s.componentId||"c1", componentName:s.componentName||"checkout_service.py"}));
+  };
+
+  const switchScope = s => {
+    setScope(s);
+    if (s==="org")       setSel(p=>({portfolioId:p.portfolioId||"p1", projectId:null,            componentId:null,            componentName:null}));
+    if (s==="portfolio") setSel(p=>({portfolioId:p.portfolioId||"p1", projectId:null,            componentId:null,            componentName:null}));
+    if (s==="project")   setSel(p=>({portfolioId:p.portfolioId||"p1", projectId:p.projectId||"pr1",  componentId:null,        componentName:null}));
+    if (s==="component") setSel(p=>({portfolioId:p.portfolioId||"p1", projectId:p.projectId||"pr1",  componentId:p.componentId||"c1", componentName:p.componentName||"checkout_service.py"}));
+  };
+
+  const PAGE = { scan:ScanPage, scenarios:ScenariosPage, scoring:ScoringPage, mitigations:MitigationsPage, remediation:RemediationPage, dashboard:DashboardPage };
+  const Content = PAGE[step];
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-white">
+      <Sidebar persona={persona} step={step} sel={sel} scope={scope} onPersona={switchPersona} onStep={setStep} onSelect={setSel} onScope={switchScope}/>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Header persona={persona} step={step} sel={sel} scope={scope}/>
+        <main className="flex-1 overflow-y-auto bg-gray-50">
+          <Content persona={persona} sel={sel} scope={scope}/>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

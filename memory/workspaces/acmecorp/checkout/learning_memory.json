@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "aggression_level": 2,
+  "total_analyses": 2,
+  "patterns": [
+    {
+      "pattern_key": "injection",
+      "category": "injection",
+      "frequency": 2,
+      "avg_severity": 8.0,
+      "avg_occurrence": 7.0,
+      "avg_detection": 5.0,
+      "avg_rpn": 280.0,
+      "first_seen": "2026-05-28T19:04:25.119996",
+      "last_seen": "2026-05-28T19:04:25.210777",
+      "example_attack_steps": [
+        "Attacker submits crafted payload",
+        "DB executes injection"
+      ],
+      "seen_failure_modes": [
+        "SQL Injection via checkout form"
+      ]
+    },
+    {
+      "pattern_key": "secrets",
+      "category": "secrets",
+      "frequency": 2,
+      "avg_severity": 9.0,
+      "avg_occurrence": 6.0,
+      "avg_detection": 4.0,
+      "avg_rpn": 216.0,
+      "first_seen": "2026-05-28T19:04:25.119996",
+      "last_seen": "2026-05-28T19:04:25.210777",
+      "example_attack_steps": [
+        "Attacker forges JWT",
+        "Service trusts forged token"
+      ],
+      "seen_failure_modes": [
+        "Auth Token Bypass"
+      ]
+    }
+  ],
+  "global_attack_chains": [
+    "Attacker submits crafted payload",
+    "DB executes injection",
+    "Attacker forges JWT",
+    "Service trusts forged token"
+  ]
+}

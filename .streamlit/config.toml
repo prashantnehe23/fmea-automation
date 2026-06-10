@@ -1,0 +1,6 @@
+# Demo-friendly defaults (see https://docs.streamlit.io/library/advanced-features/configuration)
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true

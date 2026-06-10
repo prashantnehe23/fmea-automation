@@ -1,0 +1,1459 @@
+{
+  "94d3467a251ac779": {
+    "fingerprint": "94d3467a251ac779",
+    "timestamp": "2026-05-09T22:32:12.806605",
+    "result": {
+      "context": {
+        "tiering": {
+          "FastAPI_app": "Tier 2",
+          "authenticate_function": "Tier 1",
+          "hardcoded_API_KEY_secret": "Tier 1",
+          "wallets_in_memory_store": "Tier 1",
+          "TransferRequest_model": "Tier 2",
+          "GET_/balance/{user}": "Tier 1",
+          "POST_/transfer": "Tier 1",
+          "GET_/health": "Tier 3"
+        },
+        "attack_surfaces": [
+          "HTTP endpoint GET /balance/{user}: external client-supplied path parameter 'user' and header 'x-api-key' cross the trust boundary into the application; relies on shared hardcoded API key for authentication.",
+          "HTTP endpoint POST /transfer: external client-supplied JSON body (sender, receiver, amount) and header 'x-api-key' cross the trust boundary; processes financial state changes in the in-memory wallets store.",
+          "HTTP endpoint GET /health: unauthenticated external entry point that reveals service liveness and can be used for probing or monitoring.",
+          "Hardcoded API_KEY 'sk_live_123456789': embedded credential in code; compromise of source, logs, or build artifacts exposes a global authentication secret for all protected endpoints.",
+          "Header-based authentication via x-api-key: any external caller that knows the key can fully operate on all wallet data; no user-level authorization or scoping."
+        ],
+        "failure_domains": [
+          "Compromise or leakage of hardcoded_API_KEY_secret -> authenticate_function bypassed for attackers -> full unauthorized access to GET /balance/{user} and POST /transfer -> direct manipulation and exfiltration of wallets_in_memory_store -> business-critical financial impact.",
+          "Failure or bug in authenticate_function (e.g., always-true check) -> GET /balance/{user} and POST /transfer become effectively public -> exposure of all balances and arbitrary fund transfers -> Tier 1 impact on financial integrity.",
+          "Corruption, race condition, or logic bug in wallets_in_memory_store (e.g., due to concurrent POST /transfer calls) -> inconsistent balances, potential double-spend or negative balances -> affects all users relying on wallet state -> Tier 1 financial and business continuity impact.",
+          "Logic flaws in POST_/transfer (missing validation for negative/zero amounts, sender == receiver, and race condition around balance check and update) -> enables balance inflation, draining of wallets, or bypassing intended constraints -> impacts all wallet entries in wallets_in_memory_store.",
+          "Failure or misuse of GET_/balance/{user} (e.g., information disclosure via leaked API key) -> attackers can enumerate users and view balances -> privacy and business intelligence leakage, and reconnaissance for targeted fraud.",
+          "GET_/health exposure -> allows external actors to confirm service uptime, perform liveness probing, and coordinate attacks, but does not directly touch financial data -> primarily operational blast radius (Tier 3).",
+          "Shared global state (wallets_in_memory_store) across all requests without locking -> a single abusive or buggy client using POST_/transfer can corrupt balances for multiple users, causing system-wide financial inconsistency.",
+          "Single shared authentication mechanism (x-api-key) for all protected endpoints -> if the key is rotated incorrectly or becomes invalid, both GET_/balance/{user} and POST_/transfer become unavailable to legitimate clients, causing a broad outage of core wallet functionality."
+        ]
+      },
+      "failures": [
+        {
+          "failure_mode": "Static hardcoded API key compromise leading to full API takeover",
+          "attack_chain": [
+            "Attacker obtains the hardcoded API key `sk_live_123456789` from leaked source code, logs, build artifacts, or a misconfigured repo (API_KEY global variable).",
+            "Using the known key, attacker crafts HTTP requests with header `x-api-key: sk_live_123456789` to bypass the `authenticate` function on all protected endpoints.",
+            "Attacker calls GET /balance/{user} repeatedly with different `user` values to enumerate existing wallets and discover high-value accounts.",
+            "Attacker then uses POST /transfer with arbitrary `sender`, `receiver`, and `amount` values to move funds between any wallets, exploiting missing validation and race conditions for maximum gain.",
+            "Attacker can script continuous transfers to drain all legitimate users into attacker-controlled accounts, or to corrupt balances to destabilize the system."
+          ],
+          "business_impact": "Complete loss of control over wallet operations: any attacker with the key can read all balances and arbitrarily transfer funds. This leads to direct financial theft, customer balance manipulation, and potential regulatory violations due to unauthorized access and data exposure.",
+          "blast_radius": "Global for this service instance: all users in the in-memory `wallets` store are exposed. Because the same API key protects all Tier 1 endpoints, compromise of this single secret grants full administrative capability over every wallet.",
+          "trigger": "Presence and reuse of the static hardcoded API key `sk_live_123456789` combined with any leak of the code or configuration that reveals it.",
+          "evidence": "API_KEY = \"sk_live_123456789\"; authenticate(x_api_key: str) compares header directly to this constant and guards both GET /balance/{user} and POST /transfer."
+        },
+        {
+          "failure_mode": "Negative balances and arbitrary value creation via missing amount validation",
+          "attack_chain": [
+            "Attacker authenticates once using a valid API key (legitimate client or compromised key).",
+            "Attacker sends POST /transfer with a negative `amount` (e.g., {\"sender\": \"alice\", \"receiver\": \"bob\", \"amount\": -1000.0}).",
+            "The transfer_funds function does not validate that `amount` is positive or non-zero; it only checks `if sender_balance < req.amount`.",
+            "For negative amounts, the condition `sender_balance < req.amount` is false for almost all realistic balances (e.g., 1000.0 < -1000.0 is false), so the insufficient funds check is bypassed.",
+            "The code then executes `wallets[req.sender] -= req.amount` and `wallets[req.receiver] += req.amount`, which with a negative amount effectively credits the sender and debits the receiver, allowing arbitrary balance inflation and draining of victims.",
+            "By chaining multiple negative-amount transfers between controlled and victim accounts, the attacker can mint unlimited value and redistribute it at will."
+          ],
+          "business_impact": "Core financial integrity is broken: balances can be arbitrarily increased or decreased without constraint. This enables unlimited creation of value, fraudulent credits, and draining of other users\u2019 wallets, undermining any accounting, reconciliation, or audit processes.",
+          "blast_radius": "All wallets in the in-memory store are at risk. Any account that can be referenced as `sender` or `receiver` can be used as a source or sink for fabricated funds, allowing system-wide corruption of financial data.",
+          "trigger": "Any authenticated POST /transfer request where `amount` is negative or zero, exploiting the lack of validation on the TransferRequest.amount field.",
+          "evidence": "Commented as VULNERABILITY #3: \"# \ud83d\udea8 Missing input validation\" and no checks like `if req.amount <= 0: ...`; logic uses `if sender_balance < req.amount` which behaves incorrectly for negative values."
+        },
+        {
+          "failure_mode": "Double-spend via transfer race condition and artificial delay",
+          "attack_chain": [
+            "Attacker authenticates with a valid API key and identifies a wallet with a known balance (e.g., via GET /balance/alice).",
+            "Attacker crafts multiple concurrent POST /transfer requests from the same sender (e.g., alice) to one or more receivers, each with an amount close to the full balance.",
+            "Each transfer_funds invocation reads `sender_balance = wallets[req.sender]` before any locking, then sleeps for 0.5 seconds (`time.sleep(0.5)`), creating a large race window.",
+            "During this delay, multiple requests see the same initial sender_balance and all pass the `if sender_balance < req.amount` check independently.",
+            "After the delay, each request subtracts `req.amount` from the sender and adds it to the receiver, resulting in the sender\u2019s balance being decremented multiple times from the same starting value and receivers being credited multiple times.",
+            "This allows the attacker to spend the same funds multiple times (double-spend or multi-spend), potentially driving the sender\u2019s balance negative or otherwise inconsistent with intended constraints."
+          ],
+          "business_impact": "Transactional integrity is violated: the system cannot guarantee that funds are only spent once. This leads to financial losses, reconciliation failures, and potential legal exposure if customers exploit or are harmed by inconsistent balances.",
+          "blast_radius": "Any wallet subject to concurrent transfers is affected. Under high concurrency or automated attack, many accounts can be corrupted simultaneously, especially if the attacker chains transfers between multiple users.",
+          "trigger": "High-concurrency POST /transfer calls from the same sender during the artificial 0.5 second delay window, exploiting the lack of synchronization around the read-modify-write sequence on the shared `wallets` dict.",
+          "evidence": "Commented as VULNERABILITY #1: `sender_balance = wallets[req.sender]` followed by `time.sleep(0.5)` and then balance updates without any locking or atomic operation."
+        },
+        {
+          "failure_mode": "Self-transfer exploitation to bypass overdraft and manipulate balances",
+          "attack_chain": [
+            "Attacker authenticates with a valid API key and controls a wallet (e.g., alice).",
+            "Attacker sends POST /transfer with `sender` and `receiver` set to the same user (e.g., {\"sender\": \"alice\", \"receiver\": \"alice\", \"amount\": 1e12}).",
+            "The code explicitly notes there is no check for `sender == receiver`, and the only balance check is `if sender_balance < req.amount`.",
+            "For self-transfers, even if the amount is extremely large, the net effect on the wallet should be zero, but due to race conditions and negative amount possibilities, combinations of self-transfers and concurrent operations can be used to manipulate intermediate states.",
+            "An attacker can interleave large self-transfers (including negative amounts) with other transfers to and from the same account, exploiting timing windows where the overdraft check is based on stale or manipulated balances, enabling temporary overdrafts or bypassing intended limits.",
+            "These manipulated states can then be crystallized by concurrent transfers to other accounts, effectively laundering overdrafts into permanent credits elsewhere."
+          ],
+          "business_impact": "Overdraft and limit controls are bypassed in complex concurrent scenarios, allowing attackers to temporarily or permanently exceed their balances and move excess funds to other accounts. This undermines risk controls and can cause direct financial loss and accounting anomalies.",
+          "blast_radius": "Primarily affects accounts that attackers control directly, but the impact propagates to any counterparties used to receive laundered funds. Under automated exploitation, many accounts can be used as intermediaries.",
+          "trigger": "Authenticated POST /transfer requests where `sender == receiver`, optionally combined with large or negative amounts and concurrent transfers to other users.",
+          "evidence": "Comment in transfer_funds: \"# \ud83d\udea8 Missing input validation (VULNERABILITY #3) # No check for negative amounts, zero, or sender == receiver\"; logic does not special-case self-transfers."
+        },
+        {
+          "failure_mode": "In-memory wallet store corruption and loss on process restart",
+          "attack_chain": [
+            "Service relies on a global in-memory `wallets` dictionary as the sole source of truth for balances, with no persistence layer or durability guarantees.",
+            "Under normal operation or during attacks (e.g., high-concurrency transfers), the in-memory state is mutated frequently, potentially leading to inconsistent or partially updated balances if the process crashes mid-operation.",
+            "If the FastAPI process is restarted (crash, deployment, autoscaling, or manual restart), the `wallets` dict is reinitialized to its hardcoded defaults (alice: 1000.0, bob: 500.0), discarding all runtime changes.",
+            "Legitimate user deposits, withdrawals, and transfers performed since startup are silently lost, while any fraudulent manipulations that were not externally settled also disappear, breaking auditability.",
+            "Customers and operators see balances revert to initial values, causing disputes, loss of trust, and inability to reconcile with external systems (e.g., payment gateways or ledgers)."
+          ],
+          "business_impact": "Total loss of financial state on restart: all transaction history and current balances are effectively ephemeral. This leads to irrecoverable financial discrepancies, customer disputes, and regulatory non-compliance due to lack of durable records.",
+          "blast_radius": "System-wide: every wallet in the service is affected on each restart. Any concurrent corruption before a crash can also leave the in-memory state in an inconsistent state until it is wiped by the next restart.",
+          "trigger": "Any process restart (crash, deployment, scaling event) or memory corruption event affecting the FastAPI process; no explicit attacker action is required, but attackers can induce crashes via load or exploitation of other bugs.",
+          "evidence": "Global `wallets: Dict[str, float] = {\"alice\": 1000.0, \"bob\": 500.0}` defined at module load with no backing database or persistence; no code writes to durable storage or reloads state from an external source."
+        },
+        {
+          "failure_mode": "Denial of service via amplified processing delay under concurrency",
+          "attack_chain": [
+            "Attacker or misbehaving client obtains or uses a valid API key and scripts a large number of concurrent POST /transfer requests.",
+            "Each transfer_funds call executes `time.sleep(0.5)` before performing balance checks and updates, tying up a worker thread or process for at least half a second per request.",
+            "Under high concurrency, the fixed delay multiplies across all active requests, quickly exhausting the server\u2019s worker pool or event loop capacity.",
+            "Legitimate clients attempting to call POST /transfer or GET /balance/{user} experience severe latency or timeouts because resources are saturated by delayed transfer operations.",
+            "Meanwhile, GET /health remains fast and unauthenticated, continuing to return `{\"status\": \"ok\"}`, causing external monitoring to report the service as healthy even though core functionality is effectively unavailable."
+          ],
+          "business_impact": "Core wallet operations (balance checks and transfers) become unavailable or severely degraded, preventing customers from accessing or moving funds. Operations staff may be misled by green health checks, delaying incident response and prolonging outages.",
+          "blast_radius": "Service-wide availability impact: all users relying on POST /transfer and GET /balance/{user} are affected. The issue can propagate to upstream systems that depend on timely responses from this service.",
+          "trigger": "High volume of concurrent POST /transfer requests, especially if automated by an attacker, exploiting the built-in `time.sleep(0.5)` delay and lack of rate limiting or resource isolation.",
+          "evidence": "In transfer_funds: `time.sleep(0.5)` with no concurrency control or rate limiting; GET /health has no authentication and trivial logic, so it remains responsive even under partial DoS of other endpoints."
+        },
+        {
+          "failure_mode": "Information disclosure and user enumeration via unauthenticated health and balance patterns",
+          "attack_chain": [
+            "Attacker first uses GET /health, which is unauthenticated, to determine when the service is up and responsive, enabling precise timing of further attacks or automated scans.",
+            "Once a valid API key is obtained (via compromise or insider misuse), attacker calls GET /balance/{user} with different `user` path parameters to probe for existing accounts.",
+            "The endpoint returns 404 \"User not found\" for non-existent users and 200 with a JSON body containing `{\"user\": user, \"balance\": ...}` for valid ones, creating a clear oracle for user enumeration.",
+            "By iterating over likely usernames or IDs (e.g., common names, email prefixes, numeric sequences), attacker builds a list of valid accounts and their balances.",
+            "Attacker then targets high-balance users with POST /transfer operations (e.g., draining funds to attacker-controlled accounts) and can tune attack timing using GET /health to avoid downtime or detection windows."
+          ],
+          "business_impact": "Privacy and confidentiality are compromised: attackers can discover which users exist and their exact balances. This enables targeted fraud, social engineering, and prioritization of high-value accounts for theft, as well as leakage of sensitive business intelligence about total funds held.",
+          "blast_radius": "All existing wallets are exposed to enumeration and balance disclosure once the API key is known. The unauthenticated health endpoint amplifies the attacker\u2019s ability to coordinate and sustain these attacks.",
+          "trigger": "Use of GET /health without authentication to monitor service liveness, combined with authenticated GET /balance/{user} requests that distinguish between existing and non-existing users via status codes and response bodies.",
+          "evidence": "health_check endpoint: `@app.get(\"/health\")` returns `{\"status\": \"ok\"}` with no auth; get_balance: returns 404 \"User not found\" if `user not in wallets`, otherwise 200 with balance, enabling clear enumeration patterns."
+        }
+      ],
+      "controls": [
+        {
+          "failure_mode": "Static hardcoded API key compromise leading to full API takeover",
+          "controls": {
+            "single_api_key_authentication": "All sensitive endpoints require an X-API-Key header that is checked against a single server-side value before processing.",
+            "basic_error_handling_on_auth": "Authentication failures return a 401 HTTP status code, preventing unauthenticated access when the key is absent or incorrect.",
+            "limited_endpoint_surface": "Only a small number of endpoints exist, which slightly reduces the number of places the compromised key can be used."
+          },
+          "control_maturity": "low",
+          "gaps": [
+            "API key is hardcoded directly in source code, making it easy to leak via repository access, logs, or code sharing.",
+            "No key rotation mechanism or support for multiple keys with independent lifecycles.",
+            "Single shared key for all clients provides no per-user or per-tenant isolation or revocation capability.",
+            "No rate limiting, anomaly detection, or IP-based restrictions to mitigate abuse of a compromised key.",
+            "No separation of duties or scoped permissions; the key grants full administrative access to all wallets.",
+            "No integration with a secret management system or environment-based configuration."
+          ]
+        },
+        {
+          "failure_mode": "Negative balances and arbitrary value creation via missing amount validation",
+          "controls": {
+            "basic_user_existence_check": "The transfer endpoint verifies that both sender and receiver exist in the wallets store before applying balance changes.",
+            "insufficient_funds_check_for_positive_amounts": "The code checks that the sender_balance is less than the requested amount before proceeding, which partially protects against overdrafts when amounts are positive.",
+            "typed_request_model": "Use of a Pydantic BaseModel for TransferRequest enforces that amount is a float and not an arbitrary type."
+          },
+          "control_maturity": "low",
+          "gaps": [
+            "No validation that amount is strictly positive and greater than zero, allowing negative or zero-value transfers.",
+            "No business rule enforcement to prevent arbitrary value creation or destruction via negative transfers.",
+            "No constraints on maximum transfer size relative to balances or system-wide limits.",
+            "No audit trail or transaction logging to detect or investigate anomalous balance changes.",
+            "No invariant checks (e.g., total system balance) to detect corruption of financial data.",
+            "No server-side schema or validation layer beyond basic typing to enforce financial domain rules."
+          ]
+        },
+        {
+          "failure_mode": "Double-spend via transfer race condition and artificial delay",
+          "controls": {
+            "single-process_in_memory_state": "Wallet balances are stored in a single in-memory dict, which in a strictly single-threaded execution model would avoid some concurrency issues.",
+            "sequential_logic_per_request": "Each transfer request follows a clear read-check-write sequence, which is correct under no-concurrency assumptions.",
+            "basic_balance_check": "The code checks sender_balance against the requested amount before debiting, which is logically correct absent races."
+          },
+          "control_maturity": "low",
+          "gaps": [
+            "No locking or synchronization around read-modify-write operations on the shared wallets dict.",
+            "An explicit time.sleep(0.5) delay widens the race window and makes concurrent double-spend attacks easier.",
+            "No use of atomic operations or transactional storage to guarantee consistency under concurrency.",
+            "No idempotency keys or transaction identifiers to prevent replay or duplicate processing.",
+            "No concurrency testing or safeguards indicated to validate behavior under high load.",
+            "No detection or correction mechanism for inconsistent balances resulting from race conditions."
+          ]
+        },
+        {
+          "failure_mode": "Self-transfer exploitation to bypass overdraft and manipulate balances",
+          "controls": {
+            "sender_and_receiver_existence_checks": "The transfer endpoint ensures both sender and receiver exist in the wallets store before processing.",
+            "basic_insufficient_funds_check": "A balance check is performed before debiting the sender, which partially constrains overdrafts when amounts are positive.",
+            "typed_sender_receiver_fields": "The TransferRequest model requires explicit sender and receiver strings, avoiding some malformed input."
+          },
+          "control_maturity": "low",
+          "gaps": [
+            "No explicit check preventing sender == receiver self-transfers.",
+            "No business rules to restrict self-directed transfers or treat them as no-ops.",
+            "No validation combining self-transfer with negative or extreme amounts to prevent balance manipulation.",
+            "No transaction history or audit logging to flag suspicious self-transfer patterns.",
+            "No safeguards against chaining self-transfers with other transfers to launder or obfuscate manipulated balances.",
+            "No domain-level invariants or reconciliation processes to detect manipulated balances over time."
+          ]
+        },
+        {
+          "failure_mode": "In-memory wallet store corruption and loss on process restart",
+          "controls": {
+            "simple_in_memory_data_model": "Wallets are stored in a plain Python dict, which avoids some classes of persistence-layer misconfiguration.",
+            "static_initial_balances": "The initial state of wallets is defined in code, ensuring a deterministic starting point on each process start.",
+            "basic_health_endpoint": "A /health endpoint exists to indicate liveness, which can help detect restarts, though it does not protect data."
+          },
+          "control_maturity": "low",
+          "gaps": [
+            "No persistent storage; all wallet balances are lost on process restart, crash, or redeploy.",
+            "No snapshotting, backup, or recovery mechanism for wallet state.",
+            "No integrity checks or transactional semantics to prevent partial updates or corruption in memory.",
+            "No graceful shutdown or state-flush logic to preserve balances during controlled restarts.",
+            "No replication or redundancy to protect against single-process memory loss.",
+            "No monitoring or alerting on unexpected restarts that could indicate data loss events."
+          ]
+        },
+        {
+          "failure_mode": "Denial of service via amplified processing delay under concurrency",
+          "controls": {
+            "lightweight_endpoint_implementation": "Endpoints perform relatively simple logic, which helps under low load conditions.",
+            "basic_framework_level_handling": "FastAPI and the underlying server provide some baseline request handling and connection management.",
+            "health_check_endpoint": "The /health endpoint can be used by orchestrators to detect when the service becomes unresponsive and restart it."
+          },
+          "control_maturity": "low",
+          "gaps": [
+            "An intentional time.sleep(0.5) in the transfer path directly increases per-request latency and resource usage.",
+            "No rate limiting or throttling to protect against abusive or accidental high-volume transfer requests.",
+            "No prioritization or isolation between critical and non-critical endpoints under load.",
+            "No circuit breakers, backpressure, or queueing mechanisms to shed excess load gracefully.",
+            "No explicit timeout handling or limits on concurrent requests at the application level.",
+            "No performance monitoring or alerting to detect and respond to emerging DoS conditions."
+          ]
+        },
+        {
+          "failure_mode": "Information disclosure and user enumeration via unauthenticated health and balance patterns",
+          "controls": {
+            "authentication_on_balance_endpoint": "GET /balance/{user} requires a valid X-API-Key header before returning any user-specific data.",
+            "generic_404_for_missing_users": "Non-existent users on the balance endpoint return a 404 with a simple 'User not found' message, avoiding detailed error data.",
+            "minimal_health_payload": "The /health endpoint returns only a simple status field, limiting direct data exposure."
+          },
+          "control_maturity": "moderate",
+          "gaps": [
+            "Health endpoint is unauthenticated, allowing anyone to probe service liveness and coordinate attacks.",
+            "Distinct 404 vs 200 responses on /balance/{user} enable user enumeration once the API key is known.",
+            "No rate limiting or monitoring on balance queries to detect enumeration or scraping behavior.",
+            "No obfuscation or aggregation of balance information; exact balances are returned directly.",
+            "No per-user authorization model; possession of the API key grants access to all users' balances.",
+            "No logging or alerting specifically tuned to detect enumeration patterns or bulk data access."
+          ]
+        }
+      ],
+      "risks": [
+        {
+          "failure_mode": "Static hardcoded API key compromise leading to full API takeover",
+          "severity": 10,
+          "occurrence": 8,
+          "detection": 9,
+          "rpn": 720,
+          "priority": "Critical",
+          "justification": "Locked scenario \u2014 scores carried over from first scan (RPN 720).",
+          "severity_rationale": "Carried over from first scan.",
+          "occurrence_rationale": "Carried over from first scan.",
+          "detection_rationale": "Carried over from first scan."
+        },
+        {
+          "failure_mode": "Negative balances and arbitrary value creation via missing amount validation",
+          "severity": 10,
+          "occurrence": 8,
+          "detection": 8,
+          "rpn": 640,
+          "priority": "Critical",
+          "justification": "Locked scenario \u2014 scores carried over from first scan (RPN 640).",
+          "severity_rationale": "Carried over from first scan.",
+          "occurrence_rationale": "Carried over from first scan.",
+          "detection_rationale": "Carried over from first scan."
+        },
+        {
+          "failure_mode": "Double-spend via transfer race condition and artificial delay",
+          "severity": 9,
+          "occurrence": 7,
+          "detection": 9,
+          "rpn": 567,
+          "priority": "Critical",
+          "justification": "Locked scenario \u2014 scores carried over from first scan (RPN 567).",
+          "severity_rationale": "Carried over from first scan.",
+          "occurrence_rationale": "Carried over from first scan.",
+          "detection_rationale": "Carried over from first scan."
+        },
+        {
+          "failure_mode": "Self-transfer exploitation to bypass overdraft and manipulate balances",
+          "severity": 8,
+          "occurrence": 6,
+          "detection": 8,
+          "rpn": 384,
+          "priority": "High",
+          "justification": "Locked scenario \u2014 scores carried over from first scan (RPN 384).",
+          "severity_rationale": "Carried over from first scan.",
+          "occurrence_rationale": "Carried over from first scan.",
+          "detection_rationale": "Carried over from first scan."
+        },
+        {
+          "failure_mode": "In-memory wallet store corruption and loss on process restart",
+          "severity": 10,
+          "occurrence": 7,
+          "detection": 8,
+          "rpn": 560,
+          "priority": "Critical",
+          "justification": "Locked scenario \u2014 scores carried over from first scan (RPN 378).",
+          "severity_rationale": "Carried over from first scan.",
+          "occurrence_rationale": "Carried over from first scan.",
+          "detection_rationale": "Carried over from first scan."
+        },
+        {
+          "failure_mode": "Denial of service via amplified processing delay under concurrency",
+          "severity": 7,
+          "occurrence": 7,
+          "detection": 6,
+          "rpn": 294,
+          "priority": "High",
+          "justification": "Locked scenario \u2014 scores carried over from first scan (RPN 294).",
+          "severity_rationale": "Carried over from first scan.",
+          "occurrence_rationale": "Carried over from first scan.",
+          "detection_rationale": "Carried over from first scan."
+        },
+        {
+          "failure_mode": "Information disclosure and user enumeration via unauthenticated health and balance patterns",
+          "severity": 8,
+          "occurrence": 6,
+          "detection": 8,
+          "rpn": 384,
+          "priority": "High",
+          "justification": "Locked scenario \u2014 scores carried over from first scan (RPN 294).",
+          "severity_rationale": "Carried over from first scan.",
+          "occurrence_rationale": "Carried over from first scan.",
+          "detection_rationale": "Carried over from first scan."
+        }
+      ],
+      "remediations": [
+        {
+          "failure_mode": "Static hardcoded API key compromise leading to full API takeover",
+          "fixes": [
+            "Remove hardcoded API key `sk_live_123456789` from source code and configuration; load secrets exclusively from a secure secret manager or environment variables.",
+            "Introduce per-client API keys with unique identifiers, stored hashed in a secure backend (e.g., database or IAM system) instead of a single global key.",
+            "Implement key rotation support: multiple active keys per client, with created_at/expired_at fields and a deactivation workflow.",
+            "Add scoped permissions to API keys (e.g., read-only, transfer-only, admin) and enforce scope checks in all handlers (GET /balance, POST /transfer, etc.).",
+            "Implement strict validation on POST /transfer: verify sender ownership, sufficient balance, non-negative amounts, and enforce idempotency keys to prevent race-condition abuse.",
+            "Add per-user and per-key rate limiting on sensitive endpoints (GET /balance/{user}, POST /transfer) to reduce impact of compromised keys.",
+            "Introduce authentication middleware that validates API keys against a backend store and attaches an authenticated principal (client_id, scopes) to the request context.",
+            "Implement audit logging for all authenticated requests, including key_id/client_id, endpoint, parameters (redacted where needed), and result status.",
+            "Remove any logging of raw API keys or Authorization headers; mask or hash secrets before logging.",
+            "Add configuration to support IP allowlists/denylists or network-level controls for high-privilege keys.",
+            "Update CI/CD pipelines to scan for hardcoded secrets (e.g., git-secrets, trufflehog) and fail builds on detection.",
+            "Backfill and enforce secure coding guidelines: no secrets in source control, use of secret manager, and mandatory code review for auth changes."
+          ],
+          "monitoring": [
+            "Create metrics and alerts for authentication failures and unusual spikes in successful calls per API key (e.g., requests/minute per key, per endpoint).",
+            "Add anomaly detection on POST /transfer volume and value per key/user (e.g., sudden increase in total transferred amount or number of distinct receivers).",
+            "Monitor for access patterns indicating enumeration (e.g., many distinct user IDs queried via GET /balance/{user} from a single key or IP).",
+            "Set up alerts for use of deprecated or soon-to-expire API keys, and for any calls using keys marked as compromised or revoked.",
+            "Implement security logs for all key lifecycle events (create, rotate, revoke) and alert on bulk or unexpected changes.",
+            "Integrate WAF or API gateway logs with SIEM to detect suspicious IPs, geolocation anomalies, and repeated access from new regions.",
+            "Add health checks and dashboards for the auth service/key validation backend (latency, error rate, timeouts) to ensure availability of the new mechanism.",
+            "Enable periodic secret scanning on repositories and build artifacts, with alerts to security/SRE channels on detection."
+          ],
+          "resilience_upgrades": [
+            "Introduce an externalized authentication/authorization service or module with its own datastore, decoupled from application code deployments.",
+            "Design API key storage with redundancy and high availability (e.g., replicated database or managed secrets store) to avoid auth becoming a single point of failure.",
+            "Implement graceful degradation: if auth backend is degraded, fail closed for high-risk operations (transfers) while allowing limited read-only operations where safe and cached.",
+            "Add support for multiple authentication mechanisms (e.g., OAuth2/JWT for first-party clients, API keys for service-to-service) to reduce reliance on a single secret type.",
+            "Implement robust concurrency control and transactional integrity for wallet updates (e.g., row-level locking or optimistic concurrency) to prevent race-condition exploits.",
+            "Introduce per-tenant isolation in data access (e.g., tenant_id scoping) so that compromise of one key cannot access all global wallets.",
+            "Harden deployment and configuration management so that secrets are injected at runtime via secure channels and never baked into images or artifacts.",
+            "Document and rehearse an incident response playbook for key compromise, including rapid revocation, forced rotation, and customer notification steps."
+          ],
+          "roadmap_90_day": {
+            "Day 30": "In the first 30 days, focus on eliminating the hardcoded key, standing up a secure secret management path, and putting a minimal but robust API key validation layer in front of all Tier 1 endpoints. Implement per-key storage, basic rotation capability, and strict transfer validation to immediately reduce blast radius and prevent trivial full-takeover scenarios. Add essential monitoring and alerting for key usage anomalies and transfer spikes, and enable secret scanning in CI/CD to prevent reintroduction of hardcoded keys.",
+            "Day 60": "Between days 31\u201360, expand from basic key validation to a more complete authz model with scoped permissions, per-tenant isolation, and rate limiting. Enhance audit logging, anomaly detection, and WAF/SIEM integrations to improve detection and forensics. Begin introducing concurrency controls and transactional integrity for wallet operations, and refine operational runbooks for key rotation and incident response.",
+            "Day 90": "By days 61\u201390, harden the architecture for long-term resilience: externalize auth into a dedicated service or module, add HA and graceful degradation patterns, and support multiple auth mechanisms where appropriate. Finalize IP-based restrictions for high-privilege keys, complete documentation and training, and run incident response simulations for key compromise to validate that rotation, revocation, and recovery can be executed quickly and safely."
+          },
+          "roadmap_tasks": [
+            {
+              "task_id": "t1_secret_mgmt_integration",
+              "title": "Integrate secure secret management and remove hardcoded API key",
+              "start_day": 1,
+              "end_day": 15,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Move API key storage to a secret manager or environment variables, scrub codebase of hardcoded keys, and update deployment manifests accordingly."
+            },
+            {
+              "task_id": "t2_api_key_store_and_validation",
+              "title": "Implement per-client API key store and validation middleware",
+              "start_day": 5,
+              "end_day": 25,
+              "depends_on": [
+                "t1_secret_mgmt_integration"
+              ],
+              "expedited": true,
+              "implementation_note": "Create a backend store for API keys (hashed), add middleware to validate keys and attach client context, and update all protected endpoints to use it."
+            },
+            {
+              "task_id": "t3_transfer_validation_and_concurrency",
+              "title": "Harden transfer logic with validation and concurrency controls",
+              "start_day": 10,
+              "end_day": 30,
+              "depends_on": [
+                "t2_api_key_store_and_validation"
+              ],
+              "expedited": true,
+              "implementation_note": "Add strict sender/receiver checks, balance validation, idempotency keys, and transactional or locking mechanisms for wallet updates."
+            },
+            {
+              "task_id": "t4_monitoring_and_alerts",
+              "title": "Deploy monitoring, anomaly detection, and audit logging for key usage",
+              "start_day": 10,
+              "end_day": 35,
+              "depends_on": [
+                "t2_api_key_store_and_validation"
+              ],
+              "expedited": true,
+              "implementation_note": "Instrument metrics, logs, and alerts for auth events, transfer anomalies, and enumeration patterns, and integrate with SIEM where available."
+            },
+            {
+              "task_id": "t5_scoped_permissions_and_rate_limits",
+              "title": "Add scoped permissions and per-key rate limiting",
+              "start_day": 25,
+              "end_day": 55,
+              "depends_on": [
+                "t2_api_key_store_and_validation"
+              ],
+              "expedited": true,
+              "implementation_note": "Extend key model with scopes, enforce them in handlers, and configure per-key and per-endpoint rate limits via API gateway or service layer."
+            },
+            {
+              "task_id": "t6_tenant_isolation_and_ip_controls",
+              "title": "Implement tenant isolation and IP-based restrictions for high-privilege keys",
+              "start_day": 35,
+              "end_day": 65,
+              "depends_on": [
+                "t5_scoped_permissions_and_rate_limits"
+              ],
+              "expedited": false,
+              "implementation_note": "Introduce tenant_id scoping in data access and configure IP allowlists/denylists for admin or high-risk keys at the network or gateway layer."
+            },
+            {
+              "task_id": "t7_auth_service_externalization",
+              "title": "Externalize authentication/authorization into dedicated service/module",
+              "start_day": 45,
+              "end_day": 80,
+              "depends_on": [
+                "t2_api_key_store_and_validation",
+                "t5_scoped_permissions_and_rate_limits"
+              ],
+              "expedited": false,
+              "implementation_note": "Refactor auth logic into a separate service or shared module with its own datastore and HA configuration, and migrate callers gradually."
+            },
+            {
+              "task_id": "t8_ci_cd_secret_scanning_and_ir_runbook",
+              "title": "Enable CI/CD secret scanning and finalize key compromise IR runbook",
+              "start_day": 15,
+              "end_day": 45,
+              "depends_on": [
+                "t1_secret_mgmt_integration"
+              ],
+              "expedited": true,
+              "implementation_note": "Configure automated secret scanning in pipelines and document incident response procedures for key compromise, including rotation and customer comms."
+            }
+          ],
+          "dependency_notes": "The sequence starts with integrating secure secret management (t1), which is foundational for removing the hardcoded key and safely managing new secrets. Once secrets are externalized, the per-client key store and validation middleware (t2) can be implemented, enabling all subsequent work that relies on a robust auth layer. Transfer hardening (t3) and monitoring/alerts (t4) build directly on t2 to immediately reduce exploitability and improve detection. Scoped permissions and rate limiting (t5) further refine access control and depend on the key store being in place, while tenant isolation and IP controls (t6) extend protection at the data and network layers. Externalizing auth into a dedicated service (t7) is scheduled later, after the core auth model is stable, and depends on both the key store and scoped permissions. CI/CD secret scanning and the incident response runbook (t8) depend on the new secret management approach and provide guardrails and operational readiness around the new controls.",
+          "rpn_priority_note": "Because this scenario has a Critical RPN of 720, early tasks aggressively front-load removal of the hardcoded key, deployment of a centralized key store and validation, transfer hardening, and monitoring, while longer-lead architectural changes like auth externalization and tenant isolation are scheduled later in the 90-day window."
+        },
+        {
+          "failure_mode": "Negative balances and arbitrary value creation via missing amount validation",
+          "fixes": [
+            "Enforce strict server-side validation that `amount` must be > 0 for all transfer and balance-changing endpoints, rejecting zero or negative values with clear error codes.",
+            "Refactor transfer logic to use explicit debit/credit semantics (e.g., `debit(sender, amount)` and `credit(receiver, amount)`) instead of arithmetic on raw balances to reduce sign-related bugs.",
+            "Add domain-level invariants: prevent any operation that would result in negative balances unless explicitly allowed by a controlled overdraft feature (which should not exist by default).",
+            "Introduce a centralized validation layer or schema (e.g., Pydantic/JSON schema/middleware) that enforces financial rules (positive amounts, required fields, valid account IDs) before business logic runs.",
+            "Implement maximum per-transaction and per-interval transfer limits (configurable) to constrain blast radius of any future logic errors or abuse.",
+            "Add unit and integration tests specifically covering negative, zero, and extremely large `amount` values to prevent regression.",
+            "Implement idempotency keys for transfer requests to avoid accidental double-processing and to simplify auditability.",
+            "Require that sender and receiver are distinct accounts and that both exist and are active before processing a transfer."
+          ],
+          "monitoring": [
+            "Log all transfer attempts (success and failure) with sender, receiver, amount, timestamp, and reason for failure, ensuring logs are immutable and centrally aggregated.",
+            "Create alerts for any request where `amount <= 0` is received, even if rejected, to detect probing or attempted exploitation.",
+            "Implement anomaly detection on transfers: alert on unusually large transfers, sudden spikes in transfer volume, or rapid balance growth for any account.",
+            "Track and periodically compute total system balance and alert on any unexpected changes that are not explained by known external funding/withdrawal events.",
+            "Add dashboards for key metrics: number of rejected transfers by reason, distribution of transfer sizes, top N accounts by balance change per hour/day.",
+            "Monitor error rates and latency for the /transfer endpoint after deploying validation changes to catch performance or logic regressions.",
+            "Enable security logging for authentication and API key usage, correlating suspicious transfer patterns with specific keys or clients."
+          ],
+          "resilience_upgrades": [
+            "Introduce a transactional persistence layer (e.g., relational DB with ACID guarantees) instead of a simple in-memory map for wallet balances.",
+            "Implement double-entry bookkeeping for all balance changes so that every credit has a corresponding debit, enabling reconciliation and invariant checks.",
+            "Add periodic reconciliation jobs that verify per-account balances against the ledger and check that total debits equal total credits.",
+            "Implement feature flags for new validation and business rules, allowing staged rollout and quick rollback if issues are detected.",
+            "Add a read-only mode or circuit breaker for transfers that can be toggled if integrity anomalies are detected, freezing new transfers while investigation occurs.",
+            "Introduce versioned API contracts for financial operations so that stricter validation can be rolled out without breaking older clients abruptly.",
+            "Create a secure backup and restore process for wallet and ledger data, including point-in-time recovery to recover from corruption events."
+          ],
+          "roadmap_90_day": {
+            "Day 30": "In the first 30 days, focus on closing the immediate integrity hole: implement strict positive-amount validation, enforce non-negative balances, add basic per-transaction limits, and wire in comprehensive transfer logging and alerts for invalid or anomalous amounts. Deploy targeted unit/integration tests and roll these changes behind a feature flag for safe, rapid rollout.",
+            "Day 60": "Between days 31\u201360, strengthen systemic safeguards by introducing a transactional persistence layer, basic double-entry ledgering for transfers, anomaly detection dashboards, and periodic total-balance invariant checks. Begin designing and partially implementing reconciliation jobs and refine monitoring thresholds based on observed traffic.",
+            "Day 90": "By days 61\u201390, complete the resilience work: finalize and automate reconciliation workflows, add read-only/circuit-breaker controls for transfers, harden backup/restore and recovery procedures, and formalize versioned API contracts and validation schemas. Use this period to tune alerts, close any gaps found in audits, and ensure regression tests cover all financial invariants."
+          },
+          "roadmap_tasks": [
+            {
+              "task_id": "t1_strict_amount_validation",
+              "title": "Implement strict positive-amount validation and non-negative balance rules",
+              "start_day": 1,
+              "end_day": 10,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Backend team adds server-side checks for amount > 0, prevents negative balances, and updates error handling on /transfer."
+            },
+            {
+              "task_id": "t2_transfer_tests",
+              "title": "Add regression tests for transfer edge cases",
+              "start_day": 5,
+              "end_day": 15,
+              "depends_on": [
+                "t1_strict_amount_validation"
+              ],
+              "expedited": true,
+              "implementation_note": "QA/engineering create unit and integration tests for negative, zero, and large amounts plus invalid account scenarios."
+            },
+            {
+              "task_id": "t3_logging_alerts",
+              "title": "Implement transfer logging and anomaly alerts",
+              "start_day": 5,
+              "end_day": 20,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "SRE team configures structured logs for transfers and sets up alerts for amount <= 0 and abnormal transfer patterns."
+            },
+            {
+              "task_id": "t4_txn_limits",
+              "title": "Introduce per-transaction and rate limits for transfers",
+              "start_day": 10,
+              "end_day": 25,
+              "depends_on": [
+                "t1_strict_amount_validation"
+              ],
+              "expedited": true,
+              "implementation_note": "Backend and SRE define and enforce configurable max transfer size and per-account rate limits."
+            },
+            {
+              "task_id": "t5_persistent_store",
+              "title": "Migrate wallets to transactional persistent storage",
+              "start_day": 20,
+              "end_day": 50,
+              "depends_on": [
+                "t1_strict_amount_validation",
+                "t2_transfer_tests"
+              ],
+              "expedited": true,
+              "implementation_note": "Platform team introduces a relational DB or equivalent with ACID guarantees and migrates from in-memory wallets."
+            },
+            {
+              "task_id": "t6_double_entry_ledger",
+              "title": "Implement double-entry ledger and invariants",
+              "start_day": 30,
+              "end_day": 65,
+              "depends_on": [
+                "t5_persistent_store"
+              ],
+              "expedited": true,
+              "implementation_note": "Engineering adds a ledger table and ensures all transfers create balanced debit/credit entries with invariant checks."
+            },
+            {
+              "task_id": "t7_reconciliation_jobs",
+              "title": "Build reconciliation and total-balance checks",
+              "start_day": 45,
+              "end_day": 75,
+              "depends_on": [
+                "t6_double_entry_ledger"
+              ],
+              "expedited": false,
+              "implementation_note": "SRE/finance engineering implement periodic jobs to compare account balances to ledger and validate total system balance."
+            },
+            {
+              "task_id": "t8_circuit_breaker_readonly",
+              "title": "Add transfer circuit breaker and read-only mode",
+              "start_day": 55,
+              "end_day": 85,
+              "depends_on": [
+                "t3_logging_alerts",
+                "t7_reconciliation_jobs"
+              ],
+              "expedited": false,
+              "implementation_note": "SRE adds a feature-flag-driven mechanism to pause transfers when anomalies are detected by monitoring or reconciliation."
+            }
+          ],
+          "dependency_notes": "The plan starts by immediately enforcing strict amount validation (t1) and then building tests (t2) and limits (t4) on top of that foundation, while logging and alerts (t3) run in parallel to provide visibility. Once the core validation and tests are in place, the system can safely migrate to a transactional persistent store (t5), which is a prerequisite for implementing a robust double-entry ledger (t6). With the ledger available, reconciliation jobs and total-balance checks (t7) can be added to continuously verify integrity, and finally a circuit breaker/read-only mode (t8) is layered on top of monitoring and reconciliation to allow operational response when anomalies are detected.",
+          "rpn_priority_note": "Because this scenario has a Critical RPN of 640, validation, limits, and observability tasks (t1\u2013t4) and the storage/ledger migration (t5\u2013t6) are front-loaded into the first 60 days ahead of longer-lead resilience enhancements."
+        },
+        {
+          "failure_mode": "Double-spend via transfer race condition and artificial delay",
+          "fixes": [
+            "Remove the artificial time.sleep(0.5) delay from the transfer_funds code path to immediately shrink the race window.",
+            "Introduce a per-wallet (per-sender) mutex/lock around the entire read-modify-write sequence for balance updates to ensure transfers are serialized per account.",
+            "If using a database, move wallet balances into a transactional store and implement transfers as a single atomic transaction with row-level locking or SELECT ... FOR UPDATE semantics.",
+            "Implement optimistic concurrency control (e.g., version column on wallet rows) and retry logic for failed updates if pessimistic locking is not feasible.",
+            "Add a unique transaction_id or idempotency key to POST /transfer and enforce uniqueness at the storage layer to prevent duplicate processing of the same logical transfer.",
+            "Validate that balances never go negative at the storage layer (e.g., CHECK constraint or conditional update WHERE balance >= amount) to enforce invariants even under concurrency.",
+            "Refactor transfer_funds into a single atomic operation in the service layer (no separate read and write without protection) and remove any shared mutable global state (e.g., in-memory wallets dict) in favor of a properly synchronized or external store.",
+            "Add input validation and rate limiting on POST /transfer per sender to reduce the feasibility of high-concurrency abuse.",
+            "Backfill and correct any inconsistent balances by running an offline reconciliation job that recomputes balances from an authoritative transaction ledger, then locking affected accounts during correction.",
+            "Add unit and integration tests specifically for concurrent transfers (e.g., using threading or async load) to validate that double-spend is no longer possible."
+          ],
+          "monitoring": [
+            "Create alerts on any wallet balance going negative or below defined minimum thresholds, treating such events as P1 incidents.",
+            "Log all transfer requests with sender, receiver, amount, transaction_id, and resulting balances, and ship these logs to a centralized system for anomaly detection.",
+            "Implement metrics for transfer error rates, concurrency (e.g., number of concurrent transfers per sender), and lock contention, and set SLO-based alerts on abnormal spikes.",
+            "Add a periodic job that scans for inconsistent states (e.g., sum of all wallet balances vs. sum of all ledger entries, or per-wallet recomputation) and raises alerts on mismatches.",
+            "Monitor latency distributions for POST /transfer to detect regressions from locking or transactional changes and to ensure no new artificial delays are introduced.",
+            "Add a dashboard showing top N accounts by transfer volume and concurrency to quickly identify potential abuse or attack patterns.",
+            "Track and alert on repeated transfer attempts with identical parameters but different transaction_ids from the same IP or API key as a signal of probing for race conditions."
+          ],
+          "resilience_upgrades": [
+            "Introduce a dedicated transaction ledger table/service that records every transfer as an immutable event and derive balances from this ledger to support reconciliation and recovery.",
+            "Migrate from in-memory wallet state to a durable, ACID-compliant data store with proper isolation levels (e.g., READ COMMITTED or SERIALIZABLE where feasible).",
+            "Implement idempotent transfer processing using transaction_ids and a processed_transactions table with a unique constraint to ensure at-most-once semantics.",
+            "Add a compensating transaction mechanism that can automatically reverse or correct detected inconsistent transfers while preserving an auditable trail.",
+            "Design and implement a per-account concurrency control strategy (e.g., sharded locks or advisory locks) that scales under high load without sacrificing correctness.",
+            "Introduce chaos and load testing scenarios specifically targeting concurrent transfers to validate that the system remains consistent under stress.",
+            "Implement a feature flag for the new transactional transfer path to allow gradual rollout, canarying, and quick rollback if issues arise."
+          ],
+          "roadmap_90_day": {
+            "Day 30": "In the first 30 days, focus on eliminating the immediate race condition and shrinking the attack surface: remove the artificial sleep, add per-sender locking or database-level transactional updates, enforce non-negative balances at the storage layer, and introduce idempotency keys for POST /transfer. Stand up basic monitoring and alerting for negative balances and anomalous transfer patterns, and add initial concurrency-focused tests. These changes should be rolled out behind a feature flag and canaried to production quickly due to the critical RPN.",
+            "Day 60": "Between days 31\u201360, harden the design by introducing or maturing a transactional ledger, migrating away from any in-memory wallet state, and refining the concurrency control strategy (e.g., advisory locks or row-level locking patterns). Expand monitoring and dashboards, implement automated reconciliation jobs, and build compensating transaction capabilities. Increase test coverage with load and chaos tests targeting concurrent transfers and validate that the new path performs adequately under realistic traffic.",
+            "Day 90": "By days 61\u201390, complete the migration to the new resilient transfer architecture, deprecate legacy non-transactional paths, and fully operationalize reconciliation and correction workflows. Optimize performance and lock contention, tune alerts to reduce noise while preserving sensitivity, and document runbooks for incident response related to transfer anomalies. Conduct a post-implementation review, including a security assessment of the transfer pipeline, and plan follow-on improvements based on observed metrics and incident learnings."
+          },
+          "roadmap_tasks": [
+            {
+              "task_id": "t1_remove_sleep_and_add_lock",
+              "title": "Remove artificial delay and add per-sender locking",
+              "start_day": 1,
+              "end_day": 10,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Engineering updates transfer_funds to remove time.sleep and wrap read-modify-write in a per-sender mutex or equivalent synchronization primitive."
+            },
+            {
+              "task_id": "t2_idempotency_and_non_negative",
+              "title": "Implement idempotency keys and non-negative balance enforcement",
+              "start_day": 5,
+              "end_day": 20,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Backend adds transaction_id/idempotency key support and enforces non-negative balances via conditional updates or DB constraints."
+            },
+            {
+              "task_id": "t3_monitoring_and_alerts",
+              "title": "Set up monitoring, alerts, and dashboards for transfers",
+              "start_day": 5,
+              "end_day": 25,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "SRE configures metrics, logs, and alerts for negative balances, high concurrency per sender, and anomalous transfer patterns."
+            },
+            {
+              "task_id": "t4_transactional_ledger",
+              "title": "Design and implement transactional ledger and DB-backed wallets",
+              "start_day": 15,
+              "end_day": 50,
+              "depends_on": [
+                "t1_remove_sleep_and_add_lock",
+                "t2_idempotency_and_non_negative"
+              ],
+              "expedited": true,
+              "implementation_note": "Architecture and backend teams introduce an ACID-compliant ledger and migrate wallet balances from in-memory to the database."
+            },
+            {
+              "task_id": "t5_concurrency_tests_and_load",
+              "title": "Build concurrency, load, and chaos tests for transfers",
+              "start_day": 20,
+              "end_day": 45,
+              "depends_on": [
+                "t1_remove_sleep_and_add_lock"
+              ],
+              "expedited": true,
+              "implementation_note": "QA/SRE create automated tests simulating high-concurrency POST /transfer to validate no double-spend under the new locking model."
+            },
+            {
+              "task_id": "t6_reconciliation_and_compensation",
+              "title": "Implement reconciliation jobs and compensating transactions",
+              "start_day": 35,
+              "end_day": 70,
+              "depends_on": [
+                "t4_transactional_ledger"
+              ],
+              "expedited": true,
+              "implementation_note": "Data and backend teams build periodic reconciliation from the ledger and automated correction flows for detected inconsistencies."
+            },
+            {
+              "task_id": "t7_migration_and_feature_flag_rollout",
+              "title": "Migrate traffic to new transactional transfer path via feature flags",
+              "start_day": 45,
+              "end_day": 80,
+              "depends_on": [
+                "t4_transactional_ledger",
+                "t5_concurrency_tests_and_load"
+              ],
+              "expedited": true,
+              "implementation_note": "SRE and backend coordinate canary rollout of the new transfer implementation and deprecate legacy paths once stable."
+            },
+            {
+              "task_id": "t8_post_implementation_review",
+              "title": "Post-implementation review and tuning",
+              "start_day": 75,
+              "end_day": 90,
+              "depends_on": [
+                "t6_reconciliation_and_compensation",
+                "t7_migration_and_feature_flag_rollout"
+              ],
+              "expedited": false,
+              "implementation_note": "Cross-functional team reviews metrics, incidents, and performance to refine alerts, locks, and reconciliation policies."
+            }
+          ],
+          "dependency_notes": "Initial safety measures (t1_remove_sleep_and_add_lock, t2_idempotency_and_non_negative, t3_monitoring_and_alerts) are executed in parallel to quickly reduce risk, after which the more structural change\u2014introducing a transactional ledger and DB-backed wallets (t4_transactional_ledger)\u2014builds on that stabilized baseline. Concurrency and load tests (t5_concurrency_tests_and_load) depend on the new locking behavior to validate it under stress, and the reconciliation and compensating mechanisms (t6_reconciliation_and_compensation) require the ledger to be in place. Migration via feature flags (t7_migration_and_feature_flag_rollout) only proceeds once the ledger and tests are ready, and the final review and tuning (t8_post_implementation_review) depend on both the reconciliation pipeline and the full rollout being completed.",
+          "rpn_priority_note": "Because this scenario\u2019s RPN is Critical (567), we front-loaded immediate locking, idempotency, and monitoring tasks into the first 30 days and treated the transactional ledger and migration work as expedited items on the critical path ahead of any longer-lead optimizations."
+        },
+        {
+          "failure_mode": "Self-transfer exploitation to bypass overdraft and manipulate balances",
+          "fixes": [
+            "Add strict input validation in POST /transfer to reject requests where sender == receiver, or explicitly treat them as idempotent no-op balance-preserving operations.",
+            "Enforce non-negative, non-zero transfer amounts at the API boundary and in the domain layer (e.g., amount > 0 and amount <= MAX_TRANSFER_LIMIT).",
+            "Implement atomic balance update operations with proper transactional semantics or row-level locking to prevent race conditions and stale-balance overdraft checks.",
+            "Introduce domain-level invariants in the transfer service (e.g., total debits == total credits per transaction, no net balance change on self-transfer) and assert them in code.",
+            "Add server-side business rules to cap per-transaction and per-interval transfer amounts, including for self-directed or internal transfers.",
+            "Normalize and sanitize all transfer requests in a single domain function (e.g., validate_and_prepare_transfer) to centralize validation logic and reduce bypass risk.",
+            "Return explicit error codes for rejected self-transfers and invalid amounts, and ensure clients cannot downgrade or ignore these failures.",
+            "Backfill a migration script to detect and flag historical self-transfers and negative-amount transfers for manual review and potential remediation.",
+            "Update API documentation and client SDKs to reflect new validation rules and error responses for self-transfers and invalid amounts.",
+            "Add unit, integration, and concurrency tests specifically targeting self-transfer, negative amounts, and concurrent transfer edge cases."
+          ],
+          "monitoring": [
+            "Create a dedicated metric and dashboard for self-transfer attempts (sender == receiver), including counts of accepted vs. rejected requests and distribution by amount.",
+            "Log all rejected transfer requests with structured fields (sender, receiver, amount, reason_code, correlation_id) and ship to a centralized SIEM for analysis.",
+            "Add anomaly detection alerts for spikes in self-transfer attempts, especially with large or boundary amounts, from the same API key, IP, or account cluster.",
+            "Instrument transfer processing with metrics for overdraft check failures, balance mismatches, and invariant violations, and alert on non-zero rates.",
+            "Implement tracing around transfer_funds with spans that capture pre- and post-balance values, transaction IDs, and concurrency/lock wait times.",
+            "Set up periodic reports listing accounts with high volumes of self-transfers, negative-amount attempts, or rapid alternating in/out transfers.",
+            "Add a reconciliation job that compares ledger entries to account balances daily and emits alerts for any discrepancies beyond a small tolerance.",
+            "Monitor database lock contention and deadlock metrics on the balances/ledger tables to detect problematic concurrency patterns introduced by fixes.",
+            "Create a security alert for any successful transfer pattern that nets a positive balance change across multiple accounts while including self-transfers in the chain.",
+            "Integrate monitoring with incident response runbooks so that alerts on self-transfer anomalies automatically open tickets with relevant context."
+          ],
+          "resilience_upgrades": [
+            "Refactor the transfer engine to use a double-entry ledger model where every transfer is represented as balanced debit/credit entries, making self-transfer exploits harder.",
+            "Introduce strict transactional boundaries (e.g., SERIALIZABLE isolation or explicit row-level locks) around balance reads and writes to eliminate race-based overdrafts.",
+            "Implement idempotent transfer operations keyed by client-supplied idempotency keys to prevent replay and duplicate processing in concurrent scenarios.",
+            "Add a domain-level consistency checker that periodically scans for and repairs or quarantines inconsistent balances vs. ledger history.",
+            "Design and enforce a policy that self-transfers are either disallowed or implemented as internal bookkeeping-only operations that cannot change net balance.",
+            "Harden the API gateway with rate limits and behavioral throttling for high-risk patterns (e.g., many self-transfers or alternating transfers in short windows).",
+            "Introduce a feature flag for the new validation and concurrency controls to allow staged rollout, canary testing, and rapid rollback if needed.",
+            "Implement a shadow validation mode initially, where new rules run in parallel and log would-be rejections without blocking, to tune thresholds before full enforcement.",
+            "Enhance audit logging with immutable, append-only storage for all transfer events, including self-transfer attempts, to support forensic analysis.",
+            "Add chaos and load tests that simulate concurrent transfers, including self-transfers, to validate that overdraft protections and invariants hold under stress."
+          ],
+          "roadmap_90_day": {
+            "Day 30": "In the first 30 days, focus on closing the most exploitable gaps: implement strict validation to reject sender == receiver and negative/zero amounts, enforce basic per-transaction limits, and wrap transfer operations in proper transactions or row-level locks. In parallel, add core monitoring for self-transfer attempts, overdraft check failures, and invariant violations, and deploy a feature-flagged rollout of the new validation logic to production with shadow logging to observe impact before full enforcement.",
+            "Day 60": "Between days 31\u201360, refactor the transfer logic toward a more robust domain model, including double-entry ledger semantics and centralized validation, and expand automated tests to cover concurrency and edge cases. Enhance monitoring with anomaly detection, richer dashboards, and daily reconciliation jobs, and begin backfilling and reviewing historical self-transfer and negative-amount events to identify and mitigate any past abuse.",
+            "Day 90": "By days 61\u201390, harden resilience and operational practices: finalize and enforce policies for self-transfers, tune rate limits and behavioral throttling, and complete the rollout of idempotent transfer operations. Integrate reconciliation and anomaly alerts into incident response workflows, run chaos and load tests to validate the new controls under stress, and close the loop with documentation updates, runbooks, and any required remediation of legacy inconsistencies."
+          },
+          "roadmap_tasks": [
+            {
+              "task_id": "t1_input_validation",
+              "title": "Implement strict transfer input validation",
+              "start_day": 1,
+              "end_day": 15,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Add checks for sender != receiver, amount > 0, and max limits in API and domain layers with feature flag support."
+            },
+            {
+              "task_id": "t2_txn_concurrency",
+              "title": "Enforce transactional and concurrency controls on balances",
+              "start_day": 5,
+              "end_day": 25,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Introduce database transactions and row-level locking or higher isolation for balance reads/writes in transfer_funds."
+            },
+            {
+              "task_id": "t3_core_monitoring",
+              "title": "Add core monitoring and alerting for self-transfers",
+              "start_day": 5,
+              "end_day": 20,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Instrument metrics, logs, and basic alerts for self-transfer attempts, overdraft failures, and invariant violations."
+            },
+            {
+              "task_id": "t4_feature_flag_rollout",
+              "title": "Roll out validation and locking via feature flags",
+              "start_day": 16,
+              "end_day": 30,
+              "depends_on": [
+                "t1_input_validation",
+                "t2_txn_concurrency",
+                "t3_core_monitoring"
+              ],
+              "expedited": true,
+              "implementation_note": "Use staged rollout with shadow validation first, then progressively enforce rejections while monitoring impact."
+            },
+            {
+              "task_id": "t5_double_entry_refactor",
+              "title": "Refactor transfers to double-entry ledger model",
+              "start_day": 21,
+              "end_day": 55,
+              "depends_on": [
+                "t2_txn_concurrency"
+              ],
+              "expedited": true,
+              "implementation_note": "Introduce balanced debit/credit entries and ensure self-transfers are balance-neutral by design."
+            },
+            {
+              "task_id": "t6_reconciliation_job",
+              "title": "Implement daily reconciliation and anomaly detection",
+              "start_day": 26,
+              "end_day": 50,
+              "depends_on": [
+                "t3_core_monitoring",
+                "t5_double_entry_refactor"
+              ],
+              "expedited": true,
+              "implementation_note": "Build jobs to compare ledger vs. balances and flag discrepancies and suspicious self-transfer patterns."
+            },
+            {
+              "task_id": "t7_historical_review",
+              "title": "Backfill and review historical self-transfers",
+              "start_day": 31,
+              "end_day": 60,
+              "depends_on": [
+                "t1_input_validation",
+                "t3_core_monitoring"
+              ],
+              "expedited": false,
+              "implementation_note": "Run one-off analysis to identify past self-transfer and negative-amount abuse and coordinate remediation with risk teams."
+            },
+            {
+              "task_id": "t8_rate_limits_idempotency",
+              "title": "Add rate limits and idempotent transfer operations",
+              "start_day": 41,
+              "end_day": 75,
+              "depends_on": [
+                "t4_feature_flag_rollout",
+                "t5_double_entry_refactor"
+              ],
+              "expedited": true,
+              "implementation_note": "Implement behavioral throttling and idempotency keys to reduce abuse and replay in complex transfer chains."
+            },
+            {
+              "task_id": "t9_chaos_load_testing",
+              "title": "Run chaos and load tests for concurrent transfers",
+              "start_day": 61,
+              "end_day": 90,
+              "depends_on": [
+                "t4_feature_flag_rollout",
+                "t6_reconciliation_job",
+                "t8_rate_limits_idempotency"
+              ],
+              "expedited": false,
+              "implementation_note": "Simulate high-concurrency transfer scenarios, including self-transfers, to validate that overdraft protections hold."
+            }
+          ],
+          "dependency_notes": "The plan first establishes guardrails with input validation (t1) and transactional concurrency controls (t2), then immediately layers on monitoring (t3) so that the staged rollout (t4) can be safely observed and tuned. The double-entry refactor (t5) builds on stable transactional semantics from t2, enabling more reliable reconciliation and anomaly detection (t6). Historical review (t7) depends on the new validation and monitoring context to correctly interpret past events, while rate limiting and idempotency (t8) are sequenced after the core model and rollout are in place to avoid conflicting behaviors. Finally, chaos and load testing (t9) are scheduled once the main protections and observability are deployed, to validate the end-to-end system under realistic stress.",
+          "rpn_priority_note": "Because this scenario\u2019s RPN is high, we front-loaded validation, transactional controls, monitoring, and the double-entry refactor into the first 30\u201360 days, pushing less critical analysis and testing tasks later in the 90-day window."
+        },
+        {
+          "failure_mode": "In-memory wallet store corruption and loss on process restart",
+          "fixes": [
+            "Replace global in-memory `wallets` dict with a durable data store (e.g., PostgreSQL table `wallets` with `id`, `balance`, `version`, timestamps) as the single source of truth.",
+            "Implement transactional operations for deposits, withdrawals, and transfers using database transactions to ensure atomicity and consistency.",
+            "Introduce an append-only `transactions` table or ledger to record all balance-changing operations for auditability and reconciliation.",
+            "Refactor FastAPI endpoints to read/write wallet balances exclusively through a data access layer (repository pattern) instead of direct in-memory mutation.",
+            "Implement optimistic or pessimistic locking (e.g., `SELECT ... FOR UPDATE` or version columns) to prevent race conditions and partial updates under concurrency.",
+            "Add a migration script to initialize the database schema and, if needed, bootstrap initial wallet data from a seed file or configuration.",
+            "Remove or gate any hardcoded default balances so that no runtime state is silently reset on process restart.",
+            "Implement idempotent operations for external payment gateway callbacks to avoid double-crediting when retries occur.",
+            "Add graceful shutdown hooks (e.g., FastAPI lifespan events, Kubernetes preStop) to drain traffic and complete in-flight transactions before process termination.",
+            "Introduce configuration management for database connection strings, credentials, and pool sizing with secure secret storage (e.g., Kubernetes Secrets, Vault)."
+          ],
+          "monitoring": [
+            "Create alerts on FastAPI process restarts (e.g., Kubernetes pod restarts, systemd restarts) with high-severity notifications to SRE and on-call.",
+            "Instrument wallet operations with structured logging (wallet_id, delta, resulting_balance, transaction_id) and send to centralized log storage for audit and incident investigation.",
+            "Expose metrics for wallet operations (e.g., `wallet_transactions_total`, `wallet_balance_update_failures_total`, `db_transaction_latency_seconds`) and create dashboards.",
+            "Add health checks and readiness probes that validate database connectivity and basic read/write operations before accepting traffic.",
+            "Monitor database availability, error rates, and slow queries related to wallet operations with alerts on elevated failure rates or latency.",
+            "Implement anomaly detection or threshold alerts on unexpected balance changes, large deltas, or high-frequency transfers per wallet.",
+            "Track and alert on schema migration failures or rollbacks that could impact wallet persistence.",
+            "Log and monitor all 5xx responses from wallet endpoints, correlating spikes with deployment events or restarts."
+          ],
+          "resilience_upgrades": [
+            "Deploy a highly available relational database (e.g., PostgreSQL with primary/replica setup) to back wallet state with automated backups and point-in-time recovery.",
+            "Implement periodic database backups and tested restore procedures, including runbooks for recovering wallet and transaction data.",
+            "Add a write-ahead log or append-only ledger pattern to ensure that every balance change is durably recorded before acknowledging success to clients.",
+            "Introduce blue/green or canary deployment strategies to minimize downtime and reduce the risk of data loss during rollouts.",
+            "Implement connection pooling and retry logic with backoff for database operations to handle transient failures gracefully.",
+            "Add data integrity constraints (e.g., non-negative balances where applicable, foreign keys, unique wallet IDs) to prevent corruption.",
+            "Introduce a background reconciliation job that compares wallet balances against the transaction ledger and external systems, flagging discrepancies.",
+            "Document and automate disaster recovery and incident response procedures for wallet data issues, including runbooks for partial outages and failover."
+          ],
+          "roadmap_90_day": {
+            "Day 30": "By Day 30, replace the in-memory `wallets` dict with a minimal but production-grade persistent store and ensure all balance-changing operations are transactional. Implement the core database schema (wallets and transactions tables), refactor FastAPI endpoints to use the database, and add basic monitoring for process restarts and database health. Prioritize eliminating any code paths that reinitialize balances on restart and ensure that new deployments do not reset state.",
+            "Day 60": "By Day 60, harden the persistence layer and operational visibility: add full audit logging of wallet operations, implement locking or concurrency control, and introduce reconciliation tooling between balances and the transaction ledger. Enhance dashboards and alerts for anomalies in wallet activity, and validate backup and restore procedures in a staging environment. Begin rolling out blue/green or canary deployments for the wallet service.",
+            "Day 90": "By Day 90, complete resilience improvements and operational maturity: deploy a highly available database configuration with tested failover, finalize disaster recovery runbooks, and automate periodic reconciliation against external systems. Optimize performance and scalability of wallet operations, refine anomaly detection, and close any remaining gaps in integrity checks, idempotency, and deployment safety for long-term reliability."
+          },
+          "roadmap_tasks": [
+            {
+              "task_id": "t1_design_db_schema",
+              "title": "Design wallet and transaction DB schema",
+              "start_day": 1,
+              "end_day": 7,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Define tables, constraints, and indexing strategy for wallets and transactions with input from engineering and finance/compliance."
+            },
+            {
+              "task_id": "t2_setup_db_infra",
+              "title": "Provision database infrastructure",
+              "start_day": 3,
+              "end_day": 14,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Set up PostgreSQL (or chosen DB) with initial HA configuration, access controls, and connection parameters."
+            },
+            {
+              "task_id": "t3_implement_persistence_layer",
+              "title": "Implement persistence and transaction layer",
+              "start_day": 8,
+              "end_day": 21,
+              "depends_on": [
+                "t1_design_db_schema",
+                "t2_setup_db_infra"
+              ],
+              "expedited": true,
+              "implementation_note": "Create repository/DAO layer for wallets and transactions with ACID semantics and concurrency control."
+            },
+            {
+              "task_id": "t4_refactor_api_to_db",
+              "title": "Refactor FastAPI endpoints to use DB",
+              "start_day": 15,
+              "end_day": 30,
+              "depends_on": [
+                "t3_implement_persistence_layer"
+              ],
+              "expedited": true,
+              "implementation_note": "Replace in-memory `wallets` dict usage with calls to the persistence layer and remove hardcoded balances."
+            },
+            {
+              "task_id": "t5_add_monitoring_alerts",
+              "title": "Add monitoring, logging, and alerts",
+              "start_day": 10,
+              "end_day": 28,
+              "depends_on": [
+                "t2_setup_db_infra"
+              ],
+              "expedited": true,
+              "implementation_note": "Instrument wallet operations, configure dashboards, and set alerts for restarts, DB errors, and anomalies."
+            },
+            {
+              "task_id": "t6_backup_recovery_setup",
+              "title": "Implement backups and recovery tests",
+              "start_day": 22,
+              "end_day": 45,
+              "depends_on": [
+                "t2_setup_db_infra",
+                "t3_implement_persistence_layer"
+              ],
+              "expedited": true,
+              "implementation_note": "Configure automated backups and perform restore drills in a non-production environment."
+            },
+            {
+              "task_id": "t7_reconciliation_and_audit",
+              "title": "Build reconciliation and audit tooling",
+              "start_day": 35,
+              "end_day": 65,
+              "depends_on": [
+                "t4_refactor_api_to_db",
+                "t6_backup_recovery_setup"
+              ],
+              "expedited": false,
+              "implementation_note": "Implement periodic reconciliation jobs and audit reports comparing balances, ledger, and external systems."
+            },
+            {
+              "task_id": "t8_deployment_resilience",
+              "title": "Implement resilient deployment strategy",
+              "start_day": 40,
+              "end_day": 75,
+              "depends_on": [
+                "t4_refactor_api_to_db",
+                "t5_add_monitoring_alerts"
+              ],
+              "expedited": false,
+              "implementation_note": "Introduce blue/green or canary deployments with health checks and graceful shutdown for the wallet service."
+            }
+          ],
+          "dependency_notes": "Schema design (t1) and database provisioning (t2) must precede the implementation of the persistence layer (t3), which in turn is a prerequisite for refactoring the API to use the database (t4). Monitoring and alerts (t5) depend on having the database infrastructure in place (t2) so that metrics and logs can cover both the app and DB. Backups and recovery (t6) require a functioning database and persistence layer (t2, t3), while reconciliation and audit tooling (t7) depend on the refactored API and stable data storage (t4, t6). Deployment resilience work (t8) should follow once the service is using the database and observability is in place (t4, t5) to safely support blue/green or canary rollouts.",
+          "rpn_priority_note": "The high RPN of 378 drove front-loading of database-backed persistence, API refactoring, and monitoring tasks into the first 30\u201345 days, ahead of longer-lead resilience and reconciliation enhancements."
+        },
+        {
+          "failure_mode": "Denial of service via amplified processing delay under concurrency",
+          "fixes": [
+            "Remove or drastically reduce the hard-coded time.sleep(0.5) in transfer_funds, replacing it with non-blocking or asynchronous operations where delay is truly required.",
+            "Introduce authenticated, per-API-key and per-IP rate limiting on POST /transfer with sane defaults and configurable limits (e.g., token bucket or leaky bucket).",
+            "Add global concurrency limits for POST /transfer at the application or gateway layer to cap the number of in-flight transfer operations.",
+            "Implement request timeouts and server-side cancellation for long-running transfer requests to prevent worker starvation.",
+            "Prioritize and isolate GET /balance/{user} and other read endpoints from heavy write/transfer traffic using separate worker pools or service tiers.",
+            "Require authentication for GET /health or add a separate internal-only /healthz endpoint for SRE/monitoring, while exposing a simpler /ready endpoint for external checks.",
+            "Update health checks to include basic synthetic checks for POST /transfer and GET /balance/{user} latency and success rate, not just a static status.",
+            "Implement backpressure and graceful degradation (e.g., 429 Too Many Requests) when rate limits or concurrency caps are exceeded.",
+            "Optimize transfer_funds logic to minimize blocking I/O and move any heavy processing to background jobs or queues.",
+            "Document and enforce API usage guidelines for clients, including recommended concurrency and backoff behavior."
+          ],
+          "monitoring": [
+            "Add metrics for request rate, latency, and error rate per endpoint (POST /transfer, GET /balance/{user}, GET /health) with high-cardinality labels for API key or client ID where feasible.",
+            "Track active in-flight requests and worker utilization, especially for POST /transfer, and alert when concurrency exceeds defined thresholds.",
+            "Create alerts on p95/p99 latency and timeout rates for POST /transfer and GET /balance/{user}, with tighter thresholds than for /health.",
+            "Monitor rate-limit hits and 429 responses per client to detect abusive or misconfigured clients early.",
+            "Add synthetic probes that periodically perform a full transfer + balance check flow and alert if they exceed latency SLOs or fail.",
+            "Instrument queue depth and processing time if a background job or queue is introduced for transfers, with alerts on backlog growth.",
+            "Log and dashboard per-API-key usage patterns (QPS, concurrency) to identify potential attackers or noisy neighbors.",
+            "Correlate health check status with business-level KPIs (successful transfers per minute, balance reads per minute) to detect partial outages."
+          ],
+          "resilience_upgrades": [
+            "Introduce an API gateway or service mesh policies to enforce global and per-client rate limits and concurrency caps for POST /transfer.",
+            "Implement a circuit breaker around transfer processing that trips under sustained high error/timeout rates and sheds load gracefully.",
+            "Separate read and write traffic by deploying dedicated worker pools or microservices for balance reads vs. transfers.",
+            "Adopt a queue-based or event-driven architecture for transfers where synchronous API calls enqueue work and return quickly, while workers process transfers asynchronously.",
+            "Implement priority classes for traffic so critical internal operations and balance reads are served before bulk transfer workloads.",
+            "Add readiness and liveness probes that reflect the health of core business operations (transfer and balance) rather than only a static /health endpoint.",
+            "Introduce client-facing retry and backoff guidance (and SDK support where applicable) to reduce thundering herd effects under transient failures.",
+            "Perform load and stress testing to validate new limits, backpressure behavior, and ensure the system degrades gracefully under attack-level concurrency."
+          ],
+          "roadmap_90_day": {
+            "Day 30": "In the first 30 days, focus on removing or mitigating the blocking sleep in transfer_funds, implementing basic rate limiting and concurrency caps for POST /transfer, and improving observability with per-endpoint metrics and alerts so that DoS-like behavior is quickly visible and contained.",
+            "Day 60": "By Day 60, refine and harden protections by introducing endpoint isolation (separate worker pools for reads vs. writes), enhancing health checks with synthetic transactions, and adding circuit breakers and backpressure mechanisms to shed excess load gracefully.",
+            "Day 90": "By Day 90, complete structural resilience upgrades such as optional asynchronous/queued transfer processing, priority traffic handling, and comprehensive load testing to validate that the system remains available and responsive under high-concurrency and adversarial conditions."
+          },
+          "roadmap_tasks": [
+            {
+              "task_id": "t1_remove_sleep_and_optimize",
+              "title": "Remove blocking sleep and optimize transfer path",
+              "start_day": 1,
+              "end_day": 15,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Engineering updates transfer_funds to remove time.sleep(0.5) and minimize blocking operations, with code review and quick rollout."
+            },
+            {
+              "task_id": "t2_basic_rate_limit_concurrency",
+              "title": "Implement basic rate limiting and concurrency caps",
+              "start_day": 5,
+              "end_day": 25,
+              "depends_on": [
+                "t1_remove_sleep_and_optimize"
+              ],
+              "expedited": true,
+              "implementation_note": "Platform or gateway team configures per-API-key/IP rate limits and global concurrency limits for POST /transfer."
+            },
+            {
+              "task_id": "t3_observability_and_alerts",
+              "title": "Add per-endpoint metrics, alerts, and synthetic checks",
+              "start_day": 1,
+              "end_day": 30,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "SRE team instruments metrics for transfer and balance endpoints and sets up latency/error alerts and basic synthetic flows."
+            },
+            {
+              "task_id": "t4_healthcheck_hardening",
+              "title": "Harden health checks and add readiness probes",
+              "start_day": 10,
+              "end_day": 35,
+              "depends_on": [
+                "t3_observability_and_alerts"
+              ],
+              "expedited": true,
+              "implementation_note": "Introduce authenticated/internal health endpoints and readiness checks that reflect transfer and balance health."
+            },
+            {
+              "task_id": "t5_endpoint_isolation",
+              "title": "Isolate read vs write traffic",
+              "start_day": 25,
+              "end_day": 55,
+              "depends_on": [
+                "t2_basic_rate_limit_concurrency"
+              ],
+              "expedited": true,
+              "implementation_note": "Application and infra teams configure separate worker pools or services for GET /balance and POST /transfer."
+            },
+            {
+              "task_id": "t6_circuit_breakers_backpressure",
+              "title": "Add circuit breakers and backpressure",
+              "start_day": 30,
+              "end_day": 60,
+              "depends_on": [
+                "t2_basic_rate_limit_concurrency",
+                "t3_observability_and_alerts"
+              ],
+              "expedited": true,
+              "implementation_note": "Implement circuit breaker patterns and 429/503 responses when limits are exceeded, tuned using new metrics."
+            },
+            {
+              "task_id": "t7_async_transfer_architecture",
+              "title": "Design and implement optional async/queued transfers",
+              "start_day": 40,
+              "end_day": 80,
+              "depends_on": [
+                "t1_remove_sleep_and_optimize",
+                "t5_endpoint_isolation"
+              ],
+              "expedited": false,
+              "implementation_note": "Architecture and backend teams introduce a queue-based transfer processing path with idempotency and status tracking."
+            },
+            {
+              "task_id": "t8_load_stress_testing",
+              "title": "Perform load and stress testing of protections",
+              "start_day": 60,
+              "end_day": 90,
+              "depends_on": [
+                "t5_endpoint_isolation",
+                "t6_circuit_breakers_backpressure",
+                "t7_async_transfer_architecture"
+              ],
+              "expedited": true,
+              "implementation_note": "SRE and QA teams run high-concurrency and adversarial tests to validate rate limits, isolation, and graceful degradation."
+            }
+          ],
+          "dependency_notes": "The work begins with eliminating the artificial delay and improving observability (t1, t3), which are prerequisites for safely tuning protections. Basic rate limiting and concurrency caps (t2) build on the optimized transfer path and feed data into alerting (t3), which then enables more accurate health checks (t4). Endpoint isolation (t5) depends on stable limits (t2) and sets the stage for circuit breakers and backpressure (t6). The optional asynchronous transfer architecture (t7) leverages the cleaned-up transfer logic (t1) and isolated traffic patterns (t5), while final load and stress testing (t8) validates the combined effect of isolation, circuit breakers, and any async processing before declaring the system resilient.",
+          "rpn_priority_note": "Because this scenario\u2019s RPN is high (294), we front-loaded removal of the blocking delay, rate limiting, concurrency caps, and observability into the first 30\u201360 days, pushing more complex architectural changes like async transfers and extensive load testing slightly later but still within the 90-day window."
+        },
+        {
+          "failure_mode": "Information disclosure and user enumeration via unauthenticated health and balance patterns",
+          "fixes": [
+            "Require authentication (API key or service account token) on GET /health, or split into /healthz (unauthenticated, minimal) and /readyz (authenticated, detailed) with no business-timing signals.",
+            "Normalize GET /balance/{user} responses so that non-existent and existent users return the same HTTP status (e.g., 200) and generic body shape without revealing existence via error semantics.",
+            "Introduce per-user authorization so that an API key or token can only access balances for its own principal (e.g., subject in JWT) rather than arbitrary {user} path parameters.",
+            "Reduce balance precision in API responses where possible (e.g., rounded or tiered balances) and avoid exposing sensitive metadata that is not strictly required by clients.",
+            "Implement strict rate limiting and request quotas on GET /balance/{user} per API key, IP, and user ID, with hard caps and backoff for suspicious enumeration-like patterns.",
+            "Add server-side validation to reject obviously enumerative patterns (e.g., sequential numeric user IDs, high cardinality scans in short windows) or require stronger auth for bulk queries.",
+            "Introduce configurable feature flags to quickly toggle between strict and relaxed response modes for /balance/{user} in case of active abuse or rollback needs.",
+            "Harden API key management: rotate compromised keys quickly, enforce least-privilege scopes, and require stronger auth (e.g., mTLS or IP allowlists) for keys that can access multiple users."
+          ],
+          "monitoring": [
+            "Create dashboards and alerts for GET /balance/{user} volume per API key, IP, and user, with anomaly detection on spikes, high cardinality of distinct users, and sequential ID access patterns.",
+            "Log all /balance/{user} calls with user, caller identity, status, latency, and source IP, and flag patterns indicative of enumeration (e.g., many 404-equivalent responses, rapid user changes).",
+            "Instrument GET /health (and any split /healthz, /readyz endpoints) with metrics and logs to detect abuse, including unusually high call rates or calls from unexpected networks.",
+            "Add security-focused alerts for access to high-balance accounts (e.g., top N percentile) and correlate with subsequent POST /transfer activity from the same caller.",
+            "Implement SIEM rules to correlate enumeration-like balance queries with later transfer attempts, raising priority incidents when both patterns are observed from the same principal.",
+            "Track API key usage patterns over time and alert on deviations from historical baselines, especially for keys that suddenly begin scanning many distinct users.",
+            "Monitor rate-limiter events (throttles, blocks) for /balance/{user} and /transfer to identify active attacks and tune thresholds.",
+            "Periodically run internal red-team style enumeration attempts in a non-prod environment and validate that monitoring and alerts trigger as expected."
+          ],
+          "resilience_upgrades": [
+            "Introduce a dedicated authentication and authorization layer (e.g., middleware) that enforces per-user access control and scopes on all balance and transfer endpoints.",
+            "Refactor user lookup and balance retrieval to use opaque, non-sequential identifiers and avoid exposing internal user IDs in URLs or responses.",
+            "Implement a privacy-preserving response pattern for sensitive endpoints (e.g., constant-time responses, uniform status codes, and generic error messages) to reduce oracle value.",
+            "Add configurable rate-limiting and WAF rules at the edge (API gateway or ingress) specifically tuned for enumeration and scraping patterns on /balance and /transfer.",
+            "Adopt a principle-of-least-privilege API key model with scoped permissions (read-own-balance, read-all-balances, transfer-own-funds, etc.) and enforce it consistently.",
+            "Introduce a secure audit log for all balance reads and transfers, immutable and centrally stored, to support forensic analysis and compliance.",
+            "Implement canary and staged rollout for changes to auth, error handling, and rate limiting to minimize production regressions while tightening security.",
+            "Document and train on incident runbooks for suspected enumeration or data scraping, including immediate configuration toggles, key revocation, and communication steps."
+          ],
+          "roadmap_90_day": {
+            "Day 30": "In the first 30 days, focus on closing the most exploitable gaps: add authentication or split behavior for /health, normalize /balance/{user} responses to avoid clear user-existence oracles, and implement basic per-user authorization checks for balance access. Stand up initial rate limiting on /balance and /transfer at the API gateway, and wire up logging and basic alerts for high-volume or high-cardinality balance queries. Begin designing the scoped API key model and document the new access patterns for client teams.",
+            "Day 60": "Between days 31\u201360, harden and refine: roll out a robust authorization layer enforcing least-privilege scopes, migrate clients to use scoped keys, and refine rate limits based on observed traffic. Enhance monitoring with anomaly detection for enumeration patterns, add correlation between balance reads and transfers, and deploy WAF rules tuned for scraping. Start refactoring user identifiers toward opaque IDs where feasible and introduce privacy-preserving response patterns (uniform status codes, generic errors) across sensitive endpoints.",
+            "Day 90": "By days 61\u201390, complete resilience upgrades and operational readiness: finalize the transition to scoped keys and per-user access, complete the rollout of opaque IDs for external interfaces, and solidify audit logging for all balance and transfer operations. Tune alerts to reduce noise while preserving detection coverage, and run red-team style tests to validate that enumeration attempts are blocked or quickly detected. Document and rehearse incident runbooks, and perform a post-implementation review to identify any remaining gaps or follow-on work."
+          },
+          "roadmap_tasks": [
+            {
+              "task_id": "t1_secure_health",
+              "title": "Secure and split health endpoints",
+              "start_day": 1,
+              "end_day": 10,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Require auth for detailed health or split into minimal unauthenticated /healthz and authenticated /readyz, updating load balancer checks accordingly."
+            },
+            {
+              "task_id": "t2_normalize_balance_responses",
+              "title": "Normalize /balance user existence responses",
+              "start_day": 1,
+              "end_day": 20,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Change /balance/{user} to return uniform status codes and generic messages for missing vs existing users while maintaining client compatibility."
+            },
+            {
+              "task_id": "t3_basic_rate_limiting",
+              "title": "Implement basic rate limiting on balance and transfer",
+              "start_day": 5,
+              "end_day": 25,
+              "depends_on": [],
+              "expedited": true,
+              "implementation_note": "Configure API gateway or ingress rate limits per API key and IP for /balance and /transfer with initial conservative thresholds."
+            },
+            {
+              "task_id": "t4_per_user_authz",
+              "title": "Introduce per-user authorization for balances",
+              "start_day": 10,
+              "end_day": 35,
+              "depends_on": [
+                "t2_normalize_balance_responses"
+              ],
+              "expedited": true,
+              "implementation_note": "Add middleware enforcing that callers can only access balances for their own principal or authorized scope, updating /balance handlers."
+            },
+            {
+              "task_id": "t5_scoped_api_keys",
+              "title": "Design and roll out scoped API key model",
+              "start_day": 15,
+              "end_day": 50,
+              "depends_on": [
+                "t4_per_user_authz"
+              ],
+              "expedited": true,
+              "implementation_note": "Define key scopes (e.g., read-own, read-all, transfer) and migrate existing keys and clients to least-privilege scopes."
+            },
+            {
+              "task_id": "t6_enumeration_monitoring",
+              "title": "Deploy enumeration-focused monitoring and alerts",
+              "start_day": 20,
+              "end_day": 45,
+              "depends_on": [
+                "t3_basic_rate_limiting"
+              ],
+              "expedited": true,
+              "implementation_note": "Instrument logs and metrics for /balance and /transfer and add alerts for high-cardinality and anomalous access patterns."
+            },
+            {
+              "task_id": "t7_opaque_user_ids",
+              "title": "Refactor to opaque external user identifiers",
+              "start_day": 35,
+              "end_day": 75,
+              "depends_on": [
+                "t4_per_user_authz"
+              ],
+              "expedited": false,
+              "implementation_note": "Introduce and migrate clients to opaque, non-sequential user IDs in URLs and responses to reduce enumeration feasibility."
+            },
+            {
+              "task_id": "t8_audit_logging_runbooks",
+              "title": "Enhance audit logging and incident runbooks",
+              "start_day": 40,
+              "end_day": 90,
+              "depends_on": [
+                "t6_enumeration_monitoring"
+              ],
+              "expedited": false,
+              "implementation_note": "Implement immutable audit logs for balance and transfer operations and document incident response procedures for suspected enumeration."
+            }
+          ],
+          "dependency_notes": "Initial tasks secure the most critical oracles and access paths: t1_secure_health, t2_normalize_balance_responses, and t3_basic_rate_limiting can start immediately and in parallel. Once responses are normalized, t4_per_user_authz can safely enforce per-user access without breaking clients, and t5_scoped_api_keys builds on that authorization layer to introduce least-privilege scopes. Monitoring for enumeration (t6_enumeration_monitoring) depends on having rate limiting and basic metrics in place from t3, while the shift to opaque user IDs (t7_opaque_user_ids) is sequenced after per-user auth to avoid widening access during refactors. Finally, t8_audit_logging_runbooks leverages the monitoring foundation from t6 to define robust audit and incident processes.",
+          "rpn_priority_note": "Because this scenario\u2019s RPN is high (294), we front-loaded tasks that directly reduce enumeration and disclosure risk\u2014securing health checks, normalizing balance responses, adding rate limiting, and enforcing per-user authorization\u2014into the first 30\u201345 days ahead of longer-lead refactors and process work."
+        }
+      ],
+      "scenario_linkage": {
+        "explanations": [
+          {
+            "failure_mode": "Static hardcoded API key compromise leading to full API takeover",
+            "scenario_summary": "A single hardcoded API key, once exposed, lets an attacker fully control all authenticated wallet operations and data.",
+            "code_connection": "The global constant `API_KEY = \"sk_live_123456789\"` and the simple `authenticate(x_api_key)` check mean any holder of this static secret can call `/balance/{user}` and `/transfer` without further restriction. Combined with missing validation and race-prone logic in `transfer_funds`, this turns key compromise into total control over balances and transfers.",
+            "links_to_other_scenarios": "This scenario is the entry point that enables exploitation of the negative-amount bug, race-condition double-spend, self-transfer abuse, DoS via `time.sleep`, and user enumeration behaviors described in the other scenarios."
+          },
+          {
+            "failure_mode": "Negative balances and arbitrary value creation via missing amount validation",
+            "scenario_summary": "Lack of validation on transfer amounts allows negative or zero values that invert debits/credits and let attackers mint or destroy arbitrary funds.",
+            "code_connection": "The `TransferRequest` model and `transfer_funds` function never enforce `amount > 0`, and the only check is `if sender_balance < req.amount`, which behaves incorrectly for negative values. The arithmetic `wallets[req.sender] -= req.amount` and `wallets[req.receiver] += req.amount` directly applies these unchecked amounts to the in-memory balances.",
+            "links_to_other_scenarios": "This validation gap combines with the same shared `wallets` dict and race window used in the double-spend and self-transfer scenarios, amplifying how concurrency issues can be abused to manipulate balances."
+          },
+          {
+            "failure_mode": "Double-spend via transfer race condition and artificial delay",
+            "scenario_summary": "Concurrent transfers exploit a race window to spend the same funds multiple times before balances are updated.",
+            "code_connection": "The `wallets` dict is a shared in-memory store accessed without locks, and `transfer_funds` reads `sender_balance = wallets[req.sender]` then calls `time.sleep(0.5)` before reusing that stale value for the overdraft check and subsequent debits/credits. This explicit delay plus lack of synchronization creates a classic read\u2013sleep\u2013write race condition on `/transfer`.",
+            "links_to_other_scenarios": "The same concurrency weakness that enables double-spend also interacts with negative-amount and self-transfer abuses, letting attackers combine validation flaws with race conditions for more powerful balance manipulation."
+          },
+          {
+            "failure_mode": "Self-transfer exploitation to bypass overdraft and manipulate balances",
+            "scenario_summary": "Allowing transfers where sender equals receiver enables complex self-transfer patterns that, under races and bad validation, can distort balances and overdraft checks.",
+            "code_connection": "The comment in `transfer_funds` notes there is no check for `sender == receiver`, so the same account is both debited and credited using the shared `wallets` dict and the race-prone read\u2013sleep\u2013write sequence. When combined with the lack of `amount` validation, self-transfers can be used as building blocks in concurrent flows to manipulate intermediate states.",
+            "links_to_other_scenarios": "This scenario explicitly builds on the same missing validation and race-condition behavior as the negative-amount and double-spend scenarios, showing how those flaws can be chained rather than exploited in isolation."
+          },
+          {
+            "failure_mode": "In-memory wallet store corruption and loss on process restart",
+            "scenario_summary": "Using an in-memory dictionary as the only ledger causes all balances and history to be lost or corrupted on crashes and restarts.",
+            "code_connection": "The global `wallets: Dict[str, float]` is initialized with fixed values and mutated directly by `transfer_funds` without any persistence or transactional guarantees, so any process restart reverts balances to the hardcoded defaults. Concurrent updates via the race-prone `/transfer` endpoint further risk inconsistent in-memory state before a crash.",
+            "links_to_other_scenarios": "The same shared, non-transactional `wallets` structure that enables double-spend and negative-amount abuse also means that any damage (or legitimate activity) is ephemeral and unrecoverable, compounding the financial impact of the other scenarios."
+          },
+          {
+            "failure_mode": "Denial of service via amplified processing delay under concurrency",
+            "scenario_summary": "The fixed sleep in each transfer call lets attackers tie up server resources and degrade or block legitimate wallet operations.",
+            "code_connection": "Every `/transfer` request executes `time.sleep(0.5)` inside `transfer_funds`, holding onto the worker while still accessing the shared `wallets` dict without limits or rate control. Under high concurrency, this artificial delay multiplies across requests and starves other endpoints that depend on the same process resources.",
+            "links_to_other_scenarios": "The same `time.sleep(0.5)` that widens the race window for double-spend and self-transfer manipulation also serves as the core mechanism for this DoS scenario, and the hardcoded API key compromise makes it trivial for attackers to trigger it at scale."
+          },
+          {
+            "failure_mode": "Information disclosure and user enumeration via unauthenticated health and balance patterns",
+            "scenario_summary": "Attackers can use the unauthenticated health check and distinct balance responses to map valid users and their funds for targeted abuse.",
+            "code_connection": "The `/health` endpoint is completely unauthenticated, and `/balance/{user}` uses the shared `wallets` dict to return 200 with balance data for existing users and 404 for unknown ones, creating a clear enumeration oracle once `authenticate` is bypassed or satisfied. These endpoints expose internal state without rate limiting or obfuscation.",
+            "links_to_other_scenarios": "User and balance discovery here directly feeds into the transfer-abuse scenarios (negative amounts, double-spend, self-transfer) once an attacker has the hardcoded API key, enabling them to prioritize and optimize financial attacks."
+          }
+        ],
+        "cross_cutting_themes": "Across these scenarios, recurring themes include a single hardcoded secret for authentication, missing input validation on critical financial fields, unsafe concurrency on a shared in-memory `wallets` dict, deliberate `time.sleep` calls that both widen race windows and enable DoS, lack of persistence or transactional guarantees for balances, and overly simplistic, unauthenticated or overly revealing endpoints that aid reconnaissance and exploitation."
+      },
+      "validations": [
+        {
+          "failure_mode": "Static hardcoded API key compromise leading to full API takeover",
+          "is_realistic": true,
+          "attack_chain_complete": true,
+          "rpn_calibrated": true,
+          "challenges": [
+            "Assumes the hardcoded key is reused in production and not rotated or scoped, which is common but not guaranteed.",
+            "Assumes no compensating controls (IP allowlists, WAF rules, rate limits, anomaly detection) that might partially constrain impact.",
+            "Assumes the attacker can discover the key via some leak path (repo exposure, logs, build artifacts) but those specific leak vectors are not detailed or quantified.",
+            "Assumes that all Tier 1 endpoints are protected solely by this key with no secondary authorization checks or per-user access controls.",
+            "Assumes monitoring and alerting are weak enough that large-scale anomalous transfers are not flagged before major harm occurs."
+          ],
+          "severity_adjustment": 0,
+          "occurrence_adjustment": 0,
+          "detection_adjustment": 0,
+          "confidence": 0.86,
+          "verdict": "Given a single static hardcoded API key granting global wallet control, the 10/8/9 scoring and resulting critical RPN are appropriate and require no adjustment."
+        },
+        {
+          "failure_mode": "Negative balances and arbitrary value creation via missing amount validation",
+          "is_realistic": true,
+          "attack_chain_complete": true,
+          "rpn_calibrated": true,
+          "challenges": [
+            "Assumes any authenticated client (including with a compromised key) can freely choose arbitrary sender/receiver accounts; if additional ownership or authorization checks exist, the blast radius is reduced but still severe for compromised accounts.",
+            "Impact depends on whether this in-memory wallet store backs real monetary value or is an internal/test ledger; for a production financial or credits system, the described business impact is accurate.",
+            "Detection difficulty hinges on existing reconciliation, anomaly detection, and balance-change monitoring; if strong financial controls exist, detection could be somewhat easier than scored.",
+            "The occurrence score presumes this endpoint is internet-exposed and used frequently; if it is an internal microservice with limited, well-controlled clients, actual occurrence likelihood may be slightly lower."
+          ],
+          "severity_adjustment": 0,
+          "occurrence_adjustment": 0,
+          "detection_adjustment": 0,
+          "confidence": 0.86,
+          "verdict": "The described failure mode, attack chain, and 10/8/8 scoring are realistic and appropriately critical for a financial-transfer context, so the existing RPN is well calibrated."
+        },
+        {
+          "failure_mode": "Double-spend via transfer race condition and artificial delay",
+          "is_realistic": true,
+          "attack_chain_complete": true,
+          "rpn_calibrated": true,
+          "challenges": [
+            "Actual financial loss magnitude depends on per-wallet limits, velocity controls, and whether negative balances are allowed or auto-blocked.",
+            "If strong reconciliation and anomaly detection exist (e.g., nightly balance checks, velocity alerts), impact duration may be shortened even if not prevented.",
+            "Exposure level hinges on whether this API is internet-facing to customers/partners or restricted to internal services with lower concurrency and fewer adversaries.",
+            "If idempotency keys or transaction identifiers are enforced at a higher layer, they could partially mitigate multi-spend even with the race condition present.",
+            "Detection score assumes weak or absent monitoring of concurrent transfer anomalies; mature fraud/ops monitoring could lower the effective Detection rating."
+          ],
+          "severity_adjustment": 0,
+          "occurrence_adjustment": 0,
+          "detection_adjustment": 0,
+          "confidence": 0.86,
+          "verdict": "The described race-condition double-spend is a realistic, high-impact integrity failure, and the current S=9, O=7, D=9 (RPN 567) is appropriately calibrated as a critical priority."
+        },
+        {
+          "failure_mode": "Self-transfer exploitation to bypass overdraft and manipulate balances",
+          "is_realistic": true,
+          "attack_chain_complete": true,
+          "rpn_calibrated": true,
+          "challenges": [
+            "Exploitation requires careful timing and understanding of race conditions and intermediate balance states, which raises the bar above trivial abuse.",
+            "The impact magnitude depends on concurrency characteristics (e.g., DB isolation level, locking, queuing) that may limit or amplify the exploit in practice.",
+            "Some environments may have secondary reconciliation or anomaly-detection controls that partially mitigate or retroactively correct manipulated balances.",
+            "Negative-amount handling and self-transfer semantics may vary by implementation, affecting how reliably overdraft bypass can be turned into permanent gains.",
+            "Detection likelihood is sensitive to the quality of transaction logging and monitoring for unusual self-transfer patterns, which is not fully specified."
+          ],
+          "severity_adjustment": 0,
+          "occurrence_adjustment": 0,
+          "detection_adjustment": 0,
+          "confidence": 0.78,
+          "verdict": "The scenario is realistic and materially risky as scored, with complex but feasible exploitation and a high business impact that justifies the existing high RPN."
+        },
+        {
+          "failure_mode": "In-memory wallet store corruption and loss on process restart",
+          "is_realistic": true,
+          "attack_chain_complete": true,
+          "rpn_calibrated": false,
+          "challenges": [
+            "Severity 9 is close but slightly understates the systemic and regulatory impact of total, silent loss of financial state across all wallets.",
+            "Occurrence 6 may be low if this is a production-facing service, as restarts (deployments, crashes, autoscaling) are routine and do not require attacker action.",
+            "Detection 7 may be optimistic because the failure manifests as 'normal' balances after restart with no inherent error signal, and discrepancies are only noticed via external reconciliation or customer complaints.",
+            "The model assumes no external ledger or compensating control; if such systems exist, both severity and detection would need recalibration.",
+            "Concurrency-induced corruption prior to restart adds an additional, harder-to-detect inconsistency mode that is not fully captured in the current scoring."
+          ],
+          "severity_adjustment": 1,
+          "occurrence_adjustment": 1,
+          "detection_adjustment": 1,
+          "confidence": 0.86,
+          "verdict": "This is a realistic, system-wide, high-priority failure mode whose risk is slightly under-scored across severity, occurrence, and detection given the total loss of durable financial state on every restart."
+        },
+        {
+          "failure_mode": "Denial of service via amplified processing delay under concurrency",
+          "is_realistic": true,
+          "attack_chain_complete": true,
+          "rpn_calibrated": true,
+          "challenges": [
+            "Impact is clearly service-wide for core wallet functions, but not a full infrastructure outage, which supports a mid\u2013high severity rather than truly catastrophic.",
+            "A valid API key is required, which slightly constrains attackers to insiders, leaked keys, or compromised clients, but misbehaving legitimate clients are still plausible.",
+            "The fixed 0.5s delay under concurrency is a textbook amplification vector for DoS, making occurrence reasonably high in an internet-exposed financial API without rate limiting.",
+            "Health checks remaining green while business endpoints are degraded is a known anti-pattern, but many orgs still rely on simplistic health endpoints, so delayed detection is realistic.",
+            "Some operational monitoring (latency, error rates, thread pool saturation) may exist even if /health is naive, so detection is not worst-case but also not low-friction."
+          ],
+          "severity_adjustment": 0,
+          "occurrence_adjustment": 0,
+          "detection_adjustment": 0,
+          "confidence": 0.82,
+          "verdict": "The described DoS via fixed processing delay and misleading health checks is realistic, and the current S=7, O=7, D=6 scoring is well-calibrated for a high-priority availability risk to core wallet operations."
+        },
+        {
+          "failure_mode": "Information disclosure and user enumeration via unauthenticated health and balance patterns",
+          "is_realistic": true,
+          "attack_chain_complete": true,
+          "rpn_calibrated": false,
+          "challenges": [
+            "Severity may be under-scored: direct disclosure of all wallet balances plus enabling targeted fraud and social engineering is close to business-critical impact, especially if this is a primary wallet/treasury system.",
+            "Occurrence depends heavily on how API keys are managed (public API vs tightly controlled internal keys); the current score assumes moderate exposure but may not reflect continuous automated probing once any key leaks.",
+            "Detection might be over-optimistic or under-optimistic depending on whether there is per-endpoint logging, anomaly detection on enumeration patterns, and fraud monitoring on transfers; the description does not specify these controls.",
+            "The unauthenticated /health endpoint itself is low-impact, but it materially improves attack efficiency when combined with weak balance endpoint design, complicating pure scoring by individual control.",
+            "Business context (number of users, regulatory environment, whether balances are customer funds vs internal credits) could push severity to catastrophic (e.g., regulated financial services with mandatory breach disclosure)."
+          ],
+          "severity_adjustment": 1,
+          "occurrence_adjustment": 0,
+          "detection_adjustment": 1,
+          "confidence": 0.78,
+          "verdict": "The failure mode and attack chain are realistic, but severity and especially detection are likely under-scored, so the current RPN should be increased slightly for prioritization."
+        }
+      ],
+      "evaluation": "PipelineEval(overall_passed=True, agents=[AgentEval(agent='surveyor', passed=True, score=1.0, issues=[], warnings=[]), AgentEval(agent='saboteur', passed=True, score=1.0, issues=[], warnings=[]), AgentEval(agent='controls_assessor', passed=True, score=1.0, issues=[], warnings=[]), AgentEval(agent='actuary', passed=True, score=1.0, issues=[], warnings=[]), AgentEval(agent='validator', passed=True, score=1.0, issues=[], warnings=[]), AgentEval(agent='sre_agent', passed=True, score=1.0, issues=[], warnings=[])], llm_calls=19, estimated_cost_usd=0.2934, scenario_count=7, summary='All 6 agents passed with no issues. Avg quality score 1.0/1.0. 19 LLM calls, ~$0.2934 estimated.')",
+      "judge_verdicts": [
+        "JudgeVerdict(agent='saboteur', reasoning_quality=0.92, specificity=0.9, calibration=0.9, overall=0.907, commentary='Failure modes are well-chosen, multi-step, and tightly grounded in the described code behavior with realistic triggers and impacts.')",
+        "JudgeVerdict(agent='actuary', reasoning_quality=0.4, specificity=0.3, calibration=0.85, overall=0.5, commentary='RPN math and relative rankings are consistent and plausible, but rationales are placeholders (\u201ccarried over\u201d) with no visible reasoning detail.')",
+        "JudgeVerdict(agent='validator', reasoning_quality=0.88, specificity=0.8, calibration=0.9, overall=0.858, commentary='Peer review surfaces concrete assumptions and edge conditions, generally endorses scores with minor nuanced adjustments, and is internally consistent.')",
+        "JudgeVerdict(agent='sre_agent', reasoning_quality=0.86, specificity=0.88, calibration=0.9, overall=0.879, commentary='Remediations are concrete, code- and system-level, well-aligned to each failure mode, and sized plausibly with monitoring and roadmap considerations.')"
+      ],
+      "drift_alerts": [],
+      "workspace": "WorkspaceContext(customer='Test 1', project='Test Project 1', function='Test Function', business_tier='Tier 1', user_type='external_customers', business_context='', customer_learning=True)",
+      "workspace_id": 1,
+      "fingerprint": "94d3467a251ac779",
+      "from_cache": false,
+      "registry_locked": true,
+      "new_scenarios": []
+    }
+  }
+}

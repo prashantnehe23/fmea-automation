@@ -1,0 +1,53 @@
+[
+  {
+    "timestamp": "2026-06-03T22:04:59.059154",
+    "overall_passed": true,
+    "avg_score": 1.0,
+    "llm_calls": 13,
+    "estimated_cost_usd": 0.2934,
+    "scenario_count": 7,
+    "agent_scores": {
+      "surveyor": 1.0,
+      "saboteur": 1.0,
+      "controls_assessor": 1.0,
+      "actuary": 1.0,
+      "validator": 1.0,
+      "sre_agent": 1.0
+    },
+    "summary": "All 6 agents passed with no issues. Avg quality score 1.0/1.0. 13 LLM calls, ~$0.2934 estimated."
+  },
+  {
+    "timestamp": "2026-06-03T22:51:56.899918",
+    "overall_passed": true,
+    "avg_score": 1.0,
+    "llm_calls": 12,
+    "estimated_cost_usd": 0.2934,
+    "scenario_count": 7,
+    "agent_scores": {
+      "surveyor": 1.0,
+      "saboteur": 1.0,
+      "controls_assessor": 1.0,
+      "actuary": 1.0,
+      "validator": 1.0,
+      "sre_agent": 1.0
+    },
+    "summary": "All 6 agents passed with no issues. Avg quality score 1.0/1.0. 12 LLM calls, ~$0.2934 estimated."
+  },
+  {
+    "timestamp": "2026-06-04T10:59:11.139527",
+    "overall_passed": true,
+    "avg_score": 1.0,
+    "llm_calls": 12,
+    "estimated_cost_usd": 0.2934,
+    "scenario_count": 7,
+    "agent_scores": {
+      "surveyor": 1.0,
+      "saboteur": 1.0,
+      "controls_assessor": 1.0,
+      "actuary": 1.0,
+      "validator": 1.0,
+      "sre_agent": 1.0
+    },
+    "summary": "All 6 agents passed with no issues. Avg quality score 1.0/1.0. 12 LLM calls, ~$0.2934 estimated."
+  }
+]
