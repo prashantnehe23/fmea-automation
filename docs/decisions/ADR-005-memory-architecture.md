@@ -36,22 +36,31 @@ same RPN scores. LLM non-determinism is completely eliminated for known componen
 
 ---
 
-### Level 2 — Expert Calibration Memory (Partially implemented — audit trail exists, learning loop not yet closed)
+### Level 2 — Expert Calibration Memory (Implemented — B-001, 2026-06-20)
 
-**What it stores:** Every human RPN adjustment: failure mode, original S/O/D, adjusted S/O/D,
-justification text, security engineer identity, date, scope level at which the adjustment
-was made.
+**What it stores:** Every human RPN adjustment: failure mode, adjusted S/O/D, computed RPN,
+and justification text, persisted in the `adjustments` table in SQLite.
 
-**What it does:** Feeds expert knowledge back into the actuary's priors. If a security
-engineer with domain expertise consistently rates "JWT bypass" as Severity 9 (not the LLM's
-Severity 7) across multiple components, the actuary should learn this prior and apply it
-automatically to new components with JWT bypass failure modes.
+**What it does:** When locked scenarios are loaded for a subsequent rescan, the most recent
+human adjustment for each failure mode is overlaid on top of the actuary's original scores.
+The adjusted S/O/D values become the locked baseline — the actuary short-circuits to these
+rather than to the original first-scan values.
 
 **Learning signal:** Human RPN adjustments with justification text. The justification is
-particularly valuable — it is labelled reasoning, not just a number change.
+stored in the audit trail and rendered in the ScoringPage, giving full traceability from
+decision to rescan outcome.
 
-**Current gap:** Adjustments are stored in the audit trail but not yet fed back into the
-actuary prompt as learned priors. This must be implemented.
+**Implementation:**
+- `memory/db.py` — `adjustments` table; `save_adjustment()`, `get_adjustments()`
+- `memory/scenario_registry.py` — `get_locked_scenarios()` overlays approved adjustments on load
+- `api/routers/scoring.py` — `POST /api/scoring/adjustment`, `GET /api/scoring/adjustments/{workspace_id}`
+- `frontend/src/pages/ScoringPage.jsx` — persists on "Propose Adjustment"; loads audit trail on mount
+- `tests/test_adjustments.py` — 7 tests covering DB round-trip, overlay, isolation, and precedence
+
+**Remaining gap (future work):** Cross-failure-mode generalisation — if an engineer adjusts
+"JWT bypass" to Severity 9 across multiple workspaces, the actuary could learn this as a
+global prior and apply it automatically. This is a Level 3/4 concern; current implementation
+is per-workspace.
 
 ---
 

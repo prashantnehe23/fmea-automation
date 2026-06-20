@@ -97,6 +97,18 @@ CREATE TABLE IF NOT EXISTS telemetry (
     error             TEXT,
     ts                TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS adjustments (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id  INTEGER NOT NULL REFERENCES workspaces(id),
+    failure_mode  TEXT    NOT NULL,
+    new_s         INTEGER NOT NULL,
+    new_o         INTEGER NOT NULL,
+    new_d         INTEGER NOT NULL,
+    new_rpn       INTEGER NOT NULL,
+    justification TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL
+);
 """
 
 
@@ -428,6 +440,53 @@ def save_telemetry_span(
             conn.commit()
         finally:
             conn.close()
+
+
+# ── Score adjustments (L2 memory) ─────────────────────────────────────────────
+
+def save_adjustment(
+    workspace_id: int,
+    failure_mode: str,
+    new_s: int,
+    new_o: int,
+    new_d: int,
+    justification: str,
+) -> int:
+    """Persist a security-engineer score adjustment. Returns adjustment id."""
+    new_rpn = new_s * new_o * new_d
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """
+                INSERT INTO adjustments
+                    (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn,
+                 justification, datetime.now().isoformat()),
+            )
+            conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
+        finally:
+            conn.close()
+
+
+def get_adjustments(workspace_id: int) -> list[dict]:
+    """Return all score adjustments for this workspace, most recent first."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at
+            FROM adjustments WHERE workspace_id=?
+            ORDER BY created_at DESC
+            """,
+            (workspace_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def backfill_telemetry_scan_id(run_id: str, scan_id: int) -> None:

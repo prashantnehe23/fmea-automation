@@ -222,7 +222,8 @@ export default function App() {
     return null;
   })();
 
-  const liveContext = scanResult ? getContextSummary(scanResult) : null;
+  const liveContext   = scanResult ? getContextSummary(scanResult) : null;
+  const workspaceId   = sel.projectId ? (scanHistory[sel.projectId]?.workspace_id ?? null) : null;
 
   // ── Persona / scope switching ─────────────────────────────────────────────────
 
@@ -272,6 +273,7 @@ export default function App() {
             liveRisks={liveRisks}
             liveContext={liveContext}
             liveScanId={liveScanId}
+            workspaceId={workspaceId}
             onScanComplete={onScanComplete}
             onUpdateProjectRepo={updateProjectRepo}
           />
