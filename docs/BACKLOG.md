@@ -31,6 +31,7 @@
 | [x] | Test suite — 34 tests passing (db, scenario_registry, remediator) | `tests/` |
 | [x] | Scenario Lock/Unlock UI — lock badge, 🆕 new badge, Unlock & Rescan button | `ScanPage.jsx`, `ScenariosPage.jsx`, `api.js`, `App.jsx` |
 | [x] | Expert Score Adjustment (B-001) — L2 memory loop closed; adjustments persist to DB and override locked S/O/D on rescan | `api/routers/scoring.py`, `memory/db.py`, `memory/scenario_registry.py`, `ScoringPage.jsx` |
+| [x] | Workspace Business Tier (B-003) — Business Tier + User Type dropdowns in New Project form; values flow through to saboteur via workspace object | `HierarchyTree.jsx`, `App.jsx`, `ScanPage.jsx` |
 
 ---
 
@@ -58,7 +59,7 @@
 
 ## Tier 2 — P1: High value, next sprint
 
-### B-003 · Workspace Business Tier — User Configurable
+### B-003 · Workspace Business Tier — User Configurable `[x]` DONE
 **Why:** `business_tier` and `user_type` are currently hardcoded to `'Tier 1'` and `'external_customers'` in ScanPage. These affect how the saboteur prioritises failure modes. They must come from the project definition.
 
 **Scope:**
@@ -67,9 +68,11 @@
 - `runGithubScan()` reads these from project when building the workspace object sent to the API
 
 **Acceptance criteria:**
-- [ ] New project form has Business Tier and User Type dropdowns (optional, defaults to Tier 1 / external)
-- [ ] Selected values are stored with the project and survive page refresh
-- [ ] Workspace object sent to API reflects these values, not hardcoded strings
+- [x] New project form has Business Tier and User Type dropdowns (optional, defaults to Tier 1 / external)
+- [x] Selected values are stored with the project and survive page refresh
+- [x] Workspace object sent to API reflects these values, not hardcoded strings
+
+**Shipped:** 2026-06-20 — `frontend/src/components/HierarchyTree.jsx` (form dropdowns), `frontend/src/App.jsx` (addProject signature + project object), `frontend/src/pages/ScanPage.jsx` (reads from project, fallback defaults)
 
 ---
 

@@ -249,7 +249,7 @@ export default function ScanPage({
     setStages(order.map(s => ({ stage: s })));
 
     const ws = project
-      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: 'Tier 1', user_type: 'external_customers' }
+      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: project.businessTier ?? 'Tier 1', user_type: project.userType ?? 'external_customers' }
       : null;
 
     try {
@@ -292,7 +292,7 @@ export default function ScanPage({
     setStages(order.map(s => ({ stage: s })));
 
     const ws = project
-      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: 'Tier 1', user_type: 'external_customers' }
+      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: project.businessTier ?? 'Tier 1', user_type: project.userType ?? 'external_customers' }
       : null;
 
     try {
