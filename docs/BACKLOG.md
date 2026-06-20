@@ -30,12 +30,13 @@
 | [x] | RemediationPage — mock fallback removed; real API call + proper empty state | `frontend/src/pages/RemediationPage.jsx` |
 | [x] | Test suite — 34 tests passing (db, scenario_registry, remediator) | `tests/` |
 | [x] | Scenario Lock/Unlock UI — lock badge, 🆕 new badge, Unlock & Rescan button | `ScanPage.jsx`, `ScenariosPage.jsx`, `api.js`, `App.jsx` |
+| [x] | Expert Score Adjustment (B-001) — L2 memory loop closed; adjustments persist to DB and override locked S/O/D on rescan | `api/routers/scoring.py`, `memory/db.py`, `memory/scenario_registry.py`, `ScoringPage.jsx` |
 
 ---
 
-## Tier 1 — P0: Must-have to complete the core loop
+## Tier 1 — P0: Must-have to complete the core loop ✅
 
-### B-001 · Expert Score Adjustment — Close the L2 Memory Loop
+### B-001 · Expert Score Adjustment — Close the L2 Memory Loop `[x]` DONE
 **Why:** The Scoring page lets a security engineer propose RPN adjustments with justification. Those adjustments are currently local UI state only — never written back to the scenario registry. Without persistence, every rescan ignores human corrections.
 
 **Scope:**
@@ -45,11 +46,13 @@
 - React ScoringPage — call the API on "Propose Adjustment"; show "✓ Saved to registry" confirmation
 
 **Acceptance criteria:**
-- [ ] Adjustment persisted to DB on "Propose Adjustment" click
-- [ ] On next rescan for the same workspace, the adjusted S/O/D values are used as the locked baseline
-- [ ] Audit trail visible in ScoringPage shows saved adjustments with date
+- [x] Adjustment persisted to DB on "Propose Adjustment" click
+- [x] On next rescan for the same workspace, the adjusted S/O/D values are used as the locked baseline
+- [x] Audit trail visible in ScoringPage shows saved adjustments with date
 
-**ADR:** ADR-005 (Level 2 memory — closes the loop)
+**ADR:** ADR-005 (Level 2 memory — closes the loop, updated 2026-06-20)
+
+**Shipped:** 2026-06-20 — `api/routers/scoring.py`, `memory/db.py` (adjustments table), `memory/scenario_registry.py` (overlay), `frontend/src/pages/ScoringPage.jsx`, `tests/test_adjustments.py` (7 tests, all passing)
 
 ---
 

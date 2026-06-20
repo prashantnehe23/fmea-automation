@@ -62,10 +62,29 @@ def _scenario_text(name: str, attack_chain: list[str]) -> str:
 
 def get_locked_scenarios(workspace_id: int) -> list[dict]:
     """
-    Return all locked scenario dicts for this workspace.
+    Return all locked scenario dicts for this workspace with any human
+    score adjustments overlaid on top of the original actuary values.
     Each dict: failure_mode, severity, occurrence, detection, rpn, embedding (np.ndarray | None).
     """
-    return db.get_locked_scenarios(workspace_id)
+    scenarios = db.get_locked_scenarios(workspace_id)
+    adjustments = db.get_adjustments(workspace_id)
+    if not adjustments:
+        return scenarios
+
+    # Most-recent adjustment per failure_mode wins (list is already DESC by created_at)
+    latest: dict[str, dict] = {}
+    for adj in adjustments:
+        if adj["failure_mode"] not in latest:
+            latest[adj["failure_mode"]] = adj
+
+    for scenario in scenarios:
+        adj = latest.get(scenario["failure_mode"])
+        if adj:
+            scenario["severity"]   = adj["new_s"]
+            scenario["occurrence"] = adj["new_o"]
+            scenario["detection"]  = adj["new_d"]
+            scenario["rpn"]        = adj["new_rpn"]
+    return scenarios
 
 
 def find_matching_scenario(

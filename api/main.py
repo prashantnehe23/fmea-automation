@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import eval as eval_router
 from api.routers import github as github_router
-from api.routers import remediation, scan, telemetry as telemetry_router, workspace
+from api.routers import remediation, scan, scoring as scoring_router, telemetry as telemetry_router, workspace
 
 app = FastAPI(
     title="FMEA Platform API",
@@ -38,6 +38,7 @@ app.include_router(remediation.router)
 app.include_router(eval_router.router)
 app.include_router(github_router.router)
 app.include_router(telemetry_router.router)
+app.include_router(scoring_router.router)
 
 
 @app.get("/api/health")

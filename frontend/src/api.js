@@ -233,6 +233,39 @@ export async function getEvalHistory(workspaceId, n = 20) {
   return res.json();
 }
 
+// ── Scoring adjustments ───────────────────────────────────────────────────────
+
+/**
+ * POST /api/scoring/adjustment — persist a security-engineer score adjustment.
+ * @returns {object} { id, workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at }
+ */
+export async function postScoringAdjustment(workspaceId, failureMode, newS, newO, newD, justification) {
+  const res = await fetch(`${BASE}/api/scoring/adjustment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      workspace_id:  workspaceId,
+      failure_mode:  failureMode,
+      new_s:         newS,
+      new_o:         newO,
+      new_d:         newD,
+      justification,
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+/**
+ * GET /api/scoring/adjustments/{workspaceId} — audit trail for a workspace.
+ * @returns {Array} list of adjustment objects ordered newest first
+ */
+export async function getScoringAdjustments(workspaceId) {
+  const res = await fetch(`${BASE}/api/scoring/adjustments/${workspaceId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 // ── Telemetry ─────────────────────────────────────────────────────────────────
 
 /**

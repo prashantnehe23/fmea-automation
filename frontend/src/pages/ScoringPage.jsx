@@ -17,6 +17,7 @@ import KpiRow from '../components/KpiRow';
 import { PChip } from '../components/Chip';
 import { SCOPE_LABEL } from '../data';
 import { getSelectionLabel, PRI } from '../helpers';
+import { postScoringAdjustment, getScoringAdjustments } from '../api';
 
 // ── Validator panel (within scoring detail) ───────────────────────────────────
 
@@ -111,15 +112,33 @@ function ScoreSlider({ label, dim, colorClass, hint, value, rationale, onChange,
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy = [] }) {
+export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy = [], workspaceId }) {
   const risks  = liveRisks ?? [];
   const label  = getSelectionLabel(sel, scope, hierarchy);
 
   const defaultRisk = risks[0] ?? null;
-  const [selRisk, setSelRisk] = useState(defaultRisk);
-  const [adj,     setAdj]     = useState({ s: defaultRisk?.s ?? 5, o: defaultRisk?.o ?? 5, d: defaultRisk?.d ?? 5 });
-  const [reason,  setReason]  = useState('');
-  const [log,     setLog]     = useState([]);
+  const [selRisk,   setSelRisk]   = useState(defaultRisk);
+  const [adj,       setAdj]       = useState({ s: defaultRisk?.s ?? 5, o: defaultRisk?.o ?? 5, d: defaultRisk?.d ?? 5 });
+  const [reason,    setReason]    = useState('');
+  const [log,       setLog]       = useState([]);
+  const [saveState, setSaveState] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+
+  // Load persisted adjustments from API when workspaceId is available
+  useEffect(() => {
+    if (!workspaceId) return;
+    getScoringAdjustments(workspaceId)
+      .then(rows => {
+        setLog(rows.map(r => ({
+          risk:   r.failure_mode,
+          from:   null,
+          to:     r.new_rpn,
+          reason: r.justification,
+          date:   new Date(r.created_at).toLocaleDateString('en-GB'),
+          saved:  true,
+        })));
+      })
+      .catch(() => {}); // non-critical — audit trail simply stays empty
+  }, [workspaceId]);
 
   useEffect(() => {
     if (liveRisks?.length) {
@@ -130,16 +149,28 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
     }
   }, [liveRisks]);
 
-  const pick = r => { setSelRisk(r); setAdj({ s: r.s, o: r.o, d: r.d }); setReason(''); };
+  const pick = r => { setSelRisk(r); setAdj({ s: r.s, o: r.o, d: r.d }); setReason(''); setSaveState('idle'); };
   const newRpn  = adj.s * adj.o * adj.d;
   const changed = selRisk && (adj.s !== selRisk.s || adj.o !== selRisk.o || adj.d !== selRisk.d);
 
-  const propose = () => {
+  const propose = async () => {
     if (!reason.trim() || !selRisk) return;
-    setLog(p => [{
+    const entry = {
       risk: selRisk.name, from: selRisk.rpn, to: newRpn, reason,
       date: new Date().toLocaleDateString('en-GB'),
-    }, ...p]);
+      saved: false,
+    };
+    if (workspaceId) {
+      setSaveState('saving');
+      try {
+        await postScoringAdjustment(workspaceId, selRisk.name, adj.s, adj.o, adj.d, reason);
+        entry.saved = true;
+        setSaveState('saved');
+      } catch {
+        setSaveState('error');
+      }
+    }
+    setLog(p => [entry, ...p]);
     setReason('');
   };
 
@@ -297,12 +328,18 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
                 <div className="flex items-center justify-between mt-3">
                   <button
                     onClick={propose}
-                    disabled={!reason.trim()}
+                    disabled={!reason.trim() || saveState === 'saving'}
                     className="px-5 py-2 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 disabled:opacity-40 shadow-sm"
                   >
-                    Propose Adjustment
+                    {saveState === 'saving' ? 'Saving…' : 'Propose Adjustment'}
                   </button>
-                  {log.length > 0 && (
+                  {saveState === 'saved' && (
+                    <span className="text-xs text-green-600 font-semibold">✓ Saved to registry</span>
+                  )}
+                  {saveState === 'error' && (
+                    <span className="text-xs text-red-500">Failed to save — adjustment is local only</span>
+                  )}
+                  {saveState === 'idle' && log.length > 0 && (
                     <span className="text-xs text-gray-400">{log.length} adjustment{log.length > 1 ? 's' : ''} in audit trail</span>
                   )}
                 </div>
@@ -316,14 +353,21 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
                 <div className="space-y-2">
                   {log.map((e, i) => (
                     <div key={i} className="flex justify-between items-start py-2 border-b border-gray-50 last:border-0">
-                      <div>
-                        <p className="text-xs font-semibold text-gray-700">{e.risk}</p>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-semibold text-gray-700 truncate">{e.risk}</p>
+                          {e.saved && (
+                            <span className="flex-shrink-0 text-xs bg-green-50 border border-green-200 text-green-700 px-1.5 py-0.5 rounded-full">✓ registry</span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-400 italic mt-0.5">"{e.reason}"</p>
                       </div>
                       <div className="text-right ml-4 flex-shrink-0">
                         <p className="text-sm font-bold">
-                          <span className="text-gray-300 line-through mr-1">{e.from}</span>
-                          <span className={e.to < e.from ? 'text-green-600' : 'text-red-600'}>{e.to}</span>
+                          {e.from != null && (
+                            <span className="text-gray-300 line-through mr-1">{e.from}</span>
+                          )}
+                          <span className={e.from == null || e.to < e.from ? 'text-green-600' : 'text-red-600'}>{e.to}</span>
                         </p>
                         <p className="text-xs text-gray-300">{e.date}</p>
                       </div>
