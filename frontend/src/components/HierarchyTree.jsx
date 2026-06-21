@@ -4,14 +4,18 @@ import { PERSONA_SCOPE_OPTIONS } from '../data';
 // ── Inline "new project" form ─────────────────────────────────────────────────
 
 function NewProjectForm({ onSave, onCancel }) {
-  const [name,    setName]    = useState('');
-  const [repoUrl, setRepoUrl] = useState('');
+  const [name,         setName]         = useState('');
+  const [repoUrl,      setRepoUrl]      = useState('');
+  const [businessTier, setBusinessTier] = useState('Tier 1');
+  const [userType,     setUserType]     = useState('external_customers');
 
   const submit = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onSave(name.trim(), repoUrl.trim());
+    onSave(name.trim(), repoUrl.trim(), businessTier, userType);
   };
+
+  const selectCls = "w-full text-xs px-2 py-1 rounded border border-gray-200 mb-1 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white";
 
   return (
     <form onSubmit={submit} className="ml-5 mr-2 mt-1 mb-2 p-2 bg-white rounded-lg border border-blue-200 shadow-sm">
@@ -23,11 +27,21 @@ function NewProjectForm({ onSave, onCancel }) {
         onChange={e => setName(e.target.value)}
       />
       <input
-        className="w-full text-xs px-2 py-1 rounded border border-gray-200 mb-2 focus:outline-none focus:ring-1 focus:ring-blue-300 font-mono"
+        className="w-full text-xs px-2 py-1 rounded border border-gray-200 mb-1 focus:outline-none focus:ring-1 focus:ring-blue-300 font-mono"
         placeholder="https://github.com/owner/repo (optional)"
         value={repoUrl}
         onChange={e => setRepoUrl(e.target.value)}
       />
+      <select className={selectCls} value={businessTier} onChange={e => setBusinessTier(e.target.value)}>
+        <option value="Tier 1">Tier 1 — Mission-critical</option>
+        <option value="Tier 2">Tier 2 — Important</option>
+        <option value="Tier 3">Tier 3 — Supporting</option>
+      </select>
+      <select className={`${selectCls} mb-2`} value={userType} onChange={e => setUserType(e.target.value)}>
+        <option value="external_customers">External customers</option>
+        <option value="internal_staff">Internal staff</option>
+        <option value="b2b_partner">B2B partners</option>
+      </select>
       <div className="flex gap-1">
         <button
           type="submit"
@@ -125,8 +139,8 @@ export default function HierarchyTree({
   const tPr = id => setOpenPr(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   const can = level => scopeOptions.includes(level);
 
-  const handleAddProject = (portfolioId, name, repoUrl) => {
-    onAddProject?.(portfolioId, name, repoUrl);
+  const handleAddProject = (portfolioId, name, repoUrl, businessTier, userType) => {
+    onAddProject?.(portfolioId, name, repoUrl, businessTier, userType);
     setAddingPrTo(null);
   };
 
@@ -185,7 +199,7 @@ export default function HierarchyTree({
                 {/* + New Project button / form */}
                 {addingPrTo === portfolio.id ? (
                   <NewProjectForm
-                    onSave={(name, repoUrl) => handleAddProject(portfolio.id, name, repoUrl)}
+                    onSave={(name, repoUrl, businessTier, userType) => handleAddProject(portfolio.id, name, repoUrl, businessTier, userType)}
                     onCancel={() => setAddingPrTo(null)}
                   />
                 ) : (

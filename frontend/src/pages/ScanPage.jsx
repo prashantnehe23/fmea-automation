@@ -20,7 +20,7 @@ import ScopeHeader from '../components/ScopeHeader';
 import KpiRow from '../components/KpiRow';
 import { SCOPE_LABEL, ALL_RISKS } from '../data';
 import { filterRisks, getSelectionLabel, aggregateBy } from '../helpers';
-import { streamGithubScan, streamScan, STAGE_LABELS, deleteWorkspaceScenarios } from '../api';
+import { streamGithubScan, streamScan, STAGE_LABELS, deleteWorkspaceScenarios, previewGithubRepo } from '../api';
 
 // ── Stage order constants ─────────────────────────────────────────────────────
 
@@ -32,6 +32,131 @@ const GITHUB_STAGES = [
 const CODE_STAGES = [
   'surveyor', 'saboteur', 'controls', 'actuary', 'sre', 'validator', 'registry', 'eval',
 ];
+
+// ── File browser constants ────────────────────────────────────────────────────
+
+const CODE_EXTS = new Set([
+  '.py', '.js', '.mjs', '.ts', '.tsx', '.jsx', '.go', '.java', '.rb', '.rs',
+  '.cpp', '.c', '.cs', '.php', '.swift', '.kt', '.scala', '.sh', '.sql',
+]);
+
+const EXT_CLS = {
+  '.py':   'text-blue-600 bg-blue-50 border-blue-100',
+  '.js':   'text-yellow-700 bg-yellow-50 border-yellow-100',
+  '.mjs':  'text-yellow-700 bg-yellow-50 border-yellow-100',
+  '.ts':   'text-blue-700 bg-blue-50 border-blue-200',
+  '.jsx':  'text-cyan-600 bg-cyan-50 border-cyan-100',
+  '.tsx':  'text-cyan-700 bg-cyan-50 border-cyan-100',
+  '.yaml': 'text-green-600 bg-green-50 border-green-100',
+  '.yml':  'text-green-600 bg-green-50 border-green-100',
+  '.json': 'text-amber-700 bg-amber-50 border-amber-100',
+  '.md':   'text-purple-600 bg-purple-50 border-purple-100',
+  '.go':   'text-teal-600 bg-teal-50 border-teal-100',
+};
+
+function groupByDir(files) {
+  const map = {};
+  for (const path of files) {
+    const i    = path.lastIndexOf('/');
+    const dir  = i >= 0 ? path.slice(0, i + 1) : '';
+    const name = path.slice(i + 1);
+    const ext  = name.includes('.') ? name.slice(name.lastIndexOf('.')).toLowerCase() : '';
+    if (!map[dir]) map[dir] = [];
+    map[dir].push({ path, name, ext });
+  }
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dir, items]) => ({ dir: dir || '(root)', items }));
+}
+
+// ── File panel (right rail) ───────────────────────────────────────────────────
+
+function FilePanel({ previewData, selectedFiles, onToggle, onSelectAll, onSelectCode, onClear, onScan, onClose, scanning }) {
+  const groups = groupByDir(previewData.files);
+  return (
+    <aside className="w-72 flex-shrink-0 border-l border-gray-100 flex flex-col bg-white overflow-hidden">
+      {/* Tab header */}
+      <div className="flex items-center border-b border-gray-100 flex-shrink-0">
+        <div className="flex-1 py-2 px-3 text-xs font-medium text-blue-600 border-b-2 border-blue-600">
+          📄 Files
+        </div>
+        <button
+          onClick={onClose}
+          className="px-3 py-2 text-gray-300 hover:text-gray-500 text-sm leading-none"
+          title="Close file panel"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Repo info + quick-select */}
+      <div className="p-3 border-b border-gray-100 flex-shrink-0">
+        <div className="text-xs font-medium text-gray-800 flex items-center gap-1 mb-1 truncate">
+          <span>📦</span> {previewData.ref.owner}/{previewData.ref.repo}
+        </div>
+        <div className="text-xs text-gray-400 mb-2">
+          {previewData.file_count} files · <span className="text-blue-600 font-medium">{selectedFiles.size} selected</span>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={onSelectAll}  className="text-xs px-2 py-1 rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600">All</button>
+          <button onClick={onSelectCode} className="text-xs px-2 py-1 rounded border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-600">Code</button>
+          <button onClick={onClear}      className="text-xs px-2 py-1 rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600">Clear</button>
+        </div>
+      </div>
+
+      {/* File tree */}
+      <div className="flex-1 overflow-y-auto text-xs">
+        {groups.map(({ dir, items }) => (
+          <div key={dir}>
+            <div className="px-3 py-1.5 text-gray-400 font-medium flex items-center gap-1 bg-gray-50 border-b border-gray-100 sticky top-0">
+              📁 <span className="truncate">{dir}</span>
+            </div>
+            {items.map(({ path, name, ext }) => (
+              <label key={path} className="flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedFiles.has(path)}
+                  onChange={() => onToggle(path)}
+                  className="w-3 h-3 rounded accent-blue-600 flex-shrink-0"
+                />
+                <span className={`font-mono flex-1 truncate ${selectedFiles.has(path) ? 'text-gray-800' : 'text-gray-400'}`}>
+                  {name}
+                </span>
+                {ext && (
+                  <span className={`px-1.5 py-0.5 rounded border flex-shrink-0 ${EXT_CLS[ext] ?? 'text-gray-500 bg-gray-50 border-gray-100'}`}>
+                    {ext.slice(1)}
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Scan CTA */}
+      <div className="p-3 border-t border-gray-100 flex-shrink-0">
+        <div className="text-xs text-gray-400 mb-2">
+          {selectedFiles.size} of {previewData.file_count} file{previewData.file_count !== 1 ? 's' : ''} selected
+        </div>
+        <button
+          onClick={() => onScan(Array.from(selectedFiles))}
+          disabled={selectedFiles.size === 0 || scanning}
+          className="w-full py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-sm"
+        >
+          {scanning
+            ? (
+              <span className="flex items-center justify-center gap-1.5">
+                <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                Scanning…
+              </span>
+            )
+            : `▶ Scan ${selectedFiles.size} selected file${selectedFiles.size !== 1 ? 's' : ''}`
+          }
+        </button>
+      </div>
+    </aside>
+  );
+}
 
 // ── Progress panel ────────────────────────────────────────────────────────────
 
@@ -212,16 +337,20 @@ export default function ScanPage({
   onScanComplete,
   onUpdateProjectRepo,
 }) {
-  const [scanning,    setScan]      = useState(false);
-  const [stages,      setStages]    = useState([]);
-  const [stageOrder,  setStageOrder] = useState(GITHUB_STAGES);
-  const [scanError,   setScanError] = useState('');
-  const [result,      setResult]    = useState(null);
-  const [repoInfo,    setRepoInfo]  = useState(null);   // {owner, repo, files_scanned, readme_used}
-  const [showPaste,   setShowPaste] = useState(false);  // fallback: paste code directly
-  const [pasteCode,   setPasteCode] = useState('');
-  const [unlocking,   setUnlocking] = useState(false);
-  const [unlockError, setUnlockError] = useState('');
+  const [scanning,      setScan]         = useState(false);
+  const [stages,        setStages]       = useState([]);
+  const [stageOrder,    setStageOrder]   = useState(GITHUB_STAGES);
+  const [scanError,     setScanError]    = useState('');
+  const [result,        setResult]       = useState(null);
+  const [repoInfo,      setRepoInfo]     = useState(null);   // {owner, repo, files_scanned, readme_used}
+  const [showPaste,     setShowPaste]    = useState(false);  // fallback: paste code directly
+  const [pasteCode,     setPasteCode]    = useState('');
+  const [unlocking,     setUnlocking]    = useState(false);
+  const [unlockError,   setUnlockError]  = useState('');
+  const [previewData,   setPreviewData]  = useState(null);   // { ref, file_count, files, readme_path, has_readme }
+  const [selectedFiles, setSelectedFiles] = useState(new Set());
+  const [previewing,    setPreviewing]   = useState(false);
+  const [previewError,  setPreviewError] = useState('');
 
   // Derive current project from the live hierarchy
   const portfolio = hierarchy.find(p => p.id === sel?.portfolioId);
@@ -237,9 +366,44 @@ export default function ScanPage({
     ? 'repo-no-scan'
     : 'has-scan';
 
+  // ── File preview loader ─────────────────────────────────────────────────────
+
+  const loadPreview = async (repoUrl) => {
+    setPreviewing(true);
+    setPreviewError('');
+    try {
+      const data = await previewGithubRepo(repoUrl);
+      setPreviewData(data);
+      // Default selection: code files only; fall back to all if none found
+      const codeFiles = data.files.filter(f => {
+        const ext = f.slice(f.lastIndexOf('.')).toLowerCase();
+        return CODE_EXTS.has(ext);
+      });
+      setSelectedFiles(new Set(codeFiles.length > 0 ? codeFiles : data.files));
+    } catch (err) {
+      setPreviewError(`Preview failed: ${err.message}`);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  // ── Helpers for file panel toggle callbacks ─────────────────────────────────
+
+  const toggleFile = (path) => setSelectedFiles(prev => {
+    const n = new Set(prev);
+    if (n.has(path)) n.delete(path); else n.add(path);
+    return n;
+  });
+
+  const selectAllFiles = () => previewData && setSelectedFiles(new Set(previewData.files));
+
+  const selectCodeFiles = () => previewData && setSelectedFiles(new Set(
+    previewData.files.filter(f => CODE_EXTS.has(f.slice(f.lastIndexOf('.')).toLowerCase()))
+  ));
+
   // ── GitHub scan runner ──────────────────────────────────────────────────────
 
-  const runGithubScan = async (repoUrl, forceRerun = false) => {
+  const runGithubScan = async (repoUrl, forceRerun = false, files = null) => {
     setScan(true);
     setScanError('');
     setResult(null);
@@ -249,11 +413,11 @@ export default function ScanPage({
     setStages(order.map(s => ({ stage: s })));
 
     const ws = project
-      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: 'Tier 1', user_type: 'external_customers' }
+      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: project.businessTier ?? 'Tier 1', user_type: project.userType ?? 'external_customers' }
       : null;
 
     try {
-      for await (const event of streamGithubScan(repoUrl, ws, 7, forceRerun)) {
+      for await (const event of streamGithubScan(repoUrl, ws, 7, forceRerun, files)) {
         if (event.stage === 'complete') {
           setStages(prev => prev.map(s => ({ ...s, status: 'done' })));
           setResult(event.result);
@@ -292,7 +456,7 @@ export default function ScanPage({
     setStages(order.map(s => ({ stage: s })));
 
     const ws = project
-      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: 'Tier 1', user_type: 'external_customers' }
+      ? { customer: portfolio?.name ?? '', project: project.name, function: '', business_tier: project.businessTier ?? 'Tier 1', user_type: project.userType ?? 'external_customers' }
       : null;
 
     try {
@@ -385,203 +549,238 @@ export default function ScanPage({
   const label = getSelectionLabel(sel, scope, hierarchy);
 
   return (
-    <div className="p-8 max-w-3xl">
-      <ScopeHeader
-        scopeLabel={SCOPE_LABEL[scope] ?? 'Project'}
-        name={label || 'No project selected'}
-        sub={
-          scenario === 'no-selection' ? 'Select a project from the sidebar to begin' :
-          scenario === 'no-repo'      ? 'Link a GitHub repository to scan' :
-          scenario === 'repo-no-scan' ? `Ready to scan — ${project.repoUrl}` :
-          `Last scanned · rescan anytime`
-        }
-      />
+    <div className="flex h-full">
+      {/* ── Main content column ────────────────────────────────────────────── */}
+      <div className={`${previewData ? 'flex-1 min-w-0' : 'max-w-3xl'} p-8 overflow-y-auto`}>
+        <ScopeHeader
+          scopeLabel={SCOPE_LABEL[scope] ?? 'Project'}
+          name={label || 'No project selected'}
+          sub={
+            scenario === 'no-selection' ? 'Select a project from the sidebar to begin' :
+            scenario === 'no-repo'      ? 'Link a GitHub repository to scan' :
+            scenario === 'repo-no-scan' ? `Ready to scan — ${project.repoUrl}` :
+            `Last scanned · rescan anytime`
+          }
+        />
 
-      {/* ── Scenario: no project selected ───────────────────────── */}
-      {scenario === 'no-selection' && !scanning && !result && (
-        <div className="mt-6 p-6 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50 text-center">
-          <p className="text-4xl mb-3">📁</p>
-          <p className="font-bold text-gray-700 mb-1">No project selected</p>
-          <p className="text-sm text-gray-500">
-            Select a project from the sidebar, or click{' '}
-            <span className="font-semibold text-blue-600">＋ New Project</span>{' '}
-            under a portfolio to create one.
-          </p>
-        </div>
-      )}
-
-      {/* ── Scenario: project has no repo URL ───────────────────── */}
-      {scenario === 'no-repo' && !scanning && !result && (
-        <div className="mt-6 space-y-5">
-          <div className="p-5 rounded-2xl border border-blue-100 bg-blue-50">
-            <p className="font-semibold text-blue-800 mb-1">Link a GitHub repository</p>
-            <p className="text-xs text-blue-600 mb-4">
-              Provide the URL of the public GitHub repo to scan. The README will be read first
-              for business context, then all code files will be analysed.
+        {/* ── Scenario: no project selected ───────────────────────── */}
+        {scenario === 'no-selection' && !scanning && !result && (
+          <div className="mt-6 p-6 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50 text-center">
+            <p className="text-4xl mb-3">📁</p>
+            <p className="font-bold text-gray-700 mb-1">No project selected</p>
+            <p className="text-sm text-gray-500">
+              Select a project from the sidebar, or click{' '}
+              <span className="font-semibold text-blue-600">＋ New Project</span>{' '}
+              under a portfolio to create one.
             </p>
-            <RepoUrlForm
-              onSave={url => {
-                onUpdateProjectRepo?.(project.id, url);
-                // Immediately kick off the scan with the new URL
-                runGithubScan(url);
-              }}
-              label="Link & Scan"
-            />
           </div>
+        )}
 
-          {/* Code-paste fallback */}
-          <div className="text-center">
-            <button
-              onClick={() => setShowPaste(p => !p)}
-              className="text-xs text-gray-400 hover:text-blue-600 underline"
-            >
-              {showPaste ? 'Hide' : 'Or paste code directly (no repo needed)'}
-            </button>
-          </div>
-          {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} />}
-        </div>
-      )}
-
-      {/* ── Scenario: repo linked, never scanned ────────────────── */}
-      {scenario === 'repo-no-scan' && !scanning && !result && (
-        <div className="mt-6 space-y-4">
-          <div className="p-5 rounded-2xl border border-gray-100 bg-white shadow-sm">
-            <div className="flex items-start gap-3">
-              <span className="text-2xl">📦</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-800 text-sm truncate">{project.repoUrl}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  README will be fetched automatically for business context
-                </p>
-              </div>
+        {/* ── Scenario: project has no repo URL ───────────────────── */}
+        {scenario === 'no-repo' && !scanning && !result && (
+          <div className="mt-6 space-y-5">
+            <div className="p-5 rounded-2xl border border-blue-100 bg-blue-50">
+              <p className="font-semibold text-blue-800 mb-1">Link a GitHub repository</p>
+              <p className="text-xs text-blue-600 mb-4">
+                Provide the URL of the public GitHub repo to scan. The README will be read first
+                for business context, then all code files will be analysed.
+              </p>
+              <RepoUrlForm
+                onSave={url => {
+                  onUpdateProjectRepo?.(project.id, url);
+                  // Immediately kick off the scan with the new URL
+                  runGithubScan(url);
+                }}
+                label="Link & Scan"
+              />
             </div>
+
+            {/* Code-paste fallback */}
+            <div className="text-center">
+              <button
+                onClick={() => setShowPaste(p => !p)}
+                className="text-xs text-gray-400 hover:text-blue-600 underline"
+              >
+                {showPaste ? 'Hide' : 'Or paste code directly (no repo needed)'}
+              </button>
+            </div>
+            {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} />}
           </div>
+        )}
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => runGithubScan(project.repoUrl)}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"
-            >
-              ▶ Run FMEA Scan
-            </button>
-            <button
-              onClick={() => {
-                onUpdateProjectRepo?.(project.id, '');
-              }}
-              className="text-xs text-gray-400 hover:text-red-500"
-            >
-              Change repo URL
-            </button>
-          </div>
-
-          {/* Code-paste fallback */}
-          <div className="text-center pt-2">
-            <button
-              onClick={() => setShowPaste(p => !p)}
-              className="text-xs text-gray-400 hover:text-blue-600 underline"
-            >
-              {showPaste ? 'Hide' : 'Or paste code directly'}
-            </button>
-          </div>
-          {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} />}
-        </div>
-      )}
-
-      {/* ── Scenario: existing scan results ─────────────────────── */}
-      {scenario === 'has-scan' && !scanning && !result && (
-        <div className="mt-6 space-y-4">
-          <LastScanCard history={lastScan} />
-
-          <div className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm flex items-center gap-3">
-            <span className="text-lg">📦</span>
-            <span className="text-xs font-mono text-gray-600 flex-1 truncate">{project.repoUrl}</span>
-          </div>
-
-          {/* Registry status + action buttons */}
-          <div className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm space-y-3">
-            {lastScan?.registry_locked ? (
+        {/* ── Scenario: repo linked, never scanned ────────────────── */}
+        {scenario === 'repo-no-scan' && !scanning && !result && (
+          <div className="mt-6 space-y-4">
+            <div className="p-5 rounded-2xl border border-gray-100 bg-white shadow-sm">
               <div className="flex items-start gap-3">
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-gray-800">
-                    🔒 {lastScan.locked_count ?? lastScan.risk_count} scenarios locked
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Rescanning will reuse these locked scores — results will be identical unless you unlock first.
+                <span className="text-2xl">📦</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 text-sm truncate">{project.repoUrl}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    README will be fetched automatically for business context
                   </p>
                 </div>
               </div>
-            ) : (
-              <p className="text-xs text-gray-500">
-                🔓 No locked scenarios — the next scan will generate a fresh set and lock them.
-              </p>
-            )}
+            </div>
 
             <div className="flex items-center gap-3 flex-wrap">
               <button
-                onClick={() => runGithubScan(project.repoUrl, true)}
-                disabled={unlocking}
-                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-sm"
+                onClick={() => runGithubScan(project.repoUrl)}
+                className="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"
               >
-                🔄 Rescan
+                ▶ Run FMEA Scan
               </button>
+              <button
+                onClick={() => loadPreview(project.repoUrl)}
+                disabled={previewing}
+                className="px-5 py-2.5 rounded-xl border border-blue-300 text-blue-600 text-sm font-semibold hover:bg-blue-50 disabled:opacity-40 transition-colors flex items-center gap-2"
+              >
+                {previewing ? '⏳ Loading…' : '📂 Select files'}
+              </button>
+              <button
+                onClick={() => onUpdateProjectRepo?.(project.id, '')}
+                className="text-xs text-gray-400 hover:text-red-500"
+              >
+                Change repo URL
+              </button>
+            </div>
+            {previewError && <p className="text-xs text-red-600">{previewError}</p>}
 
-              {lastScan?.registry_locked && lastScan?.workspace_id && (
-                <button
-                  onClick={runUnlockAndRescan}
-                  disabled={unlocking}
-                  className="px-5 py-2 rounded-xl bg-white border border-red-200 text-red-600 text-sm font-bold hover:bg-red-50 disabled:opacity-40 transition-colors"
-                >
-                  {unlocking
-                    ? <span className="flex items-center gap-1.5"><span className="animate-spin inline-block w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full" />Unlocking…</span>
-                    : '🔓 Unlock & Rescan'
-                  }
-                </button>
-              )}
+            {/* Code-paste fallback */}
+            <div className="text-center pt-2">
+              <button
+                onClick={() => setShowPaste(p => !p)}
+                className="text-xs text-gray-400 hover:text-blue-600 underline"
+              >
+                {showPaste ? 'Hide' : 'Or paste code directly'}
+              </button>
+            </div>
+            {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} />}
+          </div>
+        )}
 
-              <p className="text-xs text-gray-400 flex-1">
-                {lastScan?.registry_locked
-                  ? 'Unlock removes all locked scores — the next scan will generate fresh scenarios from scratch.'
-                  : 'README will be re-fetched for updated business context.'}
-              </p>
+        {/* ── Scenario: existing scan results ─────────────────────── */}
+        {scenario === 'has-scan' && !scanning && !result && (
+          <div className="mt-6 space-y-4">
+            <LastScanCard history={lastScan} />
+
+            <div className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm flex items-center gap-3">
+              <span className="text-lg">📦</span>
+              <span className="text-xs font-mono text-gray-600 flex-1 truncate">{project.repoUrl}</span>
             </div>
 
-            {unlockError && (
-              <p className="text-xs text-red-600 font-semibold">{unlockError}</p>
-            )}
+            {/* Registry status + action buttons */}
+            <div className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm space-y-3">
+              {lastScan?.registry_locked ? (
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-800">
+                      🔒 {lastScan.locked_count ?? lastScan.risk_count} scenarios locked
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Rescanning will reuse these locked scores — results will be identical unless you unlock first.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  🔓 No locked scenarios — the next scan will generate a fresh set and lock them.
+                </p>
+              )}
+
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={() => runGithubScan(project.repoUrl, true)}
+                  disabled={unlocking}
+                  className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-sm"
+                >
+                  🔄 Rescan
+                </button>
+
+                <button
+                  onClick={() => loadPreview(project.repoUrl)}
+                  disabled={previewing || unlocking}
+                  className="px-5 py-2 rounded-xl border border-blue-300 text-blue-600 text-sm font-semibold hover:bg-blue-50 disabled:opacity-40 transition-colors flex items-center gap-2"
+                >
+                  {previewing ? '⏳ Loading…' : '📂 Select files'}
+                </button>
+
+                {lastScan?.registry_locked && lastScan?.workspace_id && (
+                  <button
+                    onClick={runUnlockAndRescan}
+                    disabled={unlocking}
+                    className="px-5 py-2 rounded-xl bg-white border border-red-200 text-red-600 text-sm font-bold hover:bg-red-50 disabled:opacity-40 transition-colors"
+                  >
+                    {unlocking
+                      ? <span className="flex items-center gap-1.5"><span className="animate-spin inline-block w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full" />Unlocking…</span>
+                      : '🔓 Unlock & Rescan'
+                    }
+                  </button>
+                )}
+
+                <p className="text-xs text-gray-400 flex-1">
+                  {lastScan?.registry_locked
+                    ? 'Unlock removes all locked scores — the next scan will generate fresh scenarios from scratch.'
+                    : 'README will be re-fetched for updated business context.'}
+                </p>
+              </div>
+
+              {unlockError && (
+                <p className="text-xs text-red-600 font-semibold">{unlockError}</p>
+              )}
+              {previewError && (
+                <p className="text-xs text-red-600">{previewError}</p>
+              )}
+            </div>
+
+            <div className="text-center">
+              <button
+                onClick={() => setShowPaste(p => !p)}
+                className="text-xs text-gray-400 hover:text-blue-600 underline"
+              >
+                {showPaste ? 'Hide' : 'Or paste code directly'}
+              </button>
+            </div>
+            {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} />}
           </div>
+        )}
 
-          <div className="text-center">
-            <button
-              onClick={() => setShowPaste(p => !p)}
-              className="text-xs text-gray-400 hover:text-blue-600 underline"
-            >
-              {showPaste ? 'Hide' : 'Or paste code directly'}
-            </button>
+        {/* ── Scanning: progress panel ─────────────────────────────── */}
+        {scanning && stages.length > 0 && (
+          <ProgressPanel stages={stages} stageOrder={stageOrder} error={scanError} />
+        )}
+
+        {/* ── Done: result banner ──────────────────────────────────── */}
+        {!scanning && result && (
+          <ScanComplete result={result} repo={repoInfo} />
+        )}
+
+        {/* ── Error banner ─────────────────────────────────────────── */}
+        {!scanning && scanError && !result && (
+          <div className="mt-5 p-4 rounded-2xl border border-red-200 bg-red-50 text-sm text-red-700">
+            <p className="font-bold mb-1">⚠ Scan failed</p>
+            <p className="text-xs">{scanError}</p>
+            <p className="text-xs mt-2 text-red-500">
+              Is the API server running?{' '}
+              <code className="font-mono bg-red-100 px-1 rounded">python -m uvicorn api.main:app --reload --port 8000</code>
+            </p>
           </div>
-          {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} />}
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* ── Scanning: progress panel ─────────────────────────────── */}
-      {scanning && stages.length > 0 && (
-        <ProgressPanel stages={stages} stageOrder={stageOrder} error={scanError} />
-      )}
-
-      {/* ── Done: result banner ──────────────────────────────────── */}
-      {!scanning && result && (
-        <ScanComplete result={result} repo={repoInfo} />
-      )}
-
-      {/* ── Error banner ─────────────────────────────────────────── */}
-      {!scanning && scanError && !result && (
-        <div className="mt-5 p-4 rounded-2xl border border-red-200 bg-red-50 text-sm text-red-700">
-          <p className="font-bold mb-1">⚠ Scan failed</p>
-          <p className="text-xs">{scanError}</p>
-          <p className="text-xs mt-2 text-red-500">
-            Is the API server running?{' '}
-            <code className="font-mono bg-red-100 px-1 rounded">python -m uvicorn api.main:app --reload --port 8000</code>
-          </p>
-        </div>
+      {/* ── File selection panel (right rail) ─────────────────────────────── */}
+      {previewData && (
+        <FilePanel
+          previewData={previewData}
+          selectedFiles={selectedFiles}
+          onToggle={toggleFile}
+          onSelectAll={selectAllFiles}
+          onSelectCode={selectCodeFiles}
+          onClear={() => setSelectedFiles(new Set())}
+          onScan={files => runGithubScan(project?.repoUrl, false, files)}
+          onClose={() => setPreviewData(null)}
+          scanning={scanning}
+        />
       )}
     </div>
   );

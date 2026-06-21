@@ -126,11 +126,11 @@ export default function App() {
     updateHierarchy([...hierarchy, { id, name, projects: [] }]);
   };
 
-  const addProject = (portfolioId, name, repoUrl) => {
+  const addProject = (portfolioId, name, repoUrl, businessTier = 'Tier 1', userType = 'external_customers') => {
     const id = makeId('pr');
     updateHierarchy(hierarchy.map(p =>
       p.id === portfolioId
-        ? { ...p, projects: [...p.projects, { id, name, repoUrl: repoUrl || null }] }
+        ? { ...p, projects: [...p.projects, { id, name, repoUrl: repoUrl || null, businessTier, userType }] }
         : p,
     ));
     setSel({ portfolioId, projectId: id, componentId: null, componentName: null });
