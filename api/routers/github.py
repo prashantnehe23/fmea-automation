@@ -36,6 +36,7 @@ class GithubScanRequest(BaseModel):
     workspace: WorkspaceIn | None = None
     max_failure_modes: int = 7
     force_rerun: bool = False
+    selected_files: list[str] | None = None
 
 
 class GithubPreviewRequest(BaseModel):
@@ -69,6 +70,10 @@ async def github_scan(req: GithubScanRequest):
         except Exception as exc:
             yield sse_event({"stage": "error", "msg": str(exc)}, event="error")
             return
+
+        if req.selected_files is not None:
+            allowed = set(req.selected_files)
+            files = [f for f in files if f in allowed]
 
         yield sse_event({
             "stage": "repo_tree",
@@ -201,7 +206,7 @@ async def github_preview(req: GithubPreviewRequest):
     return {
         "ref": {"owner": ref.owner, "repo": ref.repo, "branch": ref.branch},
         "file_count": len(files),
-        "files": files[:50],          # first 50 only — enough for the UI preview
+        "files": files,
         "readme_path": readme_path,
         "has_readme": readme_path is not None,
     }

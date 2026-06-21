@@ -80,6 +80,7 @@ export async function* streamGithubScan(
   workspace = null,
   maxFailureModes = 7,
   forceRerun = false,
+  selectedFiles = null,
 ) {
   const res = await fetch(`${BASE}/api/github/scan`, {
     method: 'POST',
@@ -89,6 +90,7 @@ export async function* streamGithubScan(
       workspace,
       max_failure_modes: maxFailureModes,
       force_rerun: forceRerun,
+      selected_files: selectedFiles,
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);

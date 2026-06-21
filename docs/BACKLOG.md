@@ -32,6 +32,7 @@
 | [x] | Scenario Lock/Unlock UI — lock badge, 🆕 new badge, Unlock & Rescan button | `ScanPage.jsx`, `ScenariosPage.jsx`, `api.js`, `App.jsx` |
 | [x] | Expert Score Adjustment (B-001) — L2 memory loop closed; adjustments persist to DB and override locked S/O/D on rescan | `api/routers/scoring.py`, `memory/db.py`, `memory/scenario_registry.py`, `ScoringPage.jsx` |
 | [x] | Workspace Business Tier (B-003) — Business Tier + User Type dropdowns in New Project form; values flow through to saboteur via workspace object | `HierarchyTree.jsx`, `App.jsx`, `ScanPage.jsx` |
+| [x] | Multi-File Repository Context (B-005) — File selection right-rail panel; user picks which repo files to scan; backend filters before pipeline | `api/routers/github.py`, `frontend/src/pages/ScanPage.jsx`, `frontend/src/api.js` |
 
 ---
 
@@ -94,7 +95,7 @@
 
 ---
 
-### B-005 · Multi-File Repository Context (File Selection)
+### B-005 · Multi-File Repository Context (File Selection) `[x]` DONE
 **Why:** For large repos, scanning all files produces too much noise and hits LLM token limits. Users need to select the files or directories most relevant to their review.
 
 **Scope:**
@@ -104,10 +105,19 @@
 - Default: top 30 files by extension relevance (current behaviour) with manual override
 
 **Acceptance criteria:**
-- [ ] File tree appears after repo URL is entered / previewed
-- [ ] User can select/deselect individual files or directories
-- [ ] Only selected files are sent to the pipeline
-- [ ] Default selection is pre-populated with code files (`.py`, `.ts`, `.go`, etc.)
+- [x] File tree appears after clicking "Select files" (preview load)
+- [x] User can select/deselect individual files via checkboxes; grouped by directory
+- [x] Only selected files are sent to the pipeline (`selected_files` in API request)
+- [x] Default selection is pre-populated with code files (`.py`, `.ts`, `.go`, etc.)
+
+**Implementation notes:**
+- Right-rail `FilePanel` component renders in ScanPage's own flex layout (`flex h-full`); no App.jsx changes needed
+- Quick-select buttons: All / Code / Clear
+- "Select files" button appears in `repo-no-scan` and `has-scan` scenarios alongside existing scan buttons
+- Backend: `selected_files: list[str] | None` field on `GithubScanRequest`; `None` = scan all (existing behaviour unchanged)
+- Preview endpoint now returns all files (removed previous `[:50]` cap)
+
+**Shipped:** 2026-06-21 — `api/routers/github.py` (selected_files filter + full preview), `frontend/src/api.js` (selectedFiles param), `frontend/src/pages/ScanPage.jsx` (FilePanel, loadPreview, flex layout)
 
 ---
 
