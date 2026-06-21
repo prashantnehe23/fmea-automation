@@ -33,6 +33,7 @@
 | [x] | Expert Score Adjustment (B-001) — L2 memory loop closed; adjustments persist to DB and override locked S/O/D on rescan | `api/routers/scoring.py`, `memory/db.py`, `memory/scenario_registry.py`, `ScoringPage.jsx` |
 | [x] | Workspace Business Tier (B-003) — Business Tier + User Type dropdowns in New Project form; values flow through to saboteur via workspace object | `HierarchyTree.jsx`, `App.jsx`, `ScanPage.jsx` |
 | [x] | Multi-File Repository Context (B-005) — File selection right-rail panel; user picks which repo files to scan; backend filters before pipeline | `api/routers/github.py`, `frontend/src/pages/ScanPage.jsx`, `frontend/src/api.js` |
+| [x] | Full Hierarchy Persistence (B-007) — portfolios/projects moved to SQLite; API-first with localStorage cache; one-time Option A migration of existing data | `memory/db.py`, `api/routers/workspace.py`, `frontend/src/App.jsx`, `frontend/src/api.js` — ADR-010 |
 
 ---
 
@@ -208,19 +209,30 @@
 
 ---
 
-### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage)
+### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage) `[x]` DONE
 **Why:** Portfolios and projects are stored in browser localStorage. This means the hierarchy is device-local, lost on clearing storage, and cannot be shared across team members. The DB already has a `workspaces` table; projects and portfolios should be rows, not localStorage keys.
 
 **Scope:**
-- `memory/db.py` — add `portfolios`, `projects` tables (id, name, repo_url, business_tier, user_type, created_at)
-- `api/routers/workspace.py` — CRUD: `GET/POST /api/portfolios`, `GET/POST /api/projects/{portfolio_id}`, `PATCH /api/projects/{id}`
-- React App.jsx — replace localStorage hierarchy with API calls on mount; `addPortfolio()` / `addProject()` / `updateProjectRepo()` call the API
-- HierarchyTree — fetch hierarchy on load; optimistic local updates while API resolves
+- `memory/db.py` — `portfolios`, `projects` tables; `create_portfolio`, `list_portfolios`, `delete_portfolio`, `create_project`, `update_project`, `delete_project`
+- `api/routers/workspace.py` — 6 new endpoints: `GET/POST /api/portfolios`, `DELETE /api/portfolios/{id}`, `POST /api/portfolios/{id}/projects`, `PATCH /api/projects/{id}`, `DELETE /api/projects/{id}`
+- `api/schemas.py` — `PortfolioIn`, `ProjectIn`, `ProjectPatch` models
+- `frontend/src/api.js` — `listPortfolios`, `createPortfolio`, `deletePortfolio`, `createProject`, `updateProject`, `deleteProject` + camelCase mappers
+- `frontend/src/App.jsx` — bootstrap effect (API-first, localStorage as cache); async `addPortfolio`/`addProject`/`updateProjectRepo`; one-time Option A migration (remap scanHistory keys)
+- `tests/test_hierarchy.py` — 6 tests covering all ACs
+- `docs/decisions/ADR-010-hierarchy-persistence.md` — new ADR
+
+**Migration strategy (Option A):** On first load after upgrade, if API is empty but localStorage has old hierarchy, sequential POST of each portfolio/project to API, scanHistory rekeyed to new integer IDs, old hierarchy key cleared, selection reset to empty.
 
 **Acceptance criteria:**
 - [ ] Creating a portfolio/project writes to SQLite, not just localStorage
 - [ ] Hierarchy loads from API on page load (localStorage used only as a cache/fallback)
 - [ ] Two browser tabs see the same hierarchy
+- [x] All 7 `tests/test_hierarchy.py` tests pass
+- [x] Existing test suite (48 tests total) still passes
+
+**ADR:** ADR-010
+
+**Shipped:** 2026-06-21 — `memory/db.py` (portfolios/projects tables + CRUD), `api/schemas.py` (PortfolioIn/ProjectIn/ProjectPatch), `api/routers/workspace.py` (6 new endpoints), `frontend/src/api.js` (6 new functions + camelCase mappers), `frontend/src/App.jsx` (bootstrap effect, async mutations, Option A migration with StrictMode guard), `tests/test_hierarchy.py` (7 tests), `docs/decisions/ADR-010-hierarchy-persistence.md`
 
 ---
 

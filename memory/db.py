@@ -109,6 +109,22 @@ CREATE TABLE IF NOT EXISTS adjustments (
     justification TEXT    NOT NULL,
     created_at    TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS portfolios (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    created_at TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS projects (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id   INTEGER NOT NULL REFERENCES portfolios(id),
+    name           TEXT    NOT NULL,
+    repo_url       TEXT,
+    business_tier  TEXT    NOT NULL DEFAULT 'Tier 1',
+    user_type      TEXT    NOT NULL DEFAULT 'external_customers',
+    created_at     TEXT    NOT NULL
+);
 """
 
 
@@ -487,6 +503,138 @@ def get_adjustments(workspace_id: int) -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+# ── Portfolio / Project hierarchy (B-007) ─────────────────────────────────────
+
+_UNSET = object()  # sentinel for "field not provided" in update_project
+
+
+def create_portfolio(name: str) -> dict:
+    """Insert a portfolio row. Returns {id, name, created_at}."""
+    with _lock:
+        conn = get_db()
+        try:
+            ts = datetime.now().isoformat()
+            cur = conn.execute(
+                "INSERT INTO portfolios (name, created_at) VALUES (?, ?)",
+                (name, ts),
+            )
+            conn.commit()
+            return {"id": cur.lastrowid, "name": name, "created_at": ts}
+        finally:
+            conn.close()
+
+
+def list_portfolios() -> list[dict]:
+    """Return all portfolios with nested projects."""
+    conn = get_db()
+    try:
+        portfolios = [dict(r) for r in conn.execute(
+            "SELECT id, name, created_at FROM portfolios ORDER BY id"
+        ).fetchall()]
+        projects = [dict(r) for r in conn.execute(
+            "SELECT id, portfolio_id, name, repo_url, business_tier, user_type, created_at "
+            "FROM projects ORDER BY id"
+        ).fetchall()]
+        project_map: dict[int, list] = {p["id"]: [] for p in portfolios}
+        for pr in projects:
+            pid = pr["portfolio_id"]
+            if pid in project_map:
+                project_map[pid].append(pr)
+        for p in portfolios:
+            p["projects"] = project_map[p["id"]]
+        return portfolios
+    finally:
+        conn.close()
+
+
+def delete_portfolio(portfolio_id: int) -> None:
+    """Delete a portfolio and its projects."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("DELETE FROM projects WHERE portfolio_id=?", (portfolio_id,))
+            conn.execute("DELETE FROM portfolios WHERE id=?", (portfolio_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def create_project(
+    portfolio_id: int,
+    name: str,
+    repo_url: str | None = None,
+    business_tier: str = "Tier 1",
+    user_type: str = "external_customers",
+) -> dict:
+    """Insert a project row. Returns the full project dict."""
+    with _lock:
+        conn = get_db()
+        try:
+            ts = datetime.now().isoformat()
+            cur = conn.execute(
+                """
+                INSERT INTO projects
+                    (portfolio_id, name, repo_url, business_tier, user_type, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (portfolio_id, name, repo_url, business_tier, user_type, ts),
+            )
+            conn.commit()
+            return {
+                "id": cur.lastrowid,
+                "portfolio_id": portfolio_id,
+                "name": name,
+                "repo_url": repo_url,
+                "business_tier": business_tier,
+                "user_type": user_type,
+                "created_at": ts,
+            }
+        finally:
+            conn.close()
+
+
+def update_project(
+    project_id: int,
+    repo_url=_UNSET,
+    business_tier=_UNSET,
+    user_type=_UNSET,
+) -> None:
+    """Update mutable project fields. Fields left as _UNSET are not changed.
+    Pass None explicitly to clear a nullable field (e.g. repo_url=None)."""
+    sets: list[str] = []
+    params: list = []
+    if repo_url is not _UNSET:
+        sets.append("repo_url=?")
+        params.append(repo_url)
+    if business_tier is not _UNSET:
+        sets.append("business_tier=?")
+        params.append(business_tier)
+    if user_type is not _UNSET:
+        sets.append("user_type=?")
+        params.append(user_type)
+    if not sets:
+        return
+    params.append(project_id)
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE id=?", params)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def delete_project(project_id: int) -> None:
+    """Delete a single project row."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def backfill_telemetry_scan_id(run_id: str, scan_id: int) -> None:

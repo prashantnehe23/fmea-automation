@@ -280,6 +280,92 @@ export async function getTelemetry(workspaceId, n = 20) {
   return res.json();
 }
 
+// ── Portfolio / Project hierarchy (B-007) ────────────────────────────────────
+
+function _mapProject(p) {
+  return {
+    id:           p.id,
+    portfolio_id: p.portfolio_id,
+    name:         p.name,
+    repoUrl:      p.repo_url ?? null,
+    businessTier: p.business_tier ?? 'Tier 1',
+    userType:     p.user_type ?? 'external_customers',
+    created_at:   p.created_at,
+  };
+}
+
+function _mapPortfolio(p) {
+  return {
+    id:         p.id,
+    name:       p.name,
+    created_at: p.created_at,
+    projects:   (p.projects ?? []).map(_mapProject),
+  };
+}
+
+/** GET /api/portfolios — nested portfolios + projects (camelCase). */
+export async function listPortfolios() {
+  const res = await fetch(`${BASE}/api/portfolios`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()).map(_mapPortfolio);
+}
+
+/** POST /api/portfolios — create portfolio. Returns {id, name, projects: []}. */
+export async function createPortfolio(name) {
+  const res = await fetch(`${BASE}/api/portfolios`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return _mapPortfolio(await res.json());
+}
+
+/** DELETE /api/portfolios/{id} — delete portfolio and its projects. */
+export async function deletePortfolio(portfolioId) {
+  const res = await fetch(`${BASE}/api/portfolios/${portfolioId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/** POST /api/portfolios/{id}/projects — create project. Returns mapped project. */
+export async function createProject(portfolioId, name, repoUrl, businessTier, userType) {
+  const res = await fetch(`${BASE}/api/portfolios/${portfolioId}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      repo_url:      repoUrl || null,
+      business_tier: businessTier,
+      user_type:     userType,
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return _mapProject(await res.json());
+}
+
+/** PATCH /api/projects/{id} — partial update (only fields in patch are sent). */
+export async function updateProject(projectId, patch) {
+  const body = {};
+  if ('repoUrl'      in patch) body.repo_url      = patch.repoUrl;
+  if ('businessTier' in patch) body.business_tier = patch.businessTier;
+  if ('userType'     in patch) body.user_type     = patch.userType;
+  const res = await fetch(`${BASE}/api/projects/${projectId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/** DELETE /api/projects/{id} — delete project. */
+export async function deleteProject(projectId) {
+  const res = await fetch(`${BASE}/api/projects/${projectId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 // ── Data normalisation ────────────────────────────────────────────────────────
 
 /**
