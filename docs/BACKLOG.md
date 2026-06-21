@@ -34,6 +34,7 @@
 | [x] | Workspace Business Tier (B-003) — Business Tier + User Type dropdowns in New Project form; values flow through to saboteur via workspace object | `HierarchyTree.jsx`, `App.jsx`, `ScanPage.jsx` |
 | [x] | Multi-File Repository Context (B-005) — File selection right-rail panel; user picks which repo files to scan; backend filters before pipeline | `api/routers/github.py`, `frontend/src/pages/ScanPage.jsx`, `frontend/src/api.js` |
 | [x] | Full Hierarchy Persistence (B-007) — portfolios/projects moved to SQLite; API-first with localStorage cache; one-time Option A migration of existing data | `memory/db.py`, `api/routers/workspace.py`, `frontend/src/App.jsx`, `frontend/src/api.js` — ADR-010 |
+| [x] | Cost Per Run Tracking + Model Selector (B-021) — per-agent cost_usd via LiteLLM pricing; model selector in settings panel; CostPanel on dashboard | `core/costs.py`, `core/settings.py`, `api/routers/settings.py`, `Header.jsx`, `DashboardPage.jsx` |
 
 ---
 
@@ -184,28 +185,45 @@
 
 ---
 
-### B-021 · Cost Per Run Tracking
+### B-021 · Cost Per Run Tracking + Model Selector `[x]` DONE
 
-**Why:** Each scan makes multiple LLM calls across 7 agents. Token usage is currently invisible — there is no way to know the cost of a single scan, which agent spends the most tokens, or how costs change as repositories grow. Without this, cost attribution and budgeting are impossible.
+**Why:** Each scan makes multiple LLM calls across 7 agents. Token usage is currently invisible — there is no way to know the cost of a single scan, which agent spends the most tokens, or how costs change as repositories grow. Without this, cost attribution and budgeting are impossible. Additionally, the active model is hardcoded via env var with no way for developers to switch it at runtime. Model selection and cost tracking are coupled: you can only show accurate costs if you know which model is running.
+
+**Design note — SRE verbosity:** SRE is the only agent at `max_tokens=8192`, called 7× per scan. It is the dominant cost driver (hypothesis). B-021 will confirm this empirically via the per-agent cost breakdown. No SRE prompt changes in this item — instrument first, optimise with data.
 
 **Scope:**
-- Capture `usage` from every LLM response (prompt_tokens, completion_tokens) in each agent
-- `core/telemetry.py` — extend `record_event()` to accept `prompt_tokens`, `completion_tokens`, `model`
-- Cost calculation: apply per-model $/1M token rates as a config constant (`core/costs.py`)
-- `memory/db.py` — `cost_tokens` and `cost_usd` columns on `telemetry` table
-- `GET /api/telemetry/{ws_id}` — include `cost_summary`: total USD per scan, breakdown by agent, trend over last N scans
-- React Dashboard — "Cost" panel:
-  - Cost per scan (last run and 30-day average)
-  - Per-agent cost breakdown bar chart (which agent spends most tokens)
-  - Cumulative cost trend (USD over last 20 scans)
-  - Estimated monthly cost projection at current scan cadence
+
+*Infrastructure*
+- `core/costs.py` (NEW) — `AVAILABLE_MODELS` dict: GPT-5.1, GPT-4o, GPT-4o-mini with $/1M prompt + completion rates; `compute_cost(model, prompt_tok, completion_tok) → float`
+- `core/settings.py` (NEW) — JSON-backed key-value store (`core/settings.json`); `get_setting(key)` / `set_setting(key, value)`; default `active_model = "gpt-5.1"`
+- `core/llm.py` — `_get_model()` reads from settings (falls back to `OPENAI_MODEL` env var); `get_model_name()` exposes it; `call_llm()` uses the live setting
+- `core/telemetry.py` — store active model in `_ctx` at `set_scan_context()`; pass model to `_record()`; compute and pass `cost_usd` via `compute_cost()`
+- `memory/db.py` — idempotent `ALTER TABLE telemetry ADD COLUMN cost_usd REAL DEFAULT 0`; add `cost_usd` param to `save_telemetry_span()`; extend `get_telemetry_summary()` → `cost_summary` block
+
+*API*
+- `api/routers/settings.py` (NEW) — `GET /api/settings/models` (list with prices), `GET /api/settings/model` (active), `PATCH /api/settings/model` (switch)
+- `api/main.py` — include settings router
+- `api/schemas.py` — `ModelPatch` schema
+
+*Frontend*
+- `frontend/src/api.js` — `getModels()`, `getActiveModel()`, `setActiveModel(modelId)`
+- `frontend/src/components/Header.jsx` — model selector added to existing settings panel: dropdown showing model name + price tier; saves to API on change
+- `frontend/src/pages/DashboardPage.jsx` — `CostPanel` component: last scan $, per-agent cost bar chart, cost trend sparkline (last 20 scans), projected monthly $
+
+*Tests*
+- `tests/test_costs.py` (NEW) — `compute_cost()` correctness, unknown model fallback, zero tokens, DB round-trip
 
 **Acceptance criteria:**
-- [ ] Token usage captured from LLM response objects in every agent (no estimation — use actual usage data)
-- [ ] `cost_usd` computed per agent per scan using configurable rate table in `core/costs.py`
-- [ ] API returns per-scan cost breakdown with per-agent detail
-- [ ] Dashboard shows cost per run, cost trend, and per-agent breakdown
-- [ ] Cost data persists to DB and survives server restart
+- [x] `core/costs.py` defines 3 OpenAI models with correct $/1M rates
+- [x] Active model readable and writable via `GET/PATCH /api/settings/model`
+- [x] Switching model in settings panel immediately reflected in next scan's cost calculation
+- [x] `cost_usd` computed per agent per scan, persisted to `telemetry` table
+- [x] API `cost_summary` returns: `last_scan_usd`, `per_agent_usd`, `cost_trend`, `projected_monthly_usd`
+- [x] Dashboard Cost panel renders correctly after a scan (SRE bar visually dominant)
+- [x] Cost data survives server restart (settings.json + SQLite)
+- [x] All `tests/test_costs.py` tests pass
+
+**Shipped:** 2026-06-22 — `core/costs.py`, `core/settings.py`, `core/llm.py`, `core/telemetry.py`, `memory/db.py`, `api/routers/settings.py`, `api/schemas.py`, `api/main.py`, `frontend/src/api.js`, `frontend/src/components/Header.jsx`, `frontend/src/pages/DashboardPage.jsx`, `tests/test_costs.py` (5 tests, all passing)
 
 ---
 

@@ -17,6 +17,20 @@ import openai
 
 _MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.1")
 _client: openai.OpenAI | None = None
+
+
+def _get_model() -> str:
+    """Return the active model from settings, falling back to _MODEL."""
+    try:
+        from core.settings import get_setting
+        return get_setting("active_model") or _MODEL
+    except Exception:
+        return _MODEL
+
+
+def get_model_name() -> str:
+    """Return the currently configured model ID."""
+    return _get_model()
 _call_count: int = 0
 _prompt_tokens: int = 0
 _completion_tokens: int = 0
@@ -58,7 +72,7 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     global _call_count, _prompt_tokens, _completion_tokens
     client = _get_client()
     response = client.chat.completions.create(
-        model=_MODEL,
+        model=_get_model(),
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
         max_completion_tokens=max_tokens,

@@ -280,6 +280,43 @@ export async function getTelemetry(workspaceId, n = 20) {
   return res.json();
 }
 
+// ── Model selector (B-021) ───────────────────────────────────────────────────
+
+/**
+ * GET /api/settings/models — list available models with pricing.
+ * @returns {Array<{id, display, tier, prompt_per_1m, completion_per_1m, is_active}>}
+ */
+export async function getModels() {
+  const res = await fetch(`${BASE}/api/settings/models`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * GET /api/settings/model — currently active model ID.
+ * @returns {{ active_model: string }}
+ */
+export async function getActiveModel() {
+  const res = await fetch(`${BASE}/api/settings/model`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * PATCH /api/settings/model — change the active model.
+ * @param {string} modelId
+ * @returns {{ active_model: string }}
+ */
+export async function setActiveModel(modelId) {
+  const res = await fetch(`${BASE}/api/settings/model`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelId }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 // ── Portfolio / Project hierarchy (B-007) ────────────────────────────────────
 
 function _mapProject(p) {

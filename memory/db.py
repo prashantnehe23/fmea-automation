@@ -135,12 +135,16 @@ def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(_DDL)
-    # Migrate existing telemetry table to add run_id column (idempotent)
-    try:
-        conn.execute("ALTER TABLE telemetry ADD COLUMN run_id TEXT")
-        conn.commit()
-    except Exception:
-        pass  # column already exists
+    # Idempotent column migrations for existing telemetry rows
+    for _col_sql in (
+        "ALTER TABLE telemetry ADD COLUMN run_id TEXT",
+        "ALTER TABLE telemetry ADD COLUMN cost_usd REAL DEFAULT 0",
+    ):
+        try:
+            conn.execute(_col_sql)
+            conn.commit()
+        except Exception:
+            pass  # column already exists
     conn.commit()
     return conn
 
@@ -437,6 +441,7 @@ def save_telemetry_span(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     error: str | None = None,
+    cost_usd: float = 0.0,
 ) -> None:
     """Record one agent execution span. Non-blocking best-effort — silently ignored on failure."""
     with _lock:
@@ -446,11 +451,11 @@ def save_telemetry_span(
                 """
                 INSERT INTO telemetry
                     (run_id, scan_id, workspace_id, agent, duration_ms,
-                     prompt_tokens, completion_tokens, error, ts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     prompt_tokens, completion_tokens, error, cost_usd, ts)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (run_id, scan_id, workspace_id, agent, duration_ms,
-                 prompt_tokens, completion_tokens, error,
+                 prompt_tokens, completion_tokens, error, cost_usd,
                  datetime.now().isoformat()),
             )
             conn.commit()
@@ -682,7 +687,8 @@ def get_telemetry_summary(workspace_id: int, n_scans: int = 20) -> dict:
             placeholders = ",".join("?" * len(run_ids))
             spans = conn.execute(
                 f"""
-                SELECT agent, duration_ms, prompt_tokens, completion_tokens, error, run_id
+                SELECT agent, duration_ms, prompt_tokens, completion_tokens,
+                       error, run_id, cost_usd
                 FROM telemetry
                 WHERE workspace_id=? AND run_id IN ({placeholders})
                 ORDER BY id ASC
@@ -728,12 +734,64 @@ def get_telemetry_summary(workspace_id: int, n_scans: int = 20) -> dict:
             for r in reversed(eval_rows)
         ]
 
+        # Cost summary — per-run totals for trend + last scan breakdown
+        cost_summary: dict = {
+            "last_scan_usd": 0.0,
+            "per_agent_usd": {},
+            "cost_trend": [],
+            "projected_monthly_usd": 0.0,
+        }
+        if run_ids:
+            run_cost_rows = conn.execute(
+                f"""
+                SELECT run_id, SUM(cost_usd) AS total_usd, MAX(ts) AS run_ts
+                FROM telemetry
+                WHERE workspace_id=? AND run_id IN ({placeholders})
+                GROUP BY run_id
+                ORDER BY run_ts ASC
+                """,
+                [workspace_id, *run_ids],
+            ).fetchall()
+            run_cost_rows = [dict(r) for r in run_cost_rows]
+
+            per_agent: dict[str, float] = {}
+            for s in spans:
+                if s["run_id"] == last_run_id:
+                    agent = s["agent"]
+                    per_agent[agent] = round(per_agent.get(agent, 0.0) + (s["cost_usd"] or 0.0), 6)
+
+            last_scan_usd = next(
+                (r["total_usd"] or 0.0 for r in run_cost_rows if r["run_id"] == last_run_id), 0.0
+            )
+
+            cost_trend = [
+                {"timestamp": r["run_ts"], "total_usd": round(r["total_usd"] or 0.0, 6)}
+                for r in run_cost_rows
+            ]
+
+            projected = 0.0
+            if len(run_cost_rows) >= 2:
+                from datetime import datetime as _dt
+                t_first = _dt.fromisoformat(run_cost_rows[0]["run_ts"])
+                t_last  = _dt.fromisoformat(run_cost_rows[-1]["run_ts"])
+                span_days = max((t_last - t_first).total_seconds() / 86400, 1 / 24)
+                avg_cost = sum(r["total_usd"] or 0.0 for r in run_cost_rows) / len(run_cost_rows)
+                projected = round(avg_cost * (len(run_cost_rows) / span_days) * 30, 2)
+
+            cost_summary = {
+                "last_scan_usd":        round(last_scan_usd, 6),
+                "per_agent_usd":        per_agent,
+                "cost_trend":           cost_trend,
+                "projected_monthly_usd": projected,
+            }
+
         return {
             "last_scan_latency": last_scan_latency,
             "agent_avg_ms": agent_avg_ms,
             "error_rate": error_rate,
             "quality_trend": quality_trend,
             "total_spans": total,
+            "cost_summary": cost_summary,
         }
     finally:
         conn.close()

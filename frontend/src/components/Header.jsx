@@ -1,9 +1,34 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PERSONAS, PROCESS_STEPS, HIERARCHY, SCOPE_LABEL } from '../data';
 import { ORG } from '../data';
+import { getModels, setActiveModel } from '../api';
+
+const TIER_BADGE = {
+  Fast:     'bg-green-50 text-green-700',
+  Standard: 'bg-blue-50 text-blue-700',
+  Power:    'bg-purple-50 text-purple-700',
+};
 
 export default function Header({ persona, step, sel, scope }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [models, setModels]             = useState([]);
+  const [activeModel, setActiveModelState] = useState(null);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    getModels()
+      .then(list => {
+        setModels(list);
+        const active = list.find(m => m.is_active);
+        if (active) setActiveModelState(active.id);
+      })
+      .catch(() => {});
+  }, [showSettings]);
+
+  const handleModelChange = async (modelId) => {
+    setActiveModelState(modelId);
+    try { await setActiveModel(modelId); } catch { /* API unavailable */ }
+  };
   const current  = PERSONAS.find(p => p.id === persona);
   const stepInfo = PROCESS_STEPS.find(s => s.id === step);
   const portfolio = HIERARCHY.find(p => p.id === sel.portfolioId);
@@ -95,6 +120,38 @@ export default function Header({ persona, step, sel, scope }) {
                     className="text-xs text-red-500 font-semibold hover:text-red-700 bg-red-50 px-2 py-1 rounded-lg"
                   >Clear</button>
                 </div>
+                {models.length > 0 && (
+                  <>
+                    <hr className="border-gray-50" />
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <p className="text-xs font-semibold text-gray-700">AI Model</p>
+                          <p className="text-xs text-gray-400">Used for all scan agents</p>
+                        </div>
+                        {activeModel && (() => {
+                          const m = models.find(x => x.id === activeModel);
+                          return m ? (
+                            <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${TIER_BADGE[m.tier] ?? 'bg-gray-50 text-gray-600'}`}>
+                              {m.tier}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
+                      <select
+                        value={activeModel ?? ''}
+                        onChange={e => handleModelChange(e.target.value)}
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                      >
+                        {models.map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.display} — ${m.prompt_per_1m}/${m.completion_per_1m} per 1M
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </>
