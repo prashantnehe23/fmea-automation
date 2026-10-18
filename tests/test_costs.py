@@ -19,6 +19,9 @@ from core.costs import compute_cost, FALLBACK_RATES
 def in_memory_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_costs.db"
     monkeypatch.setattr(db, "_DB_PATH", db_path)
+    # Don't read live pricing cached in the real core/settings.json
+    import core.settings as settings
+    monkeypatch.setattr(settings, "_SETTINGS_PATH", tmp_path / "settings.json")
     yield db_path
 
 

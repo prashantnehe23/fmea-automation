@@ -59,10 +59,10 @@ def test_unknown_provider_and_empty_key_rejected(client):
 
 
 def test_model_requires_provider_key(client):
-    assert client.patch("/api/settings/model", json={"model": "mistral-large-latest"}).status_code == 409
+    assert client.patch("/api/settings/model", json={"model": "mistral-large-4"}).status_code == 409
     client.put("/api/settings/providers/mistral/key", json={"api_key": "k-1234"})
-    assert client.patch("/api/settings/model", json={"model": "mistral-large-latest"}).status_code == 200
-    assert settings.get_setting("active_model") == "mistral-large-latest"
+    assert client.patch("/api/settings/model", json={"model": "mistral-large-4"}).status_code == 200
+    assert settings.get_setting("active_model") == "mistral-large-4"
 
 
 def test_call_llm_routes_to_provider(monkeypatch):
@@ -139,7 +139,7 @@ def test_embed_text_uses_mistral_client_only(monkeypatch):
 
     monkeypatch.setattr(llm.openai, "OpenAI", FakeOpenAI)
     providers.set_api_key("mistral", "m-key")  # no OpenAI key anywhere
-    settings.set_setting("active_model", "mistral-large-latest")
+    settings.set_setting("active_model", "mistral-large-4")
     vec = embed_text("x")
     assert seen == {"key": "m-key", "url": "https://api.mistral.ai/v1", "model": "mistral-embed"}
     assert np.isclose(np.linalg.norm(vec), 1.0)

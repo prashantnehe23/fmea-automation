@@ -17,22 +17,26 @@ import urllib.error
 from datetime import datetime
 
 AVAILABLE_MODELS: list[dict] = [
-    {"id": "gpt-5.5",               "provider": "openai",  "display": "GPT-5.5",        "tier": "Power"},
+    {"id": "gpt-6-astra",           "provider": "openai",  "display": "GPT-6 Astra",    "tier": "Power"},
+    {"id": "gpt-5.6-sol",           "provider": "openai",  "display": "GPT-5.6 Sol",    "tier": "Standard"},
+    {"id": "gpt-5.6-luna",          "provider": "openai",  "display": "GPT-5.6 Luna",   "tier": "Fast"},
     {"id": "gpt-5.1",               "provider": "openai",  "display": "GPT-5.1",        "tier": "Standard"},
     {"id": "gpt-4o",                "provider": "openai",  "display": "GPT-4o",         "tier": "Power"},
     {"id": "gpt-4o-mini",           "provider": "openai",  "display": "GPT-4o mini",    "tier": "Fast"},
-    {"id": "mistral-large-latest",  "provider": "mistral", "display": "Mistral Large",  "tier": "Power"},
+    {"id": "mistral-large-4",       "provider": "mistral", "display": "Mistral Large 4", "tier": "Power"},
     {"id": "mistral-medium-latest", "provider": "mistral", "display": "Mistral Medium", "tier": "Standard"},
     {"id": "mistral-small-latest",  "provider": "mistral", "display": "Mistral Small",  "tier": "Fast"},
 ]
 
 # $/1M tokens — used when LiteLLM fetch fails or model not found in its JSON
 FALLBACK_RATES: dict[str, dict[str, float]] = {
-    "gpt-5.5":     {"prompt": 5.00, "completion": 30.00},
+    "gpt-6-astra": {"prompt": 10.00, "completion": 50.00},
+    "gpt-5.6-sol": {"prompt": 5.00, "completion": 30.00},
+    "gpt-5.6-luna": {"prompt": 0.20, "completion": 1.20},
     "gpt-5.1":     {"prompt": 2.00, "completion": 8.00},
     "gpt-4o":      {"prompt": 2.50, "completion": 10.00},
     "gpt-4o-mini": {"prompt": 0.15, "completion": 0.60},
-    "mistral-large-latest":  {"prompt": 0.50, "completion": 1.50},
+    "mistral-large-4":       {"prompt": 1.36, "completion": 4.18},
     "mistral-medium-latest": {"prompt": 1.50, "completion": 7.50},
     "mistral-small-latest":  {"prompt": 0.15, "completion": 0.60},
 }
