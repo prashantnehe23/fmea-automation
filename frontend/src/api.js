@@ -317,6 +317,36 @@ export async function setActiveModel(modelId) {
   return res.json();
 }
 
+// ── Provider API keys (B-022) ────────────────────────────────────────────────
+
+/**
+ * GET /api/settings/providers — providers with masked key status.
+ * @returns {Array<{id, display, key_set, key_hint, source}>}
+ */
+export async function getProviders() {
+  const res = await fetch(`${BASE}/api/settings/providers`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/** PUT /api/settings/providers/{id}/key — store a provider API key. */
+export async function setProviderKey(providerId, apiKey) {
+  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/key`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+/** DELETE /api/settings/providers/{id}/key — remove a stored key. */
+export async function deleteProviderKey(providerId) {
+  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/key`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 // ── Portfolio / Project hierarchy (B-007) ────────────────────────────────────
 
 function _mapProject(p) {

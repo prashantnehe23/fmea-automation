@@ -6,12 +6,18 @@ Endpoints:
   GET  /api/settings/model            — get active model
   PATCH /api/settings/model           — set active model
   GET  /api/settings/pricing/refresh  — trigger LiteLLM pricing refresh
+  GET    /api/settings/providers          — providers + masked key status (B-022)
+  PUT    /api/settings/providers/{id}/key — store a provider API key (B-022)
+  DELETE /api/settings/providers/{id}/key — remove a stored key (B-022)
 """
 
 from fastapi import APIRouter, HTTPException
 
-from api.schemas import ModelPatch
+from api.schemas import ApiKeyBody, ModelPatch
 from core.costs import AVAILABLE_MODELS, FALLBACK_RATES, get_rates, refresh_pricing
+from core.providers import (
+    PROVIDERS, clear_api_key, get_api_key, mask_key, provider_for_model, set_api_key,
+)
 from core.settings import get_setting, set_setting
 
 router = APIRouter()
@@ -31,6 +37,7 @@ async def list_models():
             "prompt_per_1m":     rates["prompt"],
             "completion_per_1m": rates["completion"],
             "is_active":         m["id"] == active,
+            "key_set":           bool(get_api_key(m["provider"])),
         })
     return result
 
@@ -49,8 +56,48 @@ async def set_model(body: ModelPatch):
             status_code=422,
             detail=f"Unknown model '{body.model}'. Valid: {sorted(_VALID_IDS)}",
         )
+    provider = provider_for_model(body.model)
+    if not get_api_key(provider):
+        raise HTTPException(
+            status_code=409,
+            detail=f"No API key set for {PROVIDERS[provider]['display']}. Add one first.",
+        )
     set_setting("active_model", body.model)
     return {"active_model": body.model}
+
+
+@router.get("/api/settings/providers")
+async def list_providers():
+    """Return providers with masked key status. Raw keys are never returned."""
+    stored = get_setting("api_keys") or {}
+    return [
+        {
+            "id":       pid,
+            "display":  cfg["display"],
+            "key_set":  bool(get_api_key(pid)),
+            "key_hint": mask_key(get_api_key(pid)),
+            "source":   "settings" if stored.get(pid) else ("env" if get_api_key(pid) else None),
+        }
+        for pid, cfg in PROVIDERS.items()
+    ]
+
+
+@router.put("/api/settings/providers/{provider_id}/key")
+async def put_provider_key(provider_id: str, body: ApiKeyBody):
+    if provider_id not in PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider '{provider_id}'")
+    if not body.api_key.strip():
+        raise HTTPException(status_code=422, detail="api_key must not be empty")
+    set_api_key(provider_id, body.api_key)
+    return {"id": provider_id, "key_set": True, "key_hint": mask_key(body.api_key.strip())}
+
+
+@router.delete("/api/settings/providers/{provider_id}/key")
+async def delete_provider_key(provider_id: str):
+    if provider_id not in PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider '{provider_id}'")
+    clear_api_key(provider_id)
+    return {"id": provider_id, "key_set": bool(get_api_key(provider_id))}
 
 
 @router.get("/api/settings/pricing/refresh")

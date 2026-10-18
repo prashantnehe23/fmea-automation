@@ -1,5 +1,5 @@
 """
-OpenAI API wrapper used by all agents.
+OpenAI-compatible LLM wrapper (OpenAI, Mistral, …) used by all agents.
 
 Exports:
     call_llm(prompt, *, max_tokens)  → raw response string from the model
@@ -16,7 +16,7 @@ import re
 import openai
 
 _MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.1")
-_client: openai.OpenAI | None = None
+_clients: dict[str, tuple[str, openai.OpenAI]] = {}
 
 
 def _get_model() -> str:
@@ -36,17 +36,21 @@ _prompt_tokens: int = 0
 _completion_tokens: int = 0
 
 
-def _get_client() -> openai.OpenAI:
-    global _client
-    if _client is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError(
-                "OPENAI_API_KEY environment variable is not set. "
-                "Export it before running the pipeline."
-            )
-        _client = openai.OpenAI(api_key=api_key)
-    return _client
+def _get_client(provider_id: str) -> openai.OpenAI:
+    """Return a client for the provider using its current key (rebuilt if the key changes)."""
+    from core.providers import get_api_key, get_provider
+    api_key = get_api_key(provider_id)
+    if not api_key:
+        cfg = get_provider(provider_id)
+        raise RuntimeError(
+            f"No API key for {cfg['display']}. Enter one in Settings or set {cfg['env_var']}."
+        )
+    cached = _clients.get(provider_id)
+    if cached is None or cached[0] != api_key:
+        cfg = get_provider(provider_id)
+        cached = (api_key, openai.OpenAI(api_key=api_key, base_url=cfg["base_url"]))
+        _clients[provider_id] = cached
+    return cached[1]
 
 
 def reset_call_count() -> None:
@@ -70,12 +74,15 @@ def get_token_usage() -> tuple[int, int]:
 def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     """Send a single-turn prompt to the configured model and return the text reply."""
     global _call_count, _prompt_tokens, _completion_tokens
-    client = _get_client()
+    from core.providers import get_provider, provider_for_model
+    model = _get_model()
+    provider_id = provider_for_model(model)
+    client = _get_client(provider_id)
     response = client.chat.completions.create(
-        model=_get_model(),
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
-        max_completion_tokens=max_tokens,
+        **{get_provider(provider_id)["max_tokens_param"]: max_tokens},
     )
     _call_count += 1
     if response.usage:

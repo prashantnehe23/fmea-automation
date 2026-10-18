@@ -17,16 +17,24 @@ import urllib.error
 from datetime import datetime
 
 AVAILABLE_MODELS: list[dict] = [
-    {"id": "gpt-5.1",     "display": "GPT-5.1",     "tier": "Standard"},
-    {"id": "gpt-4o",      "display": "GPT-4o",       "tier": "Power"},
-    {"id": "gpt-4o-mini", "display": "GPT-4o mini",  "tier": "Fast"},
+    {"id": "gpt-5.5",               "provider": "openai",  "display": "GPT-5.5",        "tier": "Power"},
+    {"id": "gpt-5.1",               "provider": "openai",  "display": "GPT-5.1",        "tier": "Standard"},
+    {"id": "gpt-4o",                "provider": "openai",  "display": "GPT-4o",         "tier": "Power"},
+    {"id": "gpt-4o-mini",           "provider": "openai",  "display": "GPT-4o mini",    "tier": "Fast"},
+    {"id": "mistral-large-latest",  "provider": "mistral", "display": "Mistral Large",  "tier": "Power"},
+    {"id": "mistral-medium-latest", "provider": "mistral", "display": "Mistral Medium", "tier": "Standard"},
+    {"id": "mistral-small-latest",  "provider": "mistral", "display": "Mistral Small",  "tier": "Fast"},
 ]
 
 # $/1M tokens — used when LiteLLM fetch fails or model not found in its JSON
 FALLBACK_RATES: dict[str, dict[str, float]] = {
+    "gpt-5.5":     {"prompt": 5.00, "completion": 30.00},
     "gpt-5.1":     {"prompt": 2.00, "completion": 8.00},
     "gpt-4o":      {"prompt": 2.50, "completion": 10.00},
     "gpt-4o-mini": {"prompt": 0.15, "completion": 0.60},
+    "mistral-large-latest":  {"prompt": 0.50, "completion": 1.50},
+    "mistral-medium-latest": {"prompt": 1.50, "completion": 7.50},
+    "mistral-small-latest":  {"prompt": 0.15, "completion": 0.60},
 }
 
 _LITELLM_URL = (
@@ -46,7 +54,7 @@ def refresh_pricing() -> dict[str, dict[str, float]]:
     rates: dict[str, dict[str, float]] = {}
     for m in AVAILABLE_MODELS:
         mid = m["id"]
-        entry = data.get(mid)
+        entry = data.get(mid) or data.get(f"{m['provider']}/{mid}")
         if entry and entry.get("input_cost_per_token") is not None:
             rates[mid] = {
                 "prompt":     round(entry["input_cost_per_token"]  * 1_000_000, 4),

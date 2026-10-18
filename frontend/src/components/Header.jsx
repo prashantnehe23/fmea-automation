@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PERSONAS, PROCESS_STEPS, HIERARCHY, SCOPE_LABEL } from '../data';
 import { ORG } from '../data';
-import { getModels, setActiveModel } from '../api';
+import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey } from '../api';
 
 const TIER_BADGE = {
   Fast:     'bg-green-50 text-green-700',
@@ -13,21 +13,53 @@ export default function Header({ persona, step, sel, scope }) {
   const [showSettings, setShowSettings] = useState(false);
   const [models, setModels]             = useState([]);
   const [activeModel, setActiveModelState] = useState(null);
+  const [providers, setProviders]       = useState([]);
+  const [keyInput, setKeyInput]         = useState('');
+  const [keyError, setKeyError]         = useState('');
+
+  const refreshModels = () =>
+    Promise.all([getModels(), getProviders()]).then(([list, provs]) => {
+      setModels(list);
+      setProviders(provs);
+      return list;
+    });
 
   useEffect(() => {
     if (!showSettings) return;
-    getModels()
+    refreshModels()
       .then(list => {
-        setModels(list);
         const active = list.find(m => m.is_active);
         if (active) setActiveModelState(active.id);
       })
       .catch(() => {});
   }, [showSettings]);
 
+  const selected = models.find(x => x.id === activeModel);
+  const selectedProvider = providers.find(p => p.id === selected?.provider);
+
   const handleModelChange = async (modelId) => {
     setActiveModelState(modelId);
+    setKeyInput('');
+    setKeyError('');
+    const m = models.find(x => x.id === modelId);
+    if (!m?.key_set) return;  // key input shown; model activates once a key is saved
     try { await setActiveModel(modelId); } catch { /* API unavailable */ }
+  };
+
+  const handleSaveKey = async () => {
+    setKeyError('');
+    try {
+      await setProviderKey(selected.provider, keyInput);
+      await setActiveModel(selected.id);
+      setKeyInput('');
+      await refreshModels();
+    } catch (e) { setKeyError(e.message); }
+  };
+
+  const handleRemoveKey = async () => {
+    setKeyError('');
+    try { await deleteProviderKey(selected.provider); await refreshModels(); }
+    catch (e) { setKeyError(e.message); }
   };
   const current  = PERSONAS.find(p => p.id === persona);
   const stepInfo = PROCESS_STEPS.find(s => s.id === step);
@@ -145,10 +177,42 @@ export default function Header({ persona, step, sel, scope }) {
                       >
                         {models.map(m => (
                           <option key={m.id} value={m.id}>
-                            {m.display} — ${m.prompt_per_1m}/${m.completion_per_1m} per 1M
+                            {providers.find(p => p.id === m.provider)?.display ?? m.provider} · {m.display} — ${m.prompt_per_1m}/${m.completion_per_1m} per 1M
                           </option>
                         ))}
                       </select>
+                      {selected && (
+                        <div className="mt-2">
+                          {selected.key_set ? (
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-400">
+                                {selectedProvider?.display} key {selectedProvider?.key_hint}
+                                {selectedProvider?.source === 'env' ? ' (env var)' : ''}
+                              </p>
+                              {selectedProvider?.source === 'settings' && (
+                                <button onClick={handleRemoveKey} className="text-xs text-red-500 font-semibold hover:text-red-700">Remove</button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex gap-1">
+                              <input
+                                type="password"
+                                autoComplete="off"
+                                value={keyInput}
+                                onChange={e => setKeyInput(e.target.value)}
+                                placeholder={`${selectedProvider?.display ?? ''} API key`}
+                                className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                              />
+                              <button
+                                onClick={handleSaveKey}
+                                disabled={!keyInput.trim()}
+                                className="text-xs font-semibold px-2 py-1 rounded-lg bg-blue-50 text-blue-700 disabled:opacity-40"
+                              >Save</button>
+                            </div>
+                          )}
+                          {keyError && <p className="text-xs text-red-500 mt-1">{keyError}</p>}
+                        </div>
+                      )}
                     </div>
                   </>
                 )}

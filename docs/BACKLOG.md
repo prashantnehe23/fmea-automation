@@ -227,6 +227,34 @@
 
 ---
 
+### B-022 · Multi-Provider Model Selection + User API Keys `[x]` DONE
+
+**Priority:** P1 (engineer-approved). **Extends:** B-021. **Decision:** [ADR-011](decisions/ADR-011-multi-provider-llm.md)
+
+**Why:** The platform was locked to OpenAI via a single env-var key. Users need to pick a model from OpenAI or Mistral AI and supply their own key, and adding further providers must be quick.
+
+**Scope:**
+- `core/providers.py` (NEW) — `PROVIDERS` registry (base_url, env var, token-param name); key get/set/clear/mask
+- `core/costs.py` — `AVAILABLE_MODELS` gains `provider`; added GPT-5.5 and Mistral Large/Medium/Small (`-latest` aliases) with fallback rates
+- `core/llm.py` — per-provider cached OpenAI-compatible client; routes by active model
+- `core/settings.py` / `.gitignore` — `api_keys` setting; `core/settings.json` gitignored
+- `api/routers/settings.py`, `api/schemas.py` — `GET /api/settings/providers`, `PUT|DELETE /api/settings/providers/{id}/key`; `PATCH /model` returns 409 without a key
+- `frontend/src/api.js`, `Header.jsx` — provider-grouped model dropdown, masked key input/remove
+- `tests/test_providers.py` (NEW, 8 tests)
+
+**Acceptance criteria:**
+- [x] OpenAI and Mistral models selectable, each mapped to a provider
+- [x] User can enter a provider API key in Settings; stored key is masked and never returned by the API
+- [x] Env vars (`OPENAI_API_KEY`, `MISTRAL_API_KEY`) remain a fallback
+- [x] A model cannot be activated without a key for its provider (409)
+- [x] `call_llm` uses the selected provider's base URL, key and token parameter
+- [x] New provider/model added via registry entries only (tested)
+- [x] All `tests/test_providers.py` tests pass; full suite 61 passing
+
+**Known limits:** model IDs/prices are best-effort (web sources conflicted) — verify against provider docs; `memory/scenario_registry.py` embeddings still use OpenAI directly and need an OpenAI key regardless of the selected model.
+
+---
+
 ### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage) `[x]` DONE
 **Why:** Portfolios and projects are stored in browser localStorage. This means the hierarchy is device-local, lost on clearing storage, and cannot be shared across team members. The DB already has a `workspaces` table; projects and portfolios should be rows, not localStorage keys.
 
