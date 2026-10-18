@@ -25,12 +25,14 @@ PROVIDERS: dict[str, dict] = {
         "base_url":         None,  # SDK default
         "env_var":          "OPENAI_API_KEY",
         "max_tokens_param": "max_completion_tokens",
+        "embed_model":      "text-embedding-3-small",
     },
     "mistral": {
         "display":          "Mistral AI",
         "base_url":         "https://api.mistral.ai/v1",
         "env_var":          "MISTRAL_API_KEY",
         "max_tokens_param": "max_tokens",
+        "embed_model":      "mistral-embed",
     },
 }
 

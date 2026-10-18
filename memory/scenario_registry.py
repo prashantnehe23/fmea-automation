@@ -9,7 +9,10 @@ RPN scores are locked in the DB (via memory/db.py).  On subsequent runs:
 3. Any scenario the LLM renamed despite the constraint is matched by embedding
    cosine similarity (threshold 0.85) and renamed back to its canonical name.
 
-Embeddings use OpenAI text-embedding-3-small (cheap: ~$0.02/1M tokens).
+Embeddings use the active LLM provider's embedding model (see core/providers.py),
+so one API key covers chat and embeddings. Each stored embedding is tagged with the
+model that produced it; rows from a different model are never compared (incompatible
+vector spaces) and are re-embedded the next time the registry is updated.
 """
 
 from __future__ import annotations
@@ -17,31 +20,35 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from openai import OpenAI
 
 import memory.db as db
 
 if TYPE_CHECKING:
     from core.models import FailureMode, RiskScore
 
-_EMBED_MODEL = "text-embedding-3-small"
 _SIMILARITY_THRESHOLD = 0.85
-
-_client: OpenAI | None = None
-
-
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI()
-    return _client
 
 
 # ── Embedding helpers ──────────────────────────────────────────────────────────
 
+def _active_provider() -> str:
+    from core.llm import get_model_name
+    from core.providers import provider_for_model
+    return provider_for_model(get_model_name())
+
+
+def current_embed_model() -> str:
+    """Embedding model of the active LLM provider."""
+    from core.providers import get_provider
+    return get_provider(_active_provider())["embed_model"]
+
+
 def embed_text(text: str) -> np.ndarray:
     """Return a float32 unit-normalised embedding for text."""
-    resp = _get_client().embeddings.create(model=_EMBED_MODEL, input=text[:2000])
+    from core.llm import _get_client
+    resp = _get_client(_active_provider()).embeddings.create(
+        model=current_embed_model(), input=text[:2000]
+    )
     vec = np.array(resp.data[0].embedding, dtype=np.float32)
     norm = np.linalg.norm(vec)
     return vec / norm if norm > 0 else vec
@@ -100,7 +107,12 @@ def find_matching_scenario(
     if not locked:
         return None
 
-    candidates_with_embedding = [row for row in locked if row.get("embedding") is not None]
+    embed_model = current_embed_model()
+    candidates_with_embedding = [
+        row for row in locked
+        if row.get("embedding") is not None
+        and row.get("embed_model", embed_model) == embed_model
+    ]
     if not candidates_with_embedding:
         return None
 
@@ -132,6 +144,16 @@ def register_new_scenarios(
     (INSERT OR IGNORE in db.upsert_scenario preserves first-run scores).
     """
     locked_names = {row["failure_mode"] for row in locked}
+    embed_model = current_embed_model()
+
+    # Re-embed locked rows made by a different embedding model (e.g. provider switch)
+    for row in locked:
+        if row.get("embedding") is not None and row.get("embed_model", embed_model) != embed_model:
+            try:
+                vec = embed_text(_scenario_text(row["failure_mode"], row.get("attack_chain", [])))
+                db.update_scenario_embedding(workspace_id, row["failure_mode"], vec.tobytes(), embed_model)
+            except Exception:
+                pass  # keep the old embedding; retried on the next scan
 
     for failure, risk in zip(failures, risks):
         # Always call upsert — INSERT OR IGNORE means locked ones won't be overwritten
@@ -153,6 +175,7 @@ def register_new_scenarios(
             detection=risk.detection,
             rpn=risk.rpn,
             embedding=embedding_bytes,
+            embed_model=embed_model if embedding_bytes else "",
         )
 
 

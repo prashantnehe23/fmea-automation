@@ -139,6 +139,7 @@ def get_db() -> sqlite3.Connection:
     for _col_sql in (
         "ALTER TABLE telemetry ADD COLUMN run_id TEXT",
         "ALTER TABLE telemetry ADD COLUMN cost_usd REAL DEFAULT 0",
+        "ALTER TABLE scenarios ADD COLUMN embed_model TEXT",
     ):
         try:
             conn.execute(_col_sql)
@@ -277,6 +278,7 @@ def upsert_scenario(
     detection: int,
     rpn: int,
     embedding: bytes,
+    embed_model: str = "",
 ) -> None:
     """
     Insert scenario if not present (keyed on workspace_id + failure_mode).
@@ -289,8 +291,8 @@ def upsert_scenario(
                 """
                 INSERT OR IGNORE INTO scenarios
                     (workspace_id, first_fingerprint, failure_mode, attack_chain_json,
-                     severity, occurrence, detection, rpn, embedding, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     severity, occurrence, detection, rpn, embedding, embed_model, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     workspace_id,
@@ -302,6 +304,7 @@ def upsert_scenario(
                     detection,
                     rpn,
                     embedding,
+                    embed_model,
                     datetime.now().isoformat(),
                 ),
             )
@@ -319,7 +322,7 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
     try:
         rows = conn.execute(
             """
-            SELECT failure_mode, attack_chain_json, severity, occurrence, detection, rpn, embedding
+            SELECT failure_mode, attack_chain_json, severity, occurrence, detection, rpn, embedding, embed_model
             FROM scenarios WHERE workspace_id=?
             ORDER BY rpn DESC
             """,
@@ -331,6 +334,8 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
             # Deserialise numpy array from BLOB
             if item["embedding"]:
                 item["embedding"] = np.frombuffer(item["embedding"], dtype=np.float32)
+                # Rows stored before B-022 were all made by OpenAI's model
+                item["embed_model"] = item["embed_model"] or "text-embedding-3-small"
             else:
                 item["embedding"] = None
             if item.get("attack_chain_json"):
@@ -341,6 +346,22 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
         return result
     finally:
         conn.close()
+
+
+def update_scenario_embedding(
+    workspace_id: int, failure_mode: str, embedding: bytes, embed_model: str
+) -> None:
+    """Replace a locked scenario's embedding (scores stay untouched)."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                "UPDATE scenarios SET embedding=?, embed_model=? WHERE workspace_id=? AND failure_mode=?",
+                (embedding, embed_model, workspace_id, failure_mode),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def delete_scenarios(workspace_id: int) -> None:

@@ -110,3 +110,54 @@ def test_new_provider_is_registry_only(monkeypatch):
     providers.set_api_key("acme", "a-key")
     assert providers.provider_for_model("acme-1") == "acme"
     assert providers.get_api_key("acme") == "a-key"
+
+
+# ── AC6: embeddings follow the active provider (no OpenAI key needed for Mistral) ──
+
+def test_embed_model_follows_provider():
+    from memory.scenario_registry import current_embed_model
+    settings.set_setting("active_model", "mistral-small-latest")
+    assert current_embed_model() == "mistral-embed"
+    settings.set_setting("active_model", "gpt-4o-mini")
+    assert current_embed_model() == "text-embedding-3-small"
+
+
+def test_embed_text_uses_mistral_client_only(monkeypatch):
+    import numpy as np
+    from memory.scenario_registry import embed_text
+    seen = {}
+
+    class FakeOpenAI:
+        def __init__(self, api_key, base_url=None):
+            seen["key"], seen["url"] = api_key, base_url
+            self.embeddings = self
+
+        def create(self, model, input):
+            seen["model"] = model
+            from types import SimpleNamespace as NS
+            return NS(data=[NS(embedding=[3.0, 4.0])])
+
+    monkeypatch.setattr(llm.openai, "OpenAI", FakeOpenAI)
+    providers.set_api_key("mistral", "m-key")  # no OpenAI key anywhere
+    settings.set_setting("active_model", "mistral-large-latest")
+    vec = embed_text("x")
+    assert seen == {"key": "m-key", "url": "https://api.mistral.ai/v1", "model": "mistral-embed"}
+    assert np.isclose(np.linalg.norm(vec), 1.0)
+
+
+def test_mismatched_embed_model_not_compared_and_reembedded(tmp_path, monkeypatch):
+    import numpy as np
+    import memory.db as db
+    import memory.scenario_registry as sr
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "t.db")
+    settings.set_setting("active_model", "mistral-small-latest")
+    old = np.ones(4, dtype=np.float32) / 2
+    locked = [{"failure_mode": "A", "attack_chain": ["s"], "embedding": old,
+               "embed_model": "text-embedding-3-small"}]
+    monkeypatch.setattr(sr, "embed_text", lambda t: old)
+    assert sr.find_matching_scenario("A", ["s"], locked) is None  # different vector space
+
+    calls = []
+    monkeypatch.setattr(db, "update_scenario_embedding", lambda *a: calls.append(a))
+    sr.register_new_scenarios(1, "fp", [], [], locked)
+    assert calls and calls[0][1] == "A" and calls[0][3] == "mistral-embed"

@@ -240,7 +240,8 @@
 - `core/settings.py` / `.gitignore` — `api_keys` setting; `core/settings.json` gitignored
 - `api/routers/settings.py`, `api/schemas.py` — `GET /api/settings/providers`, `PUT|DELETE /api/settings/providers/{id}/key`; `PATCH /model` returns 409 without a key
 - `frontend/src/api.js`, `Header.jsx` — provider-grouped model dropdown, masked key input/remove
-- `tests/test_providers.py` (NEW, 8 tests)
+- `memory/scenario_registry.py`, `memory/db.py` — embeddings use the active provider's embedding model; `scenarios.embed_model` column; mismatched rows skipped and re-embedded
+- `tests/test_providers.py` (NEW, 11 tests)
 
 **Acceptance criteria:**
 - [x] OpenAI and Mistral models selectable, each mapped to a provider
@@ -249,9 +250,10 @@
 - [x] A model cannot be activated without a key for its provider (409)
 - [x] `call_llm` uses the selected provider's base URL, key and token parameter
 - [x] New provider/model added via registry entries only (tested)
-- [x] All `tests/test_providers.py` tests pass; full suite 61 passing
+- [x] Scenario embeddings use the active provider (Mistral-only users need no OpenAI key); vectors from a different embedding model are never compared and are re-embedded
+- [x] All `tests/test_providers.py` tests pass; full suite 64 passing
 
-**Known limits:** model IDs/prices are best-effort (web sources conflicted) — verify against provider docs; `memory/scenario_registry.py` embeddings still use OpenAI directly and need an OpenAI key regardless of the selected model.
+**Known limits:** model IDs/prices are best-effort (web sources conflicted) — verify against provider docs; Mistral embeddings via the OpenAI-compatible endpoint are untested against the live API.
 
 ---
 
