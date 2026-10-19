@@ -14,6 +14,9 @@ One SRE agent per finding produces `fixes`, `monitoring`, `resilience_upgrades`,
 4. **Compatibility:** results already stored keep their old fields; the UI maps old `fixes` to corrective actions and old `monitoring` / `resilience_upgrades` to preventive actions so earlier scans stay readable. The on-demand remediator (code diff and test) consumes corrective actions of kind `code_fix` instead of `plan.fixes[:3]`.
 5. B-010 (Gantt roadmap) is superseded and closed on approval.
 
+## Engineer decisions (2026-10-19)
+- Actions keep a **now / next / later ordering band** (an ordering hint, never a date).
+
 ## Alternatives considered
 - Keep one SRE agent and only drop the roadmap: simpler, but keeps the mixed intent and the large single output.
 - Three agents (corrective, preventive, detective): finer, but detection fits naturally inside preventive and a third call adds cost; can be split later.

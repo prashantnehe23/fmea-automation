@@ -1,6 +1,6 @@
 # ADR-017: Business Profile and System Map — Short Business Context, Untrusted README
 
-**Status:** Draft (awaiting engineer approval)  **Date:** 2026-10-19  **Backlog:** B-027
+**Status:** Draft; decision 3 (untrusted README handling) accepted and implemented 2026-10-19 as B-027 phase 0, the remainder awaits approval  **Date:** 2026-10-19  **Backlog:** B-027
 
 ## Context
 The "Business & System Context" card mixes three things: the README's first 2,000 characters (GitHub scans store `readme_text[:2000]` as the business context), and the surveyor's lists of attack surfaces and failure domains. Users want the business context to be short and about the business. Two further problems were found in the code review:

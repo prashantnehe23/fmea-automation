@@ -23,6 +23,7 @@ from api.schemas import WorkspaceIn, serialize_result
 from api.sse import sse_event
 from api.store import build_workspace, next_scan_id, scan_store
 from core.chat import persist_scan_for_chat
+from core.untrusted import sanitize_text
 from core.github_fetcher import fetch_readme, fetch_selected_files, scan_repo
 from core.workspace import WorkspaceContext
 from workflows.fmea_pipeline import run_fmea
@@ -105,8 +106,8 @@ async def github_scan(req: GithubScanRequest):
             business_tier=ws_in.business_tier if ws_in else "Tier 1",
             user_type=ws_in.user_type if ws_in else "external_customers",
             # README always wins over any manually typed context
-            business_context=readme_text[:2000] if readme_text else (
-                ws_in.business_context if ws_in else ""
+            business_context=sanitize_text(readme_text, 2000) if readme_text else (
+                sanitize_text(ws_in.business_context, 2000) if ws_in else ""
             ),
             customer_learning=ws_in.customer_learning if ws_in else True,
         )

@@ -2,13 +2,14 @@ import json
 
 from core.llm import call_llm, extract_json_text
 from core.models import SystemContext
+from core.untrusted import as_data_block
 
 
 def run_surveyor(code: str, business_context: str = "") -> SystemContext:
     _biz_block = (
-        f"Business context: {business_context}\n"
+        "Business context:\n" + as_data_block("business_context", business_context) + "\n"
         "Use this to inform component tiering — Tier 1 is business-critical to this context.\n\n"
-        if business_context else ""
+        if as_data_block("business_context", business_context) else ""
     )
     prompt = f"""{_biz_block}
 You are a system cartographer. Use a Tree of Thoughts approach: explore three independent

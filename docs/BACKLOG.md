@@ -443,7 +443,9 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 **Goal:** make scans effective and insightful: no scenario capable of a catastrophic outcome is silently lost; every finding is verified against the code, classified by root cause, and comes with corrective and preventive actions; the business context is short. **Honest limit:** no tool can prove the absence of vulnerabilities, so the measurable goal is coverage plus evidenced verdicts plus explicit residual risk (ADR-015), tracked against a labelled benchmark (B-026).
 
-**Decisions (all Draft, need engineer approval):** [ADR-015](decisions/ADR-015-goal-based-discovery.md) goal-based discovery, [ADR-016](decisions/ADR-016-root-cause-taxonomy.md) root-cause taxonomy, [ADR-017](decisions/ADR-017-business-profile-system-map.md) business profile / system map, [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md) corrective / preventive split, [ADR-019](decisions/ADR-019-finding-identity-and-locks.md) finding identity and locks.
+**Engineer decisions recorded 2026-10-19:** start with the XSS fix, then the benchmark (B-027 phase 0, then B-026); verification is static reasoning with code tools (no sandboxed exploit execution in the first release); default scan depth is Standard with Deep opt-in under a USD budget and Quick keeps today's single pass; actions carry now / next / later ordering bands but no dates.
+
+**Decisions (Draft; the choices above are confirmed, the ADRs as a whole still need approval):** [ADR-015](decisions/ADR-015-goal-based-discovery.md) goal-based discovery, [ADR-016](decisions/ADR-016-root-cause-taxonomy.md) root-cause taxonomy, [ADR-017](decisions/ADR-017-business-profile-system-map.md) business profile / system map, [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md) corrective / preventive split, [ADR-019](decisions/ADR-019-finding-identity-and-locks.md) finding identity and locks.
 
 **What the code review found (2026-10-19):**
 - Discovery is one LLM call over the whole code, capped at 7 scenarios (a billing cap); no coverage record; evidence is optional and never checked; the validator never sees the code; scenario linkage reads only the first 12,000 characters.
@@ -490,7 +492,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-027 · Business Profile + System Map; Untrusted-README Hardening `[ ]` PROPOSED — P0 (phase 0) / P1
+### B-027 · Business Profile + System Map; Untrusted-README Hardening `[~]` IN PROGRESS — phase 0 DONE, phase 1 pending
 
 **Priority note:** Phase 0 is a security defect in the platform itself and should not wait for the rest. **Decision:** [ADR-017](decisions/ADR-017-business-profile-system-map.md)
 
@@ -503,15 +505,20 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Agents receive the profile, not the raw README
 
 **Acceptance criteria:**
-- [ ] A README containing `<img src=x onerror=...>` and script tags does not execute and is shown as inert text (frontend test or browser check)
+- [x] A README containing `<img src=x onerror=...>` and script tags does not execute and is shown as inert text (browser check: before the fix `window.__xss` was set and `<img>`/`<script>`/`<b>` were inserted; after it nothing executes and the text is inert, including for scans already stored)
 - [ ] The business context shown on the card is at most 600 characters / ~90 words for a 10,000-word README (test)
 - [ ] The profile names purpose, users, critical assets and 3-5 catastrophic outcomes (schema test)
-- [ ] A README that says "ignore previous instructions" does not change agent behaviour or leak into other agents' prompts verbatim (test on prompt construction)
+- [ ] A README that says "ignore previous instructions" does not change agent behaviour or leak into other agents' prompts verbatim (test on prompt construction) — *phase 0 covers the surveyor, actuary and chat prompts (README only as a labelled, sanitised data block, hidden comments removed); full isolation arrives with the Business Profile in phase 1*
 - [ ] Attack surfaces and failure domains are not shown on the business card; the System Map section is collapsed by default
 - [ ] The user can edit the profile and the edit survives a rescan
 - [ ] Profile is not regenerated when README and code are unchanged (cache test)
 
+**Phase 0 delivered (2026-10-19):** `core/untrusted.py` (`sanitize_text`, `as_data_block`); the GitHub scan stores the README sanitised and capped at 2000 characters (also user-typed context); the surveyor, actuary and chat findings text receive business context only as a labelled `<untrusted_data>` block with a reminder to ignore instructions in it; `dangerouslySetInnerHTML` removed from the Scenarios page, which renders plain text. `tests/test_untrusted.py` (16 tests: sanitiser, delimiter cannot be closed, hidden HTML comments and zero-width/bidi characters removed, prompt construction for three agents, GitHub scan stores the sanitised README); suite 176 passing. The new tests caught a missing import in the actuary before it shipped.
+**Reproduced first:** on the pre-fix build a README with `<img onerror>` executed script in the app (`window.__xss = "executed"`).
+**Not covered / notes:** the legacy Streamlit `dashboard.py` was not reviewed for the same problem (it uses `unsafe_allow_html` in 9 places, none obviously fed by README text); phase 1 (Business Profile, System Map, length-capped profile, editable) is not started.
+
 ---
+
 
 ### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[ ]` PROPOSED — P1
 

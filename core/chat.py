@@ -32,6 +32,7 @@ import memory.db as db
 from core.costs import compute_cost
 from core.llm import call_chat, get_model_name, stream_chat
 from core.models import priority_for_rpn
+from core.untrusted import as_data_block
 from core.providers import get_api_key, model_supports_tools, provider_for_model
 
 _log = logging.getLogger(__name__)
@@ -165,8 +166,8 @@ def build_findings_text(findings: dict, adjustments: dict[str, dict]) -> str:
     ctx = findings.get("context") or {}
     ws = findings.get("workspace") or {}
     out = ["## System context"]
-    if ws.get("business_context"):
-        out.append(f"Business context: {ws['business_context'][:1500]}")
+    if as_data_block("business_context", ws.get("business_context")):
+        out.append("Business context:\n" + as_data_block("business_context", ws.get("business_context")))
     if ws.get("business_tier"):
         out.append(f"Business tier: {ws['business_tier']}; users: {ws.get('user_type', '')}")
     out.append("Component tiering:")

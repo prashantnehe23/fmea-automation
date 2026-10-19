@@ -24,6 +24,10 @@ Replace single-shot brainstorming with a coverage-driven pipeline (agents keep a
 7. **Convergence.** The loop ends when no cell is open and one final "what did we miss?" pass adds nothing, or a budget (USD, calls, time) is reached; remaining cells become `unresolved`. Findings are **not capped**; the former cap becomes a budget on deep analysis, never on reporting.
 8. **Scan depth is a user setting** (quick = today's single pass, standard, deep), with a cost estimate and a hard budget, following the control-with-the-user principle of ADR-012.
 
+## Engineer decisions (2026-10-19)
+- Verification is **static reasoning with read-only code tools and checked evidence**; sandboxed proof-of-concept execution is out of scope for the first release.
+- **Default depth is Standard; Deep is opt-in** with a cost estimate and a hard USD budget; Quick keeps today's single pass.
+
 ## Alternatives considered
 - Improve the single prompt (more vectors, higher cap): cheap, but still no coverage, verification or residual-risk reporting; does not meet the goal.
 - Fully autonomous agent loop (the model decides what to read and when it is done): flexible, but unbounded cost, non-deterministic, and no objective stopping rule. The ledger gives a checkable goal and bounded cost.
