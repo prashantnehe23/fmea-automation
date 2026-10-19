@@ -27,3 +27,8 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-012](ADR-012-reasoning-control.md) | User-Controlled Reasoning Level with Automatic Token Scaling | Accepted | 2026-10-19 |
 | [ADR-013](ADR-013-adaptive-llm-output.md) | Adaptive Handling of Verbose and Truncated Model Output | Accepted | 2026-10-19 |
 | [ADR-014](ADR-014-results-chat.md) | Results Chat: Persistent Context with On-Demand Code Access | Accepted | 2026-10-19 |
+| [ADR-015](ADR-015-goal-based-discovery.md) | Goal-Based Vulnerability Discovery: Inventory, Hunt, Prove, Cover | Draft | 2026-10-19 |
+| [ADR-016](ADR-016-root-cause-taxonomy.md) | Root-Cause Classification: Security, Architectural, Engineering, Operational | Draft | 2026-10-19 |
+| [ADR-017](ADR-017-business-profile-system-map.md) | Business Profile and System Map; Untrusted README | Draft | 2026-10-19 |
+| [ADR-018](ADR-018-corrective-preventive-remediation.md) | Remediation Split: Corrective and Preventive; No Time-Boxed Roadmap | Draft | 2026-10-19 |
+| [ADR-019](ADR-019-finding-identity-and-locks.md) | Finding Identity, Lifecycle and Lock Semantics | Draft | 2026-10-19 |

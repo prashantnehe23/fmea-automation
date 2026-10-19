@@ -439,6 +439,183 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
+### PROGRAMME · Scan Effectiveness — find every catastrophic scenario, explain the root, shorten the noise `[ ]` PROPOSED 2026-10-19
+
+**Goal:** make scans effective and insightful: no scenario capable of a catastrophic outcome is silently lost; every finding is verified against the code, classified by root cause, and comes with corrective and preventive actions; the business context is short. **Honest limit:** no tool can prove the absence of vulnerabilities, so the measurable goal is coverage plus evidenced verdicts plus explicit residual risk (ADR-015), tracked against a labelled benchmark (B-026).
+
+**Decisions (all Draft, need engineer approval):** [ADR-015](decisions/ADR-015-goal-based-discovery.md) goal-based discovery, [ADR-016](decisions/ADR-016-root-cause-taxonomy.md) root-cause taxonomy, [ADR-017](decisions/ADR-017-business-profile-system-map.md) business profile / system map, [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md) corrective / preventive split, [ADR-019](decisions/ADR-019-finding-identity-and-locks.md) finding identity and locks.
+
+**What the code review found (2026-10-19):**
+- Discovery is one LLM call over the whole code, capped at 7 scenarios (a billing cap); no coverage record; evidence is optional and never checked; the validator never sees the code; scenario linkage reads only the first 12,000 characters.
+- Locked scenarios share the cap, so with 7 locked a newly introduced vulnerability has no room.
+- The "category" of a scenario is keyword-matched from its name (`_extract_category`), e.g. "Unauthenticated API *key* overwrite" is filed as secrets.
+- The business context is the README's first 2,000 characters, rendered as raw HTML (`dangerouslySetInnerHTML`): a cross-site scripting hole in our own app, and the same untrusted text goes into every agent prompt.
+- The SRE agent is the biggest cost driver and produces Day 30/60/90 and Gantt data that the evaluator enforces.
+
+**Items and suggested priority (engineer decides):**
+
+| Item | Title | Suggested | Depends on |
+|---|---|---|---|
+| B-027 | Business Profile + System Map, untrusted-README hardening | P0 (XSS fix first), P1 rest | none |
+| B-026 | Scan effectiveness benchmark (ground-truth harness) | P0 | none |
+| B-030 | Corrective and Preventive remediation agents; retire 30-60-90 / Gantt | P1 | none (domain-aware preventive improves after B-029) |
+| B-029 | Root-cause classification (security / architectural / engineering / operational) | P1 | none; best after B-026 for labels |
+| B-031 | Finding identity, lifecycle and lock semantics | P1 | before B-028 phase D |
+| B-028 | Goal-based discovery engine (phases A-D) | P1 (core of the programme) | B-026, B-027, B-031 |
+| B-032 | Pipeline observability, cost estimate and budget guard for the new stages | P2 | B-028 |
+
+**Suggested order:** (1) B-027 phase 0 (XSS fix) immediately; (2) B-026 baseline so every later change is measured; (3) B-027 and B-030 in parallel, both low risk and visible; (4) B-029; (5) B-031, then B-028 phases A to D, each phase re-measured on B-026; (6) B-032 alongside B-028.
+
+**Estimated effort and cost (estimates, to be replaced by measurements from B-026):** B-027 small, B-026 medium, B-030 medium, B-029 small-medium, B-031 medium, B-028 large (four phases), B-032 small-medium. A deep scan is expected to cost several times today's ~$0.2-0.5 per scan and needs parallelism to stay within minutes; quick mode keeps today's cost.
+
+---
+
+### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[ ]` PROPOSED — P0
+
+**Why:** "More effective" cannot be claimed without measuring. Today there is no ground truth, so recall (what we miss) and false positives are invisible, and every agent change is judged by feel.
+
+**Scope:**
+- `benchmarks/` (NEW) — 6-10 small seeded repositories (varied languages/frameworks, including at least one with a catastrophic path built from chained moderate issues) with a `truth.json` per repo: each real vulnerability with threat class, location, expected root-cause domain, catastrophic yes/no. This repository's own known issues (unauthenticated settings/chat endpoints, plaintext keys, README-to-HTML injection) form one labelled sample.
+- `benchmarks/score.py` (NEW) — runs a scan on each repo and reports recall, precision, **catastrophic recall**, evidence validity rate, root-cause agreement, cost, time, calls
+- `make bench` target; results stored as JSON for comparison across commits
+- Baseline run of the current pipeline recorded in this item
+
+**Acceptance criteria:**
+- [ ] At least 6 labelled benchmark repositories, each with a reviewed `truth.json` (engineer signs off the labels)
+- [ ] One command runs the benchmark and prints a comparison table (recall, precision, catastrophic recall, cost, time)
+- [ ] Matching of findings to truth is deterministic and documented (location plus threat class; semantic fallback logged)
+- [ ] Baseline numbers for the current pipeline are recorded here
+- [ ] Targets for B-028 are written into this item after the baseline (engineer approves)
+- [ ] Unit tests cover the scorer with synthetic scans (perfect, empty, partial, extra findings)
+
+---
+
+### B-027 · Business Profile + System Map; Untrusted-README Hardening `[ ]` PROPOSED — P0 (phase 0) / P1
+
+**Priority note:** Phase 0 is a security defect in the platform itself and should not wait for the rest. **Decision:** [ADR-017](decisions/ADR-017-business-profile-system-map.md)
+
+**Why:** The context card is verbose (README dump plus attack-surface prose) and not about the business. The README is untrusted yet rendered as HTML and injected into prompts.
+
+**Scope:**
+- *Phase 0:* remove `dangerouslySetInnerHTML` for business context (render text); length-cap and tag README as data wherever it reaches a prompt
+- *Phase 1:* `agents/business_profile.py` (NEW): structured profile (purpose, users, critical assets, 3-5 catastrophic outcomes, criticality), hard length cap with one compression retry, cached by README/code fingerprint, user-editable override; stored on the scan result and workspace
+- *Phase 1:* System Map kept separate (from the surveyor), shown collapsed with counts; Scenarios page card shows only the profile
+- Agents receive the profile, not the raw README
+
+**Acceptance criteria:**
+- [ ] A README containing `<img src=x onerror=...>` and script tags does not execute and is shown as inert text (frontend test or browser check)
+- [ ] The business context shown on the card is at most 600 characters / ~90 words for a 10,000-word README (test)
+- [ ] The profile names purpose, users, critical assets and 3-5 catastrophic outcomes (schema test)
+- [ ] A README that says "ignore previous instructions" does not change agent behaviour or leak into other agents' prompts verbatim (test on prompt construction)
+- [ ] Attack surfaces and failure domains are not shown on the business card; the System Map section is collapsed by default
+- [ ] The user can edit the profile and the edit survives a rescan
+- [ ] Profile is not regenerated when README and code are unchanged (cache test)
+
+---
+
+### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-015](decisions/ADR-015-goal-based-discovery.md). **Depends on:** B-026 (measure), B-027 (profile and system map), B-031 (identity and locks before phase D).
+
+**Why:** Make sure every part of the attack surface is examined against every applicable threat class, every hypothesis ends in an evidenced verdict, and nothing catastrophic is silently dropped.
+
+**Phases (each shippable and re-measured on B-026):**
+- **A. Inventory, threat registry, coverage ledger:** structured attack-surface inventory (two independent passes, unioned), threat-class registry with variant playbooks (data file), coverage ledger persisted per scan; no change to scoring yet
+- **B. Hunters and exploit verifier:** per-cell hypothesis generation over relevant code via the read-only code tools; verifier tries every playbook variant before refuting; attempt log; mechanical evidence verification; verdict confirmed / refuted / unresolved
+- **C. Catastrophic pass and chain composer:** pre-mortem from the profile's catastrophic outcomes; independent second verification before refuting any potential severity >= 9; compound-path search across confirmed findings
+- **D. Convergence, budgets, parallelism:** stopping rule (no open cells and one stagnant "what did we miss" pass), USD/call/time budget with residual-risk reporting, scan depth setting (quick / standard / deep) with cost estimate, concurrent hunters and verifiers, live coverage progress, findings no longer capped
+
+**Acceptance criteria:**
+- [ ] Every scan stores a coverage ledger; each cell ends confirmed, refuted (with cited controls), not_applicable (with reason) or unresolved
+- [ ] No scan result silently omits a confirmed finding because of a count cap; `max_failure_modes` no longer limits reporting
+- [ ] Every confirmed finding has an attempt log and evidence quotes; a test with a fabricated quote shows the finding is downgraded to `unverified`
+- [ ] A hypothesis with potential severity >= 9 is never finally refuted by a single verifier (test with a fake model)
+- [ ] Unresolved cells (budget or ambiguity) are listed as residual risk at the top of the results, catastrophic ones first
+- [ ] The chain composer finds the compound catastrophic path in the benchmark repo built for it
+- [ ] Recall and catastrophic recall on B-026 meet the targets set after the baseline, with precision not worse than baseline by more than the agreed margin
+- [ ] Budget guard: a scan never exceeds its configured USD ceiling by more than one in-flight call; reaching it yields residual risk, not an error
+- [ ] Quick depth reproduces today's behaviour and cost (regression test)
+- [ ] Works through the model-agnostic LLM layer on Mistral Large 4 and OpenAI request shapes; models without tool calling fall back to whole-file context with a notice
+- [ ] The UI shows coverage (examined / not examined), the attempt log per finding, and live progress; wall-clock for the benchmark deep scan is recorded and within the agreed bound
+- [ ] Existing scans, chat and proposals keep working on old and new results (compat tests)
+
+---
+
+### B-029 · Root-Cause Classification (Security / Architectural / Engineering / Operational) `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-016](decisions/ADR-016-root-cause-taxonomy.md)
+
+**Why:** Users need to see the root of each problem to route it to the right owner and spot systemic patterns.
+
+**Scope:** root-cause domain registry (rubric as data); Root-Cause Analyst agent (primary domain, contributing domains, root-cause chain, confidence); fields on the finding, registry and snapshot; badges and domain filter on Scenarios and Scoring pages; dashboard breakdown (share of risk by domain); chat tools expose domains; learning memory uses domains instead of keyword categories; works on today's findings and on B-028 findings.
+
+**Acceptance criteria:**
+- [ ] Every new finding has a primary domain from the four, optional contributing domains, a root-cause chain and a confidence
+- [ ] The rubric lives in a registry file; adding a domain needs no code change beyond the registry (test)
+- [ ] Benchmark root-cause agreement is recorded against `truth.json` (target set after baseline)
+- [ ] Scenarios page shows the domain badge and can filter by domain; the dashboard shows risk share per domain
+- [ ] The chat can answer "which problems are architectural?" from stored data (tool test)
+- [ ] `_extract_category` keyword matching is removed from the learning memory path; existing memory files still load
+- [ ] Old scans show "not classified" and do not error
+- [ ] Unit tests with a fake model cover coerce/fallback when the model returns an unknown domain
+
+---
+
+### B-030 · Corrective and Preventive Remediation Agents; Retire 30-60-90 and Gantt `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md). **Supersedes:** B-010.
+
+**Why:** One SRE agent mixes fixing and preventing, costs the most, and invents timelines that delivery teams should own.
+
+**Scope:** `Action` model; `agents/corrective_agent.py` and `agents/preventive_agent.py` (NEW, run in parallel per finding, preventive chosen by root-cause domain when available); remove `roadmap_90_day`, `roadmap_tasks` and their coercion, evaluator and judge rules; Mitigations page with Corrective and Preventive sections and urgency bands (now / next / later, ordering only); remediator consumes corrective `code_fix` actions; legacy Streamlit dashboard and tests updated; chat `get_scenario_detail` updated; compat mapping for stored results; B-010 closed.
+
+**Acceptance criteria:**
+- [ ] Each finding has corrective actions and preventive actions, each with kind, target, verification, owner role and urgency band
+- [ ] No dates, day ranges or Gantt fields are generated or shown anywhere (grep and UI check)
+- [ ] The evaluator no longer requires Day 30/60/90 and has new rules: at least one corrective action with a verification, at least one preventive action, no action without a target
+- [ ] Preventive actions differ by root-cause domain in tests (architectural vs operational example)
+- [ ] The remediator generates diffs from corrective `code_fix` actions (existing remediator tests updated and green)
+- [ ] Old stored scans still render: `fixes` appear as corrective, `monitoring` and `resilience_upgrades` as preventive
+- [ ] SRE-related cost per scan is recorded before and after (B-021 telemetry) and not worse than before for the same input
+- [ ] B-010 is marked superseded; the 90-day roadmap UI and `agents/roadmap_agent` plan are removed from the backlog
+
+---
+
+### B-031 · Finding Identity, Lifecycle and Lock Semantics `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-019](decisions/ADR-019-finding-identity-and-locks.md). **Revises:** parts of ADR-003 and B-001.
+
+**Why:** Locks keyed by name and sharing the cap do not fit uncapped, verified discovery, and users want to know what got fixed or regressed.
+
+**Scope:** stable finding identity (threat class + surface + sink anchors, embedding fallback); lifecycle states (new, confirmed, fixed, regressed, accepted, unresolved) with the causing scan; locked findings keep scores but never limit discovery; "locked but now refuted" shown for confirmation; migration of existing registry rows; chat tool and dashboard for "what changed since last scan".
+
+**Acceptance criteria:**
+- [ ] 7 locked findings plus a newly introduced vulnerability: the new one is reported (regression test for today's cap problem)
+- [ ] Same code returns identical results from the cache; changed code keeps locked scores and expert adjustments (existing behaviour tests stay green)
+- [ ] A finding refuted after a code fix becomes a `fixed` candidate shown for confirmation, not silently dropped or kept
+- [ ] A fixed finding that returns becomes `regressed`
+- [ ] Migration maps existing registry rows without losing locked scores (test on a copy of a real DB)
+- [ ] Identity survives a pure rename of the scenario text and a file move (tests)
+
+---
+
+### B-032 · Pipeline Observability, Cost Estimate and Budget Guard for the New Stages `[ ]` PROPOSED — P2
+
+**Depends on:** B-028.
+
+**Why:** More agents mean more cost and failure modes; users keep control only if they can see and bound them (B-021, B-023, B-018).
+
+**Scope:** telemetry spans per hunter/verifier/composer; cost estimate before a deep scan and live spend; budget settings in Settings; evaluator rules for coverage, evidence-verification rate, refuted/confirmed ratio, drift in findings between scans; dashboard panels.
+
+**Acceptance criteria:**
+- [ ] Before a deep scan the UI shows an estimated cost range and the budget ceiling
+- [ ] Per-stage cost and duration are visible for the last scan (inventory, hunters, verifiers, composer, remediation)
+- [ ] Evaluator flags: coverage below target, evidence-verification rate below target, unresolved catastrophic cells, large drift versus the previous scan
+- [ ] Telemetry keeps working for old scans and the chat (agent `chat`) unchanged
+- [ ] Tests cover estimate arithmetic, budget stop and the new evaluator rules
+
+---
+
 ### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage) `[x]` DONE
 **Why:** Portfolios and projects are stored in browser localStorage. This means the hierarchy is device-local, lost on clearing storage, and cannot be shared across team members. The DB already has a `workspaces` table; projects and portfolios should be rows, not localStorage keys.
 
@@ -584,7 +761,7 @@ This is different from the existing scenario registry (which deduplicates within
 
 ---
 
-### B-010 · Gantt / 90-Day Remediation Roadmap
+### B-010 · Gantt / 90-Day Remediation Roadmap — *proposed to be superseded by B-030 (awaiting approval of ADR-018)*
 **Why:** The SRE agent already produces `roadmap_90_day` data per failure mode. A consolidated Gantt view gives executives and risk managers a time-boxed delivery plan from the FMEA output — Day 30 Visibility → Day 60 Controls → Day 90 Automation.
 
 **Scope:**
