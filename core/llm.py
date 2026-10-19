@@ -92,25 +92,29 @@ def _content_text(content) -> str:
 def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     """Send a single-turn prompt to the configured model and return the text reply.
 
-    Model-agnostic safeguards: per-model extra request params (e.g. reasoning off) come
-    from the registry, and a reply cut off by the token limit (finish_reason "length",
-    common when a reasoning model spends the budget thinking) is retried once with a
+    Model-agnostic safeguards: the user's reasoning level (core/reasoning.py) sets the
+    model's reasoning param and scales max_tokens, since reasoning tokens count against it.
+    A reply cut off by the token limit (finish_reason "length") is retried once with a
     larger budget before failing with a clear error instead of returning broken JSON.
     """
     global _call_count, _prompt_tokens, _completion_tokens
-    from core.providers import get_provider, model_params, provider_for_model
+    from core.providers import get_provider, provider_for_model
+    from core.reasoning import DEFAULT_LEVEL, request_params
+    from core.settings import get_setting
     model = _get_model()
     provider_id = provider_for_model(model)
     client = _get_client(provider_id)
     token_param = get_provider(provider_id)["max_tokens_param"]
+    params, multiplier, cap = request_params(model, get_setting("reasoning_level") or DEFAULT_LEVEL)
+    budget = min(int(max_tokens * multiplier), cap)
 
     for attempt in range(2):
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            **{token_param: max_tokens},
-            **model_params(model),
+            **{token_param: budget},
+            **params,
         )
         _call_count += 1
         if response.usage:
@@ -120,10 +124,10 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
         if choice.finish_reason != "length":
             return _content_text(choice.message.content)
         if attempt == 0:
-            max_tokens *= 2
+            budget = min(budget * 2, cap)
     raise RuntimeError(
-        f"{model} reply was cut off at {max_tokens} tokens. The model may be spending its "
-        "budget on reasoning; choose a different model or turn reasoning off in core/costs.py."
+        f"{model} reply was cut off at {budget} tokens. The model may be spending its "
+        "budget on reasoning; lower the reasoning level in Settings or choose another model."
     )
 
 

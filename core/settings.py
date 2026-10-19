@@ -22,6 +22,7 @@ _DEFAULTS: dict[str, Any] = {
     "active_model":      "gpt-5.1",
     "pricing_cache":     {},
     "pricing_cached_at": None,
+    "reasoning_level":   "off",   # B-023: off | low | medium | high
     "api_keys":          {},   # {provider_id: key} — B-022; file is gitignored
 }
 

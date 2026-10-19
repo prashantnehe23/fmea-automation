@@ -43,6 +43,10 @@ class ModelPatch(BaseModel):
     model: str
 
 
+class ReasoningPatch(BaseModel):
+    level: str
+
+
 class ApiKeyBody(BaseModel):
     api_key: str
 

@@ -6,6 +6,8 @@ Endpoints:
   GET  /api/settings/model            — get active model
   PATCH /api/settings/model           — set active model
   GET  /api/settings/pricing/refresh  — trigger LiteLLM pricing refresh
+  GET  /api/settings/reasoning        — active reasoning level + levels the model supports (B-023)
+  PATCH /api/settings/reasoning       — set reasoning level (B-023)
   GET    /api/settings/providers          — providers + masked key status (B-022)
   PUT    /api/settings/providers/{id}/key — store a provider API key (B-022)
   DELETE /api/settings/providers/{id}/key — remove a stored key (B-022)
@@ -13,11 +15,12 @@ Endpoints:
 
 from fastapi import APIRouter, HTTPException
 
-from api.schemas import ApiKeyBody, ModelPatch
+from api.schemas import ApiKeyBody, ModelPatch, ReasoningPatch
 from core.costs import AVAILABLE_MODELS, FALLBACK_RATES, get_rates, refresh_pricing
 from core.providers import (
     PROVIDERS, clear_api_key, get_api_key, mask_key, provider_for_model, set_api_key,
 )
+from core.reasoning import DEFAULT_LEVEL, LEVELS, TOKEN_MULTIPLIER, resolve_level, supported_levels
 from core.settings import get_setting, set_setting
 
 router = APIRouter()
@@ -38,6 +41,8 @@ async def list_models():
             "completion_per_1m": rates["completion"],
             "is_active":         m["id"] == active,
             "key_set":           bool(get_api_key(m["provider"])),
+            "reasoning_levels":  [{"level": lv, "token_multiplier": TOKEN_MULTIPLIER[lv]}
+                                  for lv in supported_levels(m["id"])],
         })
     return result
 
@@ -64,6 +69,32 @@ async def set_model(body: ModelPatch):
         )
     set_setting("active_model", body.model)
     return {"active_model": body.model}
+
+
+def _reasoning_state() -> dict:
+    model = get_setting("active_model")
+    chosen = get_setting("reasoning_level") or DEFAULT_LEVEL
+    effective = resolve_level(model, chosen)
+    return {
+        "level":       chosen,
+        "effective":   effective,
+        "supported":   supported_levels(model),
+        "token_multiplier": TOKEN_MULTIPLIER.get(effective, 1.0),
+    }
+
+
+@router.get("/api/settings/reasoning")
+async def get_reasoning():
+    """Chosen level, the level actually applied to the active model, and its supported levels."""
+    return _reasoning_state()
+
+
+@router.patch("/api/settings/reasoning")
+async def set_reasoning(body: ReasoningPatch):
+    if body.level not in LEVELS:
+        raise HTTPException(status_code=422, detail=f"Unknown level '{body.level}'. Valid: {LEVELS}")
+    set_setting("reasoning_level", body.level)
+    return _reasoning_state()
 
 
 @router.get("/api/settings/providers")

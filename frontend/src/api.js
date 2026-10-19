@@ -317,6 +317,26 @@ export async function setActiveModel(modelId) {
   return res.json();
 }
 
+// ── Reasoning level (B-023) ──────────────────────────────────────────────────
+
+/** GET /api/settings/reasoning → { level, effective, supported, token_multiplier } */
+export async function getReasoning() {
+  const res = await fetch(`${BASE}/api/settings/reasoning`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/** PATCH /api/settings/reasoning — set the level (off | low | medium | high). */
+export async function setReasoning(level) {
+  const res = await fetch(`${BASE}/api/settings/reasoning`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 // ── Provider API keys (B-022) ────────────────────────────────────────────────
 
 /**

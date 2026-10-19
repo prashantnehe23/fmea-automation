@@ -258,6 +258,35 @@
 
 ---
 
+### B-023 · User-Selectable Reasoning Level + Automatic Token Scaling `[x]` DONE
+
+**Priority:** P1 (engineer-approved). **Extends:** B-022. **Decision:** [ADR-012](decisions/ADR-012-reasoning-control.md)
+
+**Why:** Reasoning models (e.g. Mistral Large 4) spend output tokens on thinking, which truncated agent JSON at default limits. Reasoning also trades cost and speed for depth, so that choice belongs to the user.
+
+**Scope:**
+- `core/reasoning.py` (NEW) — generic levels Off/Low/Medium/High, per-level token multiplier (1/1.5/2.5/4), level resolution, request params
+- `core/costs.py` — per-model `reasoning` entry (param + supported levels → API values); Mistral Large 4 (off/high, verified live) and GPT-5.1 (off/low/medium/high, per OpenAI docs)
+- `core/llm.py` — applies the reasoning param, scales each agent's `max_tokens` (capped per model), keeps the retry-on-truncation guard
+- `core/settings.py`, `api/routers/settings.py`, `api/schemas.py` — `reasoning_level` setting; `GET|PATCH /api/settings/reasoning`; models list exposes supported levels
+- `frontend/src/api.js`, `Header.jsx` — Reasoning selector (only the selected model's supported levels) with a cost/speed hint
+- `agents/evaluator.py` — cost estimate now priced at the active model's rates (was hardcoded gpt-4.1)
+- `tests/test_reasoning.py` (NEW, 13 tests)
+
+**Acceptance criteria:**
+- [x] Each model declares its supported levels; unsupported levels are never sent to the API
+- [x] User picks Off/Low/Medium/High in Settings; control hidden for models without reasoning
+- [x] The chosen level resolves to the nearest supported level at or below it
+- [x] Reasoning param and scaled `max_tokens` reach the provider request; budget capped per model
+- [x] Truncation retry still works on top of scaled budgets
+- [x] Evaluator cost estimate uses the active model's rates
+- [x] Verified live on Mistral Large 4 (Off/Medium/High all return valid JSON); full pipeline (all agents) verified on Large 4 at Off
+- [x] Full suite passing (83)
+
+**Known limits:** GPT-6 Astra / GPT-5.6 Sol / Luna have no reasoning entry yet (API behaviour unverified, no OpenAI key available) — add one registry line each once confirmed. Medium/Low are not offered for Large 4 because the API only accepts none/high. Token multipliers are estimates; a full scan at High has not been run.
+
+---
+
 ### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage) `[x]` DONE
 **Why:** Portfolios and projects are stored in browser localStorage. This means the hierarchy is device-local, lost on clearing storage, and cannot be shared across team members. The DB already has a `workspaces` table; projects and portfolios should be rows, not localStorage keys.
 

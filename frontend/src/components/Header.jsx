@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { PERSONAS, PROCESS_STEPS, HIERARCHY, SCOPE_LABEL } from '../data';
 import { ORG } from '../data';
-import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey } from '../api';
+import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, getReasoning, setReasoning } from '../api';
+
+const LEVEL_LABEL = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High' };
+const LEVEL_ORDER = ['off', 'low', 'medium', 'high'];
 
 const TIER_BADGE = {
   Fast:     'bg-green-50 text-green-700',
@@ -16,6 +19,7 @@ export default function Header({ persona, step, sel, scope }) {
   const [providers, setProviders]       = useState([]);
   const [keyInput, setKeyInput]         = useState('');
   const [keyError, setKeyError]         = useState('');
+  const [reasoning, setReasoningState]  = useState('off');
 
   const refreshModels = () =>
     Promise.all([getModels(), getProviders()]).then(([list, provs]) => {
@@ -32,7 +36,13 @@ export default function Header({ persona, step, sel, scope }) {
         if (active) setActiveModelState(active.id);
       })
       .catch(() => {});
+    getReasoning().then(r => setReasoningState(r.level)).catch(() => {});
   }, [showSettings]);
+
+  const handleReasoningChange = async (level) => {
+    setReasoningState(level);
+    try { await setReasoning(level); } catch { /* API unavailable */ }
+  };
 
   const selected = models.find(x => x.id === activeModel);
   const selectedProvider = providers.find(p => p.id === selected?.provider);
@@ -181,6 +191,31 @@ export default function Header({ persona, step, sel, scope }) {
                           </option>
                         ))}
                       </select>
+                      {selected?.reasoning_levels?.length > 0 && (() => {
+                        // Highest level the model supports at or below the chosen one
+                        const lv = selected.reasoning_levels;
+                        const applied = [...lv].reverse().find(
+                          x => LEVEL_ORDER.indexOf(x.level) <= LEVEL_ORDER.indexOf(reasoning)
+                        ) ?? lv[0];
+                        return (
+                          <div className="mt-3">
+                            <p className="text-xs font-semibold text-gray-700">Reasoning</p>
+                            <p className="text-xs text-gray-400 mb-1.5">
+                              Higher is slower and costs more
+                              {applied.token_multiplier > 1 ? ` (up to ~${applied.token_multiplier}× output tokens)` : ''}
+                            </p>
+                            <div className="flex gap-1">
+                              {lv.map(x => (
+                                <button
+                                  key={x.level}
+                                  onClick={() => handleReasoningChange(x.level)}
+                                  className={`flex-1 text-xs font-semibold py-1 rounded-lg border ${applied.level === x.level ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
+                                >{LEVEL_LABEL[x.level]}</button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {selected && (
                         <div className="mt-2">
                           {selected.key_set ? (

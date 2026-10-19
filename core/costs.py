@@ -2,7 +2,7 @@
 core/costs.py — LLM cost tracking for B-021.
 
 Provides per-model pricing ($/1M tokens) with:
-- AVAILABLE_MODELS: supported models (id, provider, display, tier, optional extra_params)
+- AVAILABLE_MODELS: supported models (id, provider, display, tier, optional reasoning — see core/reasoning.py)
 - FALLBACK_RATES:   hardcoded baseline rates in case live fetch fails
 - refresh_pricing(): fetch live rates from LiteLLM's public price JSON
 - get_rates(model):  return rates from cache, fall back to FALLBACK_RATES
@@ -20,11 +20,13 @@ AVAILABLE_MODELS: list[dict] = [
     {"id": "gpt-6-astra",           "provider": "openai",  "display": "GPT-6 Astra",    "tier": "Power"},
     {"id": "gpt-5.6-sol",           "provider": "openai",  "display": "GPT-5.6 Sol",    "tier": "Standard"},
     {"id": "gpt-5.6-luna",          "provider": "openai",  "display": "GPT-5.6 Luna",   "tier": "Fast"},
-    {"id": "gpt-5.1",               "provider": "openai",  "display": "GPT-5.1",        "tier": "Standard"},
+    {"id": "gpt-5.1",               "provider": "openai",  "display": "GPT-5.1",        "tier": "Standard",
+     "reasoning": {"param": "reasoning_effort",
+                   "levels": {"off": "none", "low": "low", "medium": "medium", "high": "high"}}},
     {"id": "gpt-4o",                "provider": "openai",  "display": "GPT-4o",         "tier": "Power"},
     {"id": "gpt-4o-mini",           "provider": "openai",  "display": "GPT-4o mini",    "tier": "Fast"},
     {"id": "mistral-large-4",       "provider": "mistral", "display": "Mistral Large 4", "tier": "Power",
-     "extra_params": {"reasoning_effort": "none"}},  # reasoning tokens eat max_tokens → truncated JSON
+     "reasoning": {"param": "reasoning_effort", "levels": {"off": "none", "high": "high"}}},
     {"id": "mistral-medium-latest", "provider": "mistral", "display": "Mistral Medium", "tier": "Standard"},
     {"id": "mistral-small-latest",  "provider": "mistral", "display": "Mistral Small",  "tier": "Fast"},
 ]
