@@ -12,7 +12,7 @@ const TIER_BADGE = {
   Power:    'bg-purple-50 text-purple-700',
 };
 
-export default function Header({ persona, step, sel, scope }) {
+export default function Header({ persona, step, sel, scope, chatOpen, onToggleChat }) {
   const [showSettings, setShowSettings] = useState(false);
   const [models, setModels]             = useState([]);
   const [activeModel, setActiveModelState] = useState(null);
@@ -110,6 +110,11 @@ export default function Header({ persona, step, sel, scope }) {
       {/* Right — persona label + actions */}
       <div className="flex items-center gap-1.5 flex-shrink-0 relative">
         <span className="text-xs text-gray-400 font-medium mr-1">{current.icon} {current.label}</span>
+        <button
+          title="Ask about the results"
+          onClick={onToggleChat}
+          className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center transition-colors ${chatOpen ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-400'}`}
+        >💬</button>
         <button
           title="Notifications — coming soon"
           className="w-8 h-8 rounded-lg hover:bg-gray-100 text-gray-400 text-sm flex items-center justify-center"

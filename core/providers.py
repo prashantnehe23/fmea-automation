@@ -26,6 +26,7 @@ PROVIDERS: dict[str, dict] = {
         "env_var":          "OPENAI_API_KEY",
         "max_tokens_param": "max_completion_tokens",
         "embed_model":      "text-embedding-3-small",
+        "stream_usage":     True,    # ask for token usage in the final stream chunk
     },
     "mistral": {
         "display":          "Mistral AI",

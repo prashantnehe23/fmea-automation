@@ -317,7 +317,7 @@
 
 ---
 
-### B-025 · Results Chat — Ask Follow-Up Questions with Persistent Scan Memory `[~]` IN PROGRESS — phase 1 DONE, phases 2-3 pending
+### B-025 · Results Chat — Ask Follow-Up Questions with Persistent Scan Memory `[~]` IN PROGRESS — phases 1-2 DONE, phase 3 pending
 
 **Priority:** P1 (engineer-approved). **Depends on:** B-022/B-023/B-024 (model-agnostic LLM layer), B-001 (score adjustments). **Decision:** [ADR-014](decisions/ADR-014-results-chat.md) (Accepted)
 
@@ -378,26 +378,36 @@
 - [ ] AC13 Dismissed and already-applied proposals cannot be applied again (idempotent, status shown on the card)
 
 *Experience and persistence*
-- [ ] AC14 Answers stream token by token; Stop cancels generation and keeps the partial answer
-- [ ] AC15 The panel is available from every page for the selected project, and the thread is restored after a page refresh or restart
-- [ ] AC16 Every user persona can open the chat and ask questions; applying a proposal follows the same permission rule as the existing adjustment UI
+- [x] AC14 Answers stream token by token; Stop cancels generation and keeps the partial answer
+- [x] AC15 The panel is available from every page for the selected project, and the thread is restored after a page refresh or restart
+- [x] AC16 Every user persona can open the chat and ask questions; applying a proposal follows the same permission rule as the existing adjustment UI
 - [x] AC17 With no scan for the project, or no API key, the panel shows a clear message and does not call the model
 
 *Model-agnostic and cost*
 - [x] AC18 Works on every registered provider: verified live on Mistral Large 4 and covered by fake-client tests for the OpenAI request shape; a model without tool calling degrades to answering from the findings prefix with a notice
 - [x] AC19 The reasoning level (B-023) is applied to chat; a truncated answer is continued, not lost (B-024)
-- [ ] AC20 Each message's tokens and cost are recorded and shown, and the thread total is visible; chat cost appears in the existing telemetry/cost views as agent `chat`
+- [x] AC20 Each message's tokens and cost are recorded and shown, and the thread total is visible; chat cost is recorded as telemetry agent `chat` and shown as a "Chat" figure in the dashboard Cost panel (via `cost_summary.chat_usd`)
 
 *Quality gate*
 - [ ] AC21 `tests/test_chat.py` covers AC1-AC13 and AC17-AC20 with a fake client; full suite green; frontend builds; manual end-to-end on Mistral Large 4 recorded in the item
 
 **Build order (each phase shippable on its own)**
 1. **[DONE 2026-10-19]** Persistence + context builder + non-streaming Q&A with read tools (AC1-AC9, AC17-AC19) — read-only chat
-2. Streaming API + chat panel UI (AC14-AC16, AC20)
+2. **[DONE 2026-10-19]** Streaming API + chat panel UI (AC14-AC16, AC20)
 3. Proposals + Apply/Dismiss (AC10-AC13)
 
 **Phase 1 delivered (2026-10-19):** `core/chat.py` (context builder, tools, history budget, turn loop), `core/llm.py` `call_chat`, `memory/db.py` snapshot + thread tables, `api/routers/chat.py` (`POST /api/chat`, `GET /api/chat/{workspace_id}`, non-streaming), persistence hooks in the scan and GitHub scan routers, `tests/test_chat.py` (26 tests). Full suite 119 passing plus the known flaky timestamp-ordering test in `test_adjustments.py`/`test_db.py`.
 Verified live on Mistral Large 4 (isolated DB): real tool calling (9 tool calls on the first question), answers cite `file:line`, a follow-up recalled the earlier question and files without re-reading, `get_scenario_detail` used for a score question; ~$0.006-0.017 per turn, system prefix ~3k tokens.
+
+**Phase 2 delivered (2026-10-19):** `core/llm.py` `stream_chat` (token streaming, tool-call assembly, usage or estimate, continuation, thinking chunks hidden); `core/chat.py` `prepare_turn` / `run_turn` generator shared by the blocking and streaming endpoints, partial answers saved on Stop; `POST /api/chat/stream` (SSE; stops generation on client disconnect via a lock-guarded pump); chat spend recorded as telemetry agent `chat` with `cost_summary.chat_usd/chat_turns`; frontend `ChatPanel.jsx` (right-side panel on every page, opened from the header, state remembered), dependency-free `Markdown.jsx`, `streamChat`/`getChatHistory` in `api.js`, Chat figure in the dashboard Cost panel. Tests: `tests/test_chat.py` now 37 tests; suite 130 passing plus the known flaky timestamp-ordering test.
+Verified in the browser pane on an isolated stack (temp DB seeded with a scan of this repo, Mistral Large 4): starter question streams with live tool chips and markdown; **Stop** mid-answer saved the partial (marked stopped) with 9 tool actions and cost; a page refresh restored the conversation and running cost; a follow-up on the stopped answer used history only (7.5k tokens in, $0.0054); no console errors; chat spend appeared in `/api/telemetry` (`chat_usd`).
+
+**Phase 2 decisions / trade-offs:**
+- No new frontend dependency: answers are rendered by a ~100-line markdown component that only produces React nodes (model output can never inject HTML). It supports code fences, headings, lists, tables (monospaced), bold/italic/inline code; links stay plain text. Swap in a library later if richer rendering is wanted.
+- Stop keeps the partial answer as an assistant message ending `_(stopped)_`, so conversation replay stays valid and the model knows its last answer was cut short. Tokens for a stopped turn are estimated (~4 chars/token) because the provider never sends final usage.
+- Only whole tool rounds are persisted, so a tool call is never stored without its result.
+- Panel is visible on every page for every persona (AC16); with no project or no scan it explains what to do. The scope item "New thread" control is deferred (not needed for AC14-AC20); candidate for phase 3 or a follow-up.
+- Dashboard "Chat" figure is verified at the API level; the Cost panel itself only renders on a project with scan telemetry and was not exercised in the browser.
 
 **Phase 1 findings / trade-offs:**
 - Tool results are replayed in history so the model keeps the code it already read (the memory the engineer asked for). The cost is a growing prompt (7.5k -> 15.9k tokens over 3 turns in the live run); the 24k-token history budget folds older turns into a summary. Alternative if cost matters: drop old tool results and let the model re-read.

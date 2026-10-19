@@ -4,6 +4,7 @@ OpenAI-compatible LLM wrapper (OpenAI, Mistral, …) used by all agents.
 Exports:
     call_llm(prompt, *, max_tokens)  → raw response string from the model
     call_chat(messages, *, tools)    → one multi-turn completion with optional tool calls
+    stream_chat(messages, *, tools)  → same, as a generator of ("token", text) / ("done", reply)
     extract_json_text(text)          → JSON substring stripped of markdown fences / preamble
     reset_call_count()               → reset the per-run call counter to zero
     get_call_count()                 → return calls made since last reset
@@ -318,6 +319,103 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
             for tc in raw_calls
         ]
     return {"message": message, "prompt_tokens": prompt_total, "completion_tokens": completion_total}
+
+
+def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_tokens: int = 4096):
+    """Streaming variant of call_chat (B-025). A generator that yields ("token", text) for each
+    piece of visible answer text, then ("done", reply) with the same dict call_chat returns.
+
+    Thinking chunks are never streamed. A text answer that hits the limit is continued, and
+    its continuation keeps streaming. Closing the generator closes the provider stream, so a
+    user's Stop ends generation. If the provider reports no usage, tokens are estimated.
+    """
+    from core.providers import get_provider, provider_for_model
+    from core.reasoning import DEFAULT_LEVEL, request_params
+    from core.settings import get_setting
+    global _call_count, _prompt_tokens, _completion_tokens
+    model = _get_model()
+    provider_id = provider_for_model(model)
+    provider = get_provider(provider_id)
+    client = _get_client(provider_id)
+    params, multiplier, cap = request_params(model, get_setting("reasoning_level") or DEFAULT_LEVEL)
+    budget = min(max(int(max_tokens * multiplier), FIRST_ATTEMPT_FLOOR), cap)
+    usage_totals = {"prompt": 0, "completion": 0}
+
+    def one_stream(msgs: list[dict], limit: int):
+        """Yield ("token", text); return (text, tool_calls, finish_reason)."""
+        global _call_count, _prompt_tokens, _completion_tokens
+        extra: dict = {"tools": tools} if tools else {}
+        if provider.get("stream_usage"):
+            extra["stream_options"] = {"include_usage": True}
+        stream = client.chat.completions.create(
+            model=model, messages=msgs, temperature=0.2, stream=True,
+            **{provider["max_tokens_param"]: limit}, **extra, **params,
+        )
+        text, finish, usage, slots = "", None, None, []
+        try:
+            for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
+                piece = _content_text(delta.content) if delta.content else ""
+                if piece:
+                    text += piece
+                    yield ("token", piece)
+                for tc in getattr(delta, "tool_calls", None) or []:
+                    index = getattr(tc, "index", None)
+                    if index is None:
+                        index = len(slots) if tc.id else max(len(slots) - 1, 0)
+                    while len(slots) <= index:
+                        slots.append({"id": "", "name": "", "arguments": ""})
+                    if tc.id:
+                        slots[index]["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        slots[index]["name"] = tc.function.name
+                    if tc.function and tc.function.arguments:
+                        slots[index]["arguments"] += tc.function.arguments
+                if choice.finish_reason:
+                    finish = choice.finish_reason
+        finally:
+            close = getattr(stream, "close", None)
+            if close:
+                close()
+        _call_count += 1
+        prompt_used = getattr(usage, "prompt_tokens", None) if usage else None
+        completion_used = getattr(usage, "completion_tokens", None) if usage else None
+        if prompt_used is None:      # provider sent no usage: estimate (~4 chars per token)
+            prompt_used = len(json.dumps(msgs, default=str)) // 4
+            completion_used = (len(text) + sum(len(c["arguments"]) for c in slots)) // 4
+        _prompt_tokens += prompt_used
+        _completion_tokens += completion_used or 0
+        usage_totals["prompt"] += prompt_used
+        usage_totals["completion"] += completion_used or 0
+        return text, [c for c in slots if c["name"]], finish
+
+    text, calls, finish = yield from one_stream(messages, budget)
+    continuations = 0
+    while finish == "length" and not calls and continuations < MAX_CONTINUATIONS:
+        continuations += 1
+        _log.warning("%s streamed reply hit the token limit; continuing (%d/%d)",
+                     model, continuations, MAX_CONTINUATIONS)
+        more, calls, finish = yield from one_stream(
+            messages + [{"role": "assistant", "content": text},
+                        {"role": "user", "content": _CONTINUE_MSG}],
+            cap,
+        )
+        text += more
+
+    message: dict = {"role": "assistant", "content": text}
+    if calls:
+        message["tool_calls"] = [
+            {"id": c["id"] or f"call_{i}", "type": "function",
+             "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+            for i, c in enumerate(calls)
+        ]
+    yield ("done", {"message": message, "prompt_tokens": usage_totals["prompt"],
+                    "completion_tokens": usage_totals["completion"]})
 
 
 def _repair_json(text: str) -> str:

@@ -30,3 +30,10 @@ Users need to ask follow-up questions about scan results (why, how exploitable, 
 - "Pinned to the latest scan" is implemented as the newest snapshot of the project, resolved on every turn; each stored message records its snapshot id.
 - Tool results stay in history (full memory of code already read) and the history is folded into a summary beyond 24k tokens. Measured on Mistral Large 4: prompt grew 7.5k -> 15.9k tokens across three turns.
 - Mistral's "prefix" assistant continuation is not used (see ADR-013); chat answers cut off at the limit are continued with a plain continue message.
+
+## Implementation notes (phase 2, 2026-10-19)
+- One generator (`run_turn`) drives a turn for both the blocking and the SSE endpoint; only the LLM call differs (`call_chat` vs `stream_chat`).
+- Stop = client disconnect. The async endpoint pulls events from the sync generator through a lock-guarded pump and, on disconnect or cancellation, closes it; closing triggers the save of the question, completed tool rounds and the partial answer, and closes the provider stream so generation ends.
+- Validation errors (no scan, no key, empty message) are raised before streaming starts, so they keep real HTTP status codes (409/422) instead of arriving as in-stream errors.
+- Chat cost is a telemetry span with agent `chat` outside any scan run and is summarised separately (`cost_summary.chat_usd`), so it never distorts "last scan" cost figures.
+- Frontend: no new dependency; a small markdown component renders to React nodes only (see B-025 phase 2 trade-offs).

@@ -317,6 +317,45 @@ export async function setActiveModel(modelId) {
   return res.json();
 }
 
+// ── Results chat (B-025) ─────────────────────────────────────────────────────
+
+/** GET /api/chat/{workspaceId} → { thread_id, messages, totals, has_scan, snapshot_id } */
+export async function getChatHistory(workspaceId) {
+  const res = await fetch(`${BASE}/api/chat/${workspaceId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * POST /api/chat/stream — ask a question; async generator of events:
+ *   {type:'tool', label, ok}  |  {type:'token', text}  |  {type:'done', answer, usage, thread_totals, ...}
+ * Throws Error with .code / .message for failures (no_scan, no_api_key, llm_error, ...).
+ * Pass an AbortSignal to stop generation; the server keeps the partial answer.
+ */
+export async function* streamChat(workspaceId, message, signal) {
+  const res = await fetch(`${BASE}/api/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: workspaceId, message }),
+    signal,
+  });
+  if (!res.ok) {
+    let detail = {};
+    try { detail = (await res.json()).detail ?? {}; } catch { /* not JSON */ }
+    const err = new Error(detail.message ?? `HTTP ${res.status}`);
+    err.code = detail.code ?? 'http_error';
+    throw err;
+  }
+  for await (const ev of _readSSE(res)) {
+    if (!ev.type && ev.code) {            // SSE "error" frame
+      const err = new Error(ev.message ?? 'Chat failed');
+      err.code = ev.code;
+      throw err;
+    }
+    yield ev;
+  }
+}
+
 // ── Reasoning level (B-023) ──────────────────────────────────────────────────
 
 /** GET /api/settings/reasoning → { level, effective, supported, token_multiplier } */

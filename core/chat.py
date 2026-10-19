@@ -12,7 +12,8 @@ tools, so a question never re-sends the repository.
 
 Provides:
   persist_scan_for_chat(serialized_result, code, known_paths=None)  — call when a scan completes
-  chat_turn(workspace_id, user_text)  → answer + tool activity + usage
+  chat_turn(workspace_id, user_text)  → answer + tool activity + usage (blocking)
+  prepare_turn / run_turn             → the same turn as a generator of events, for streaming
   get_chat_history(workspace_id)      → thread, visible messages, totals
   split_code_blob / build_system_prompt / execute_tool  (used by tests)
 """
@@ -22,10 +23,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from dataclasses import dataclass
 
 import memory.db as db
 from core.costs import compute_cost
-from core.llm import call_chat, get_model_name
+from core.llm import call_chat, get_model_name, stream_chat
 from core.providers import get_api_key, model_supports_tools, provider_for_model
 
 _log = logging.getLogger(__name__)
@@ -375,8 +378,23 @@ def _fold_old_history(thread: dict, rows: list[dict]) -> tuple[dict, list[dict]]
 
 # ── The turn ──────────────────────────────────────────────────────────────────
 
-def chat_turn(workspace_id: int, user_text: str) -> dict:
-    """Answer one user message using the project's latest scan and persisted conversation."""
+@dataclass
+class TurnContext:
+    """Everything a turn needs, resolved up front so errors surface before any streaming."""
+    workspace_id: int
+    snapshot_id: int
+    thread: dict
+    model: str
+    tools_enabled: bool
+    files: dict
+    views: list
+    messages: list          # system + history + the new user message
+    user_msg: dict
+
+
+def prepare_turn(workspace_id: int, user_text: str) -> TurnContext:
+    """Validate the request and build the model input. Raises ChatError; never calls the model
+    except to fold an over-long history."""
     user_text = (user_text or "").strip()
     if not user_text:
         raise ChatError("empty_message", "Type a question first.")
@@ -395,63 +413,131 @@ def chat_turn(workspace_id: int, user_text: str) -> dict:
     thread = db.get_or_create_chat_thread(workspace_id)
     thread, history = _fold_old_history(thread, db.get_chat_messages(thread["id"]))
     system = build_system_prompt(snapshot, files, adjustments, tools_enabled, thread.get("summary"))
-
     user_msg = {"role": "user", "content": user_text}
-    new_msgs: list[dict] = [user_msg]
     messages = [{"role": "system", "content": system}] + [r["message"] for r in history] + [user_msg]
+    return TurnContext(workspace_id, snapshot["id"], thread, model, tools_enabled, files, views, messages, user_msg)
 
-    activity: list[dict] = []
-    prompt_tokens = completion_tokens = 0
-    answer = ""
-    for round_no in range(MAX_TOOL_ROUNDS + 1):
-        offer_tools = tools_enabled and round_no < MAX_TOOL_ROUNDS   # last round must answer
-        try:
-            reply = call_chat(messages, tools=TOOLS if offer_tools else None)
-        except Exception as exc:
-            raise ChatError("llm_error", f"The model call failed: {exc}") from exc
-        prompt_tokens += reply["prompt_tokens"]
-        completion_tokens += reply["completion_tokens"]
-        assistant = reply["message"]
-        calls = assistant.get("tool_calls") or []
-        if not calls:
-            answer = assistant["content"]
-            new_msgs.append(assistant)
-            break
-        messages.append(assistant)
-        new_msgs.append(assistant)
-        for call in calls:
-            name, raw = call["function"]["name"], call["function"]["arguments"]
-            result, ok = execute_tool(name, raw, files, views)
-            try:
-                shown_args = json.loads(raw or "{}")
-            except Exception:
-                shown_args = {}
-            activity.append({"tool": name, "args": shown_args, "ok": ok,
-                             "label": _activity_label(name, shown_args if isinstance(shown_args, dict) else {}, ok)})
-            tool_msg = {"role": "tool", "tool_call_id": call["id"], "name": name,
-                        "content": _wrap_tool_result(name, result)}
-            messages.append(tool_msg)
-            new_msgs.append(tool_msg)
 
-    cost = compute_cost(model, prompt_tokens, completion_tokens)
+def _llm_events(streaming: bool, messages: list[dict], tools):
+    """("token", text)... then ("done", reply): real tokens when streaming, one reply otherwise."""
+    if streaming:
+        yield from stream_chat(messages, tools=tools)
+    else:
+        yield ("done", call_chat(messages, tools=tools))
+
+
+def _save_turn(ctx: TurnContext, new_msgs: list[dict], activity: list[dict], started: float,
+               prompt_tokens: int, completion_tokens: int, error: str | None = None) -> float:
+    """Persist the turn's messages and record its cost. Returns the cost in USD."""
+    cost = compute_cost(ctx.model, prompt_tokens, completion_tokens)
     last = len(new_msgs) - 1
     for i, msg in enumerate(new_msgs):
-        is_last = i == last
         db.add_chat_message(
-            thread["id"], msg, snapshot["id"],
-            activity=activity if is_last else None,
-            prompt_tokens=prompt_tokens if is_last else 0,
-            completion_tokens=completion_tokens if is_last else 0,
-            cost_usd=cost if is_last else 0.0,
+            ctx.thread["id"], msg, ctx.snapshot_id,
+            activity=activity if i == last else None,
+            prompt_tokens=prompt_tokens if i == last else 0,
+            completion_tokens=completion_tokens if i == last else 0,
+            cost_usd=cost if i == last else 0.0,
         )
-    return {
-        "answer": answer,
-        "tool_activity": activity,
-        "snapshot_id": snapshot["id"],
-        "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
-                  "cost_usd": cost, "model": model},
-        "thread_totals": db.get_chat_totals(thread["id"]),
-    }
+    try:
+        db.save_telemetry_span(None, None, ctx.workspace_id, "chat",
+                               (time.perf_counter() - started) * 1000,
+                               prompt_tokens, completion_tokens, error, cost)
+    except Exception:
+        _log.warning("could not record chat telemetry", exc_info=True)
+    return cost
+
+
+def run_turn(ctx: TurnContext, streaming: bool):
+    """Generator driving one turn. Yields {"type": "token"|"tool"|"done", ...} events.
+
+    Closing it early (the user pressed Stop) saves the question, any completed tool rounds and
+    the partial answer written so far.
+    """
+    started = time.perf_counter()
+    messages = list(ctx.messages)
+    new_msgs: list[dict] = [ctx.user_msg]
+    activity: list[dict] = []
+    prompt_tokens = completion_tokens = 0
+    partial = ""
+    finished = False      # set once the turn is saved, so a later close() saves nothing more
+    try:
+        for round_no in range(MAX_TOOL_ROUNDS + 1):
+            offer_tools = ctx.tools_enabled and round_no < MAX_TOOL_ROUNDS   # last round must answer
+            reply, partial = None, ""
+            try:
+                for kind, payload in _llm_events(streaming, messages, TOOLS if offer_tools else None):
+                    if kind == "token":
+                        partial += payload
+                        yield {"type": "token", "text": payload}
+                    else:
+                        reply = payload
+            except GeneratorExit:
+                raise
+            except Exception as exc:
+                raise ChatError("llm_error", f"The model call failed: {exc}") from exc
+            prompt_tokens += reply["prompt_tokens"]
+            completion_tokens += reply["completion_tokens"]
+            assistant = reply["message"]
+            calls = assistant.get("tool_calls") or []
+            if not calls:
+                new_msgs.append(assistant)
+                cost = _save_turn(ctx, new_msgs, activity, started, prompt_tokens, completion_tokens)
+                finished = True
+                yield {
+                    "type": "done", "answer": assistant["content"], "tool_activity": activity,
+                    "snapshot_id": ctx.snapshot_id, "interrupted": False,
+                    "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                              "cost_usd": cost, "model": ctx.model},
+                    "thread_totals": db.get_chat_totals(ctx.thread["id"]),
+                }
+                return
+            round_msgs = [assistant]
+            messages.append(assistant)
+            for call in calls:
+                name, raw = call["function"]["name"], call["function"]["arguments"]
+                result, ok = execute_tool(name, raw, ctx.files, ctx.views)
+                try:
+                    shown = json.loads(raw or "{}")
+                except Exception:
+                    shown = {}
+                shown = shown if isinstance(shown, dict) else {}
+                item = {"tool": name, "args": shown, "ok": ok, "label": _activity_label(name, shown, ok)}
+                activity.append(item)
+                tool_msg = {"role": "tool", "tool_call_id": call["id"], "name": name,
+                            "content": _wrap_tool_result(name, result)}
+                messages.append(tool_msg)
+                round_msgs.append(tool_msg)
+                yield {"type": "tool", **item}
+            new_msgs.extend(round_msgs)   # only whole rounds are kept, so replay stays valid
+    except GeneratorExit:
+        if finished:
+            raise
+        text = (partial + "\n\n_(stopped)_") if partial else "_(Stopped before an answer was produced.)_"
+        estimate_in = len(json.dumps(messages, default=str)) // 4
+        _save_turn(ctx, new_msgs + [{"role": "assistant", "content": text}], activity, started,
+                   prompt_tokens + estimate_in, completion_tokens + len(partial) // 4, "stopped")
+        raise
+    except ChatError as exc:
+        try:
+            db.save_telemetry_span(None, None, ctx.workspace_id, "chat",
+                                   (time.perf_counter() - started) * 1000, prompt_tokens,
+                                   completion_tokens, exc.message,
+                                   compute_cost(ctx.model, prompt_tokens, completion_tokens))
+        except Exception:
+            pass
+        raise
+
+
+def chat_turn(workspace_id: int, user_text: str) -> dict:
+    """Answer one user message (blocking). Returns the final "done" event."""
+    done = None
+    for event in run_turn(prepare_turn(workspace_id, user_text), streaming=False):
+        if event["type"] == "done":
+            done = event
+    if done is None:
+        raise ChatError("llm_error", "The model returned no answer.")
+    return done
 
 
 def get_chat_history(workspace_id: int) -> dict:

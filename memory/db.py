@@ -1018,6 +1018,14 @@ def get_telemetry_summary(workspace_id: int, n_scans: int = 20) -> dict:
                 "projected_monthly_usd": projected,
             }
 
+        # Chat spend (B-025) is recorded as agent "chat" spans outside any scan run
+        chat_row = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS n FROM telemetry "
+            "WHERE workspace_id=? AND agent='chat'", (workspace_id,)
+        ).fetchone()
+        cost_summary["chat_usd"] = round(chat_row["usd"], 6)
+        cost_summary["chat_turns"] = chat_row["n"]
+
         return {
             "last_scan_latency": last_scan_latency,
             "agent_avg_ms": agent_avg_ms,

@@ -84,6 +84,14 @@ function CostPanel({ workspaceId }) {
             ${(data.last_scan_usd ?? 0).toFixed(4)}
           </p>
         </div>
+        {data.chat_usd > 0 && (
+          <div className="border-l border-gray-100 pl-4">
+            <p className="text-xs text-gray-400">Chat ({data.chat_turns} questions)</p>
+            <p className="text-lg font-bold text-blue-600">
+              ${data.chat_usd.toFixed(4)}
+            </p>
+          </div>
+        )}
         {data.projected_monthly_usd > 0 && (
           <div className="border-l border-gray-100 pl-4">
             <p className="text-xs text-gray-400">Projected / month</p>

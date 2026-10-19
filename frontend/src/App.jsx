@@ -7,6 +7,7 @@ import ScoringPage     from './pages/ScoringPage';
 import MitigationsPage from './pages/MitigationsPage';
 import RemediationPage from './pages/RemediationPage';
 import DashboardPage   from './pages/DashboardPage';
+import ChatPanel       from './components/ChatPanel';
 import {
   PROCESS_STEPS,
   PERSONA_PRIMARY,
@@ -36,6 +37,7 @@ const KEY_HIERARCHY       = 'fmea_hierarchy_v2';
 const KEY_HISTORY         = 'fmea_scan_history_v2';
 const KEY_SEL             = 'fmea_sel_v2';
 const KEY_MIGRATION_DONE  = 'fmea_migration_v1_done'; // prevents double-run under React StrictMode
+const KEY_CHAT_OPEN       = 'fmea_chat_open_v1';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -117,6 +119,7 @@ export default function App() {
   const [persona, setPersona] = useState('developer');
   const [step,    setStep]    = useState('scan');
   const [scope,   setScope]   = useState('project');
+  const [chatOpen, setChatOpen] = useState(() => ls(KEY_CHAT_OPEN, false));
   const [sel,     setSel]     = useState(init.sel);
 
   const [hierarchy,   setHierarchyState]   = useState(init.hierarchy);
@@ -162,6 +165,8 @@ export default function App() {
     }
     bootstrap();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleChat = () => setChatOpen(v => { lsSave(KEY_CHAT_OPEN, !v); return !v; });
 
   // ── Persist sel whenever it changes ─────────────────────────────────────────
   useEffect(() => { lsSave(KEY_SEL, sel); }, [sel]);
@@ -329,7 +334,8 @@ export default function App() {
         onAddProject={addProject}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header persona={persona} step={step} sel={sel} scope={scope} />
+        <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} />
+        <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto bg-gray-50">
           <Content
             persona={persona}
@@ -345,6 +351,14 @@ export default function App() {
             onUpdateProjectRepo={updateProjectRepo}
           />
         </main>
+        {chatOpen && (
+          <ChatPanel
+            workspaceId={workspaceId}
+            projectName={hierarchy.flatMap(p => p.projects).find(pr => pr.id === sel.projectId)?.name ?? null}
+            onClose={toggleChat}
+          />
+        )}
+        </div>
       </div>
     </div>
   );

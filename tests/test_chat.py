@@ -360,3 +360,186 @@ def test_ac1_scan_endpoint_persists_snapshot(monkeypatch):
     snap = db.get_latest_snapshot(1)
     assert snap and snap["findings"]["failures"][0]["failure_mode"] == "SQL injection in login"
     assert db.get_snapshot_files(snap["id"]) == {"src/auth.py": "print('login')"}
+
+
+# ══ Phase 2: streaming (AC14), cost recording (AC20) ═══════════════════════════
+
+def fake_stream_llm(monkeypatch, replies):
+    """replies: list of dicts {pieces, tool_calls, finish, usage}. Records requests and closes."""
+    calls, closed = [], []
+
+    def chunk(content=None, tcs=None, finish=None, usage=None, choices=True):
+        delta = NS(content=content, tool_calls=tcs)
+        return NS(choices=[NS(delta=delta, finish_reason=finish)] if choices else [], usage=usage)
+
+    class Stream:
+        def __init__(self, reply):
+            self.reply = reply
+
+        def __iter__(self):
+            r = self.reply
+            for piece in r.get("pieces", []):
+                yield chunk(content=piece)
+            for i, (cid, name, arg_parts) in enumerate(r.get("tool_calls", [])):
+                for j, part in enumerate(arg_parts):
+                    yield chunk(tcs=[NS(index=i, id=cid if j == 0 else None,
+                                        function=NS(name=name if j == 0 else None, arguments=part))])
+            yield chunk(finish=r.get("finish", "stop"))
+            if r.get("usage", (100, 20)) is not None:
+                p, c = r.get("usage", (100, 20))
+                yield chunk(choices=False, usage=NS(prompt_tokens=p, completion_tokens=c))
+
+        def close(self):
+            closed.append(True)
+
+    class Fake:
+        def __init__(self, api_key, base_url=None):
+            self.chat = self
+            self.completions = self
+
+        def create(self, **kw):
+            calls.append(json.loads(json.dumps(kw, default=lambda o: "<obj>")))
+            assert kw.get("stream") is True
+            return Stream(replies[min(len(calls), len(replies)) - 1])
+
+    monkeypatch.setattr(llm.openai, "OpenAI", Fake)
+    return calls, closed
+
+
+def run_stream(question="hi"):
+    return chat.run_turn(chat.prepare_turn(1, question), streaming=True)
+
+
+def test_ac14_tokens_stream_incrementally_then_done(monkeypatch):
+    seed()
+    fake_stream_llm(monkeypatch, [{"pieces": ["The ", "exploit ", "works."]}])
+    events = list(run_stream("how?"))
+    assert [e["type"] for e in events] == ["token", "token", "token", "done"]
+    assert "".join(e["text"] for e in events if e["type"] == "token") == "The exploit works."
+    done = events[-1]
+    assert done["answer"] == "The exploit works." and done["usage"]["prompt_tokens"] == 100
+    assert [m["role"] for m in chat.get_chat_history(1)["messages"]] == ["user", "assistant"]
+
+
+def test_streamed_tool_call_arguments_are_assembled(monkeypatch):
+    seed()
+    calls, _ = fake_stream_llm(monkeypatch, [
+        {"tool_calls": [("call-1", "read_file", ['{"path": "src/', 'pay.py"}'])], "finish": "tool_calls"},
+        {"pieces": ["Found it at src/pay.py:3."]},
+    ])
+    events = list(run_stream("where?"))
+    tool = [e for e in events if e["type"] == "tool"][0]
+    assert tool["label"] == "read src/pay.py" and tool["ok"] is True
+    assert [e["type"] for e in events] == ["tool", "token", "done"]
+    assert SECRET_CODE_LINE in json.dumps(calls[1]["messages"])      # tool result reached the model
+
+
+def test_ac14_stop_mid_answer_keeps_partial_and_closes_provider_stream(monkeypatch):
+    seed()
+    _, closed = fake_stream_llm(monkeypatch, [{"pieces": ["The exploit ", "starts by ", "sending", " more"]}])
+    gen = run_stream("how?")
+    got = [next(gen) for _ in range(2)]
+    gen.close()                                              # user pressed Stop
+    assert "".join(e["text"] for e in got) == "The exploit starts by "
+    assert closed, "provider stream must be closed so generation stops"
+    msgs = chat.get_chat_history(1)["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[1]["content"] == "The exploit starts by \n\n_(stopped)_"
+    assert msgs[1]["usage"]["completion_tokens"] > 0         # estimated, so cost is still recorded
+
+
+def test_ac14_stop_right_after_start_and_conversation_continues(monkeypatch):
+    seed()
+    fake_stream_llm(monkeypatch, [{"pieces": ["late"]}, {"pieces": ["Next answer."]}])
+    gen = run_stream("second")
+    next(gen)
+    gen.close()
+    out = list(run_stream("third"))[-1]
+    assert out["answer"] == "Next answer."
+    roles = [m["role"] for m in chat.get_chat_history(1)["messages"]]
+    assert roles == ["user", "assistant", "user", "assistant"]   # alternation preserved for replay
+
+
+def test_ac14_stop_after_a_tool_round_keeps_only_whole_rounds(monkeypatch):
+    seed()
+    fake_stream_llm(monkeypatch, [
+        {"tool_calls": [("c1", "read_file", ['{"path": "src/pay.py"}'])], "finish": "tool_calls"},
+        {"pieces": ["Reading", " the file..."]},
+    ])
+    gen = run_stream("explain")
+    assert next(gen)["type"] == "tool"
+    assert next(gen)["type"] == "token"
+    gen.close()
+    thread = db.get_or_create_chat_thread(1)
+    rows = db.get_chat_messages(thread["id"])
+    assert [m["role"] for m in rows] == ["user", "assistant", "tool", "assistant"]   # call always has its result
+    assert rows[-1]["message"]["content"].endswith("_(stopped)_")
+
+
+def test_stream_continues_a_cut_off_answer(monkeypatch):
+    seed()
+    calls, _ = fake_stream_llm(monkeypatch, [{"pieces": ["Part one,"], "finish": "length"},
+                                             {"pieces": [" part two."]}])
+    events = list(run_stream("long"))
+    assert events[-1]["answer"] == "Part one, part two."
+    assert "".join(e["text"] for e in events if e["type"] == "token") == "Part one, part two."
+    assert "cut off" in calls[1]["messages"][-1]["content"]
+
+
+def test_thinking_chunks_are_never_streamed(monkeypatch):
+    seed()
+    thinking = [{"type": "thinking", "thinking": [{"type": "text", "text": "secret reasoning"}]},
+                {"type": "text", "text": "Visible."}]
+    fake_stream_llm(monkeypatch, [{"pieces": [thinking]}])
+    events = list(run_stream("q"))
+    assert "".join(e["text"] for e in events if e["type"] == "token") == "Visible."
+    assert "secret" not in json.dumps(events)
+
+
+def test_usage_is_estimated_when_provider_sends_none_and_stream_options_follow_registry(monkeypatch):
+    seed()
+    calls, _ = fake_stream_llm(monkeypatch, [{"pieces": ["x" * 400], "usage": None}])
+    events = list(run_stream("q"))
+    assert events[-1]["usage"]["completion_tokens"] == 100 and events[-1]["usage"]["prompt_tokens"] > 0
+    assert "stream_options" not in calls[0]                         # Mistral reports usage by itself
+    providers.set_api_key("openai", "k")
+    settings.set_setting("active_model", "gpt-4o-mini")
+    list(run_stream("q again"))
+    assert calls[-1]["stream_options"] == {"include_usage": True}   # OpenAI needs it asked for
+
+
+def test_ac20_chat_cost_recorded_in_telemetry_and_cost_summary(monkeypatch):
+    seed()
+    fake_stream_llm(monkeypatch, [{"pieces": ["a"], "usage": (1000, 100)}])
+    done = list(run_stream("q"))[-1]
+    expected = costs.compute_cost("mistral-large-4", 1000, 100)
+    assert done["usage"]["cost_usd"] == expected
+    summary = db.get_telemetry_summary(1)["cost_summary"]
+    assert summary["chat_usd"] == round(expected, 6) and summary["chat_turns"] == 1
+    assert chat.get_chat_history(1)["totals"]["cost_usd"] == expected
+
+
+def test_stream_endpoint_events_and_errors(monkeypatch):
+    from api.main import app
+    client = TestClient(app)
+    r = client.post("/api/chat/stream", json={"workspace_id": 1, "message": "hi"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "no_scan"     # before any streaming
+    seed()
+    fake_stream_llm(monkeypatch, [{"pieces": ["Hel", "lo"]}])
+    with client.stream("POST", "/api/chat/stream", json={"workspace_id": 1, "message": "hi"}) as resp:
+        assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/event-stream")
+        frames = [json.loads(line[6:]) for line in resp.iter_lines() if line.startswith("data: ")]
+    assert [f["type"] for f in frames] == ["token", "token", "done"]
+    assert frames[-1]["answer"] == "Hello"
+    assert [m["content"] for m in chat.get_chat_history(1)["messages"]] == ["hi", "Hello"]
+
+
+def test_pump_close_saves_partial_after_disconnect(monkeypatch):
+    from api.routers.chat import _Pump, _DONE
+    seed()
+    fake_stream_llm(monkeypatch, [{"pieces": ["one ", "two ", "three"]}])
+    pump = _Pump(chat.run_turn(chat.prepare_turn(1, "q"), streaming=True))
+    assert pump.next()["text"] == "one "
+    pump.close()                                                    # client went away
+    assert pump.next() is _DONE
+    assert chat.get_chat_history(1)["messages"][1]["content"] == "one \n\n_(stopped)_"
