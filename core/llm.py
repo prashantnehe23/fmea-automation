@@ -71,6 +71,24 @@ def get_token_usage() -> tuple[int, int]:
     return _prompt_tokens, _completion_tokens
 
 
+def _content_text(content) -> str:
+    """Normalise message content to text. Some providers (Mistral) return a list of
+    chunks (text, thinking, ...) instead of a string; keep only the text chunks."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for chunk in content:
+        if isinstance(chunk, str):
+            parts.append(chunk)
+        else:
+            get = chunk.get if isinstance(chunk, dict) else lambda k, d=None: getattr(chunk, k, d)
+            if get("type", "text") == "text":
+                parts.append(get("text", "") or "")
+    return "".join(parts)
+
+
 def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     """Send a single-turn prompt to the configured model and return the text reply."""
     global _call_count, _prompt_tokens, _completion_tokens
@@ -88,7 +106,7 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     if response.usage:
         _prompt_tokens     += response.usage.prompt_tokens or 0
         _completion_tokens += response.usage.completion_tokens or 0
-    return response.choices[0].message.content or ""
+    return _content_text(response.choices[0].message.content)
 
 
 def _repair_json(text: str) -> str:

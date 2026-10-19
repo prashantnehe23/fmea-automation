@@ -161,3 +161,13 @@ def test_mismatched_embed_model_not_compared_and_reembedded(tmp_path, monkeypatc
     monkeypatch.setattr(db, "update_scenario_embedding", lambda *a: calls.append(a))
     sr.register_new_scenarios(1, "fp", [], [], locked)
     assert calls and calls[0][1] == "A" and calls[0][3] == "mistral-embed"
+
+
+# ── Chunked content (Mistral returns a list of text/thinking chunks) ──
+
+def test_content_text_handles_chunk_lists():
+    from types import SimpleNamespace as NS
+    assert llm._content_text(None) == ""
+    assert llm._content_text("plain") == "plain"
+    chunks = [{"type": "thinking", "thinking": "hmm"}, {"type": "text", "text": "A"}, NS(type="text", text="B"), "C"]
+    assert llm._content_text(chunks) == "ABC"

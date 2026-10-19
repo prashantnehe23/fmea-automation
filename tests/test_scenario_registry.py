@@ -24,6 +24,10 @@ _TMP_DB = _tmp.name
 import memory.db as db
 db._DB_PATH = Path(_TMP_DB)
 
+# Don't depend on the real active model: tests use OpenAI-tagged vectors (B-022)
+import core.settings as _settings
+_settings._SETTINGS_PATH = Path(_TMP_DB).with_suffix(".settings.json")
+
 from memory.scenario_registry import (
     _scenario_text,
     clear_registry,

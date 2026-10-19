@@ -8,6 +8,12 @@
       "port": 8501
     },
     {
+      "name": "fmea-api",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "api.main:app", "--port", "8000"],
+      "port": 8000
+    },
+    {
       "name": "fmea-frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
