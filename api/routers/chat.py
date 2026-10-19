@@ -4,10 +4,13 @@ api/routers/chat.py — Results chat endpoints (B-025, ADR-014).
 POST /api/chat                  — ask a question about a project's latest scan (blocking)
 POST /api/chat/stream           — same, as a Server-Sent Events stream
 GET  /api/chat/{workspace_id}   — conversation history, totals and whether a scan exists
+POST /api/chat/proposals/{id}/apply    — user accepts a change the model proposed
+POST /api/chat/proposals/{id}/dismiss  — user declines it
 
 Stream events (all "data:" JSON with a "type"):
   {"type": "tool",  "tool", "args", "ok", "label"}   a tool the model used (e.g. read a file)
   {"type": "token", "text"}                          next piece of the answer
+  {"type": "proposal", "proposal"}                   a change the model proposes (not applied yet)
   {"type": "done",  "answer", "tool_activity", "usage", "thread_totals", ...}
   error event: {"code", "message"}
 If the client disconnects (Stop), generation ends and the partial answer is saved.
@@ -21,11 +24,15 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.sse import sse_event
-from core.chat import ChatError, chat_turn, get_chat_history, prepare_turn, run_turn
+from core.chat import (
+    ChatError, apply_proposal, chat_turn, dismiss_proposal, get_chat_history, prepare_turn, run_turn,
+)
 
 router = APIRouter(tags=["chat"])
 
-_STATUS = {"empty_message": 422, "no_scan": 409, "no_api_key": 409, "llm_error": 502}
+_STATUS = {"empty_message": 422, "no_scan": 409, "no_api_key": 409, "llm_error": 502,
+           "not_found": 404, "already_decided": 409, "stale": 409, "invalid_proposal": 422,
+           "apply_failed": 500}
 _DONE = object()
 
 
@@ -94,6 +101,23 @@ async def post_chat_stream(body: ChatRequest, request: Request):
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post("/api/chat/proposals/{proposal_id}/apply")
+def post_apply_proposal(proposal_id: int):
+    """Apply a proposed change. Only a user click reaches this; the model cannot call it."""
+    try:
+        return apply_proposal(proposal_id)
+    except ChatError as exc:
+        raise _http_error(exc)
+
+
+@router.post("/api/chat/proposals/{proposal_id}/dismiss")
+def post_dismiss_proposal(proposal_id: int):
+    try:
+        return dismiss_proposal(proposal_id)
+    except ChatError as exc:
+        raise _http_error(exc)
 
 
 @router.get("/api/chat/{workspace_id}")

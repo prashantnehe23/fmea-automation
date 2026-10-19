@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import memory.db as db
+from core.models import priority_for_rpn
 
 router = APIRouter(prefix="/api/scoring", tags=["scoring"])
 
@@ -34,6 +35,8 @@ class AdjustmentOut(BaseModel):
     new_rpn:      int
     justification: str
     created_at:   str
+    source:       str = "manual"   # "manual" (Scoring page) or "chat" (B-025)
+    priority:     str = ""
 
 
 @router.post("/adjustment", response_model=AdjustmentOut, status_code=201)
@@ -56,6 +59,8 @@ def create_adjustment(body: AdjustmentIn):
         "new_rpn":      body.new_s * body.new_o * body.new_d,
         "justification": body.justification,
         "created_at":   datetime.now().isoformat(),
+        "source":       "manual",
+        "priority":     priority_for_rpn(body.new_s * body.new_o * body.new_d),
     }
 
 
@@ -63,6 +68,6 @@ def create_adjustment(body: AdjustmentIn):
 def list_adjustments(workspace_id: int):
     rows = db.get_adjustments(workspace_id)
     return [
-        {**r, "workspace_id": workspace_id}
+        {**r, "workspace_id": workspace_id, "priority": priority_for_rpn(r["new_rpn"])}
         for r in rows
     ]

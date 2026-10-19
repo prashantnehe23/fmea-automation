@@ -10,6 +10,7 @@ Tables:
   eval_history  — pipeline eval scores per scan
   scan_snapshots / scan_sources — full findings + scanned files, for the results chat (B-025)
   chat_threads / chat_messages  — persistent conversation per project (B-025)
+  chat_proposals                — changes the chat model proposed; applied only on user click (B-025)
 
 Design notes:
   - sqlite3 is in Python stdlib; zero extra dependencies.
@@ -150,6 +151,21 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at        TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS chat_proposals (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id    INTEGER NOT NULL REFERENCES chat_threads(id),
+    message_id   INTEGER,
+    snapshot_id  INTEGER,
+    kind         TEXT    NOT NULL,
+    failure_mode TEXT    NOT NULL,
+    payload_json TEXT    NOT NULL,
+    reason       TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'proposed',
+    result_json  TEXT,
+    created_at   TEXT    NOT NULL,
+    decided_at   TEXT
+);
+
 CREATE TABLE IF NOT EXISTS portfolios (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL,
@@ -180,6 +196,7 @@ def get_db() -> sqlite3.Connection:
         "ALTER TABLE telemetry ADD COLUMN run_id TEXT",
         "ALTER TABLE telemetry ADD COLUMN cost_usd REAL DEFAULT 0",
         "ALTER TABLE scenarios ADD COLUMN embed_model TEXT",
+        "ALTER TABLE adjustments ADD COLUMN source TEXT DEFAULT 'manual'",
     ):
         try:
             conn.execute(_col_sql)
@@ -415,6 +432,22 @@ def delete_scenarios(workspace_id: int) -> None:
             conn.close()
 
 
+def delete_scenario(workspace_id: int, failure_mode: str) -> bool:
+    """Unlock one scenario (its locked scores are dropped; the next scan re-scores it).
+    Returns True if a locked scenario was removed."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                "DELETE FROM scenarios WHERE workspace_id=? AND failure_mode=?",
+                (workspace_id, failure_mode),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+
 def scenario_count(workspace_id: int) -> int:
     """Return number of locked scenarios for this workspace."""
     conn = get_db()
@@ -533,8 +566,9 @@ def save_adjustment(
     new_o: int,
     new_d: int,
     justification: str,
+    source: str = "manual",
 ) -> int:
-    """Persist a security-engineer score adjustment. Returns adjustment id."""
+    """Persist a score adjustment (source: "manual" or "chat"). Returns adjustment id."""
     new_rpn = new_s * new_o * new_d
     with _lock:
         conn = get_db()
@@ -542,11 +576,11 @@ def save_adjustment(
             cur = conn.execute(
                 """
                 INSERT INTO adjustments
-                    (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn,
-                 justification, datetime.now().isoformat()),
+                 justification, datetime.now().isoformat(), source or "manual"),
             )
             conn.commit()
             return cur.lastrowid  # type: ignore[return-value]
@@ -560,9 +594,10 @@ def get_adjustments(workspace_id: int) -> list[dict]:
     try:
         rows = conn.execute(
             """
-            SELECT id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at
+            SELECT id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at,
+                   COALESCE(source, 'manual') AS source
             FROM adjustments WHERE workspace_id=?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, id DESC
             """,
             (workspace_id,),
         ).fetchall()
@@ -741,6 +776,116 @@ def get_chat_totals(thread_id: int) -> dict:
                 "cost_usd": round(row["cost"], 6)}
     finally:
         conn.close()
+
+
+def get_chat_thread(thread_id: int) -> dict | None:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id, workspace_id, summary FROM chat_threads WHERE id=?",
+                           (thread_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def set_proposal_result(proposal_id: int, result: dict) -> None:
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("UPDATE chat_proposals SET result_json=? WHERE id=?",
+                         (json.dumps(result), proposal_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def create_proposal(thread_id: int, snapshot_id: int | None, kind: str, failure_mode: str,
+                    payload: dict, reason: str) -> int:
+    """Record a change proposed by the chat model. Nothing is applied until the user decides."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """INSERT INTO chat_proposals
+                       (thread_id, snapshot_id, kind, failure_mode, payload_json, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (thread_id, snapshot_id, kind, failure_mode, json.dumps(payload), reason,
+                 datetime.now().isoformat()),
+            )
+            conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
+        finally:
+            conn.close()
+
+
+def _proposal_row(row) -> dict:
+    item = dict(row)
+    item["payload"] = json.loads(item.pop("payload_json"))
+    item["result"] = json.loads(item.pop("result_json") or "null")
+    return item
+
+
+def get_proposal(proposal_id: int) -> dict | None:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM chat_proposals WHERE id=?", (proposal_id,)).fetchone()
+        return _proposal_row(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_proposals(thread_id: int) -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM chat_proposals WHERE thread_id=? ORDER BY id", (thread_id,)
+        ).fetchall()
+        return [_proposal_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def attach_proposals_to_message(proposal_ids: list[int], message_id: int) -> None:
+    if not proposal_ids:
+        return
+    with _lock:
+        conn = get_db()
+        try:
+            conn.executemany("UPDATE chat_proposals SET message_id=? WHERE id=?",
+                             [(message_id, pid) for pid in proposal_ids])
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def decide_proposal(proposal_id: int, new_status: str, result: dict | None = None) -> bool:
+    """Atomically move a proposal out of 'proposed'. Returns False if it was already decided,
+    which is what makes Apply / Dismiss idempotent even under concurrent clicks."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """UPDATE chat_proposals SET status=?, result_json=?, decided_at=?
+                   WHERE id=? AND status='proposed'""",
+                (new_status, json.dumps(result) if result is not None else None,
+                 datetime.now().isoformat(), proposal_id),
+            )
+            conn.commit()
+            return cur.rowcount == 1
+        finally:
+            conn.close()
+
+
+def reopen_proposal(proposal_id: int) -> None:
+    """Undo a claim when applying failed, so the user can retry."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("UPDATE chat_proposals SET status='proposed', result_json=NULL, decided_at=NULL WHERE id=?",
+                         (proposal_id,))
+            conn.commit()
+        finally:
+            conn.close()
 
 
 # ── Portfolio / Project hierarchy (B-007) ─────────────────────────────────────

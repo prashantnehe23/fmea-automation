@@ -38,6 +38,7 @@
 | [x] | Multi-Provider Model Selection + User API Keys (B-022) — OpenAI + Mistral registry, per-provider keys in Settings, embeddings follow the provider | `core/providers.py`, `core/costs.py`, `core/llm.py`, `api/routers/settings.py`, `Header.jsx` — ADR-011 |
 | [x] | User-Selectable Reasoning Level + Token Scaling (B-023) — Off/Low/Medium/High per model capability; evaluator cost uses active model rates | `core/reasoning.py`, `core/llm.py`, `api/routers/settings.py`, `Header.jsx` — ADR-012 |
 | [x] | Adaptive Handling of Verbose / Truncated Model Output (B-024) — wide budget, continuation, JSON recovery, safe salvage | `core/llm.py` — ADR-013 |
+| [x] | Results Chat (B-025) — persistent scan memory, streaming chat panel with code tools, model proposals the user applies or dismisses | `core/chat.py`, `core/llm.py`, `api/routers/chat.py`, `memory/db.py`, `ChatPanel.jsx`, `Markdown.jsx`, `App.jsx` — ADR-014 |
 
 ---
 
@@ -317,7 +318,7 @@
 
 ---
 
-### B-025 · Results Chat — Ask Follow-Up Questions with Persistent Scan Memory `[~]` IN PROGRESS — phases 1-2 DONE, phase 3 pending
+### B-025 · Results Chat — Ask Follow-Up Questions with Persistent Scan Memory `[x]` DONE
 
 **Priority:** P1 (engineer-approved). **Depends on:** B-022/B-023/B-024 (model-agnostic LLM layer), B-001 (score adjustments). **Decision:** [ADR-014](decisions/ADR-014-results-chat.md) (Accepted)
 
@@ -340,7 +341,7 @@
 *Context + memory (`core/chat.py`, NEW)*
 - Stable prefix built once per scan: system prompt, compact findings (scenario, S/O/D/RPN, attack chain, evidence, controls, validator confidence), file index. Byte-identical across turns
 - Conversation history bounded by a token budget; older turns summarised when it is exceeded
-- Tools the model may call: `read_file(path)`, `search_code(query)`, `get_scenario_detail(name)` (full SRE plan/rationales), `propose_score_adjustment(failure_mode, S, O, D, justification)`, `propose_unlock_scenario(failure_mode, reason)`
+- Tools the model may call: `read_file(path)`, `search_code(query)`, `get_scenario_detail(name)` (full SRE plan/rationales), `propose_score_adjustment(failure_mode, S, O, D, justification)`, `propose_unlock_scenario(failure_mode, reason)` (per-scenario unlock, a new finer-grained capability: the existing unlock is whole-project)
 
 *LLM layer (`core/llm.py`)*
 - Streaming + tool-call loop on the OpenAI-compatible API, model-agnostic: honours the active model, reasoning level (B-023), chunked/thinking content, and continuation of cut-off answers (B-024); cost recorded to telemetry (agent `chat`)
@@ -372,15 +373,15 @@
 - [x] AC9 When the model calls a tool that does not exist or with invalid arguments, it gets an error result and recovers; the chat does not crash
 
 *Changing scenarios and rankings*
-- [ ] AC10 The model can only *propose* changes; no score, lock state or ranking changes before the user clicks Apply
-- [ ] AC11 Apply validates S/O/D in 1-10 and the failure mode exists in the pinned scan; invalid proposals are rejected with a clear message
-- [ ] AC12 An applied score change appears in the existing adjustments audit trail with source "chat" and the justification, and the Scoring page and ranking reflect it without a rescan
-- [ ] AC13 Dismissed and already-applied proposals cannot be applied again (idempotent, status shown on the card)
+- [x] AC10 The model can only *propose* changes; no score, lock state or ranking changes before the user clicks Apply
+- [x] AC11 Apply validates S/O/D in 1-10 and the failure mode exists in the pinned scan; invalid proposals are rejected with a clear message
+- [x] AC12 An applied score change appears in the existing adjustments audit trail with source "chat" and the justification, and the Scoring page and ranking reflect it without a rescan
+- [x] AC13 Dismissed and already-applied proposals cannot be applied again (idempotent, status shown on the card)
 
 *Experience and persistence*
 - [x] AC14 Answers stream token by token; Stop cancels generation and keeps the partial answer
 - [x] AC15 The panel is available from every page for the selected project, and the thread is restored after a page refresh or restart
-- [x] AC16 Every user persona can open the chat and ask questions; applying a proposal follows the same permission rule as the existing adjustment UI
+- [x] AC16 Every user persona can open the chat and ask questions; deciding on a proposal follows the existing UI rules: score changes need the Security Engineer persona (as on the Scoring page), unlocking is open to all (as on the Scan page). UI-level only, like the existing UI, because there is no authentication yet (B-015)
 - [x] AC17 With no scan for the project, or no API key, the panel shows a clear message and does not call the model
 
 *Model-agnostic and cost*
@@ -389,18 +390,30 @@
 - [x] AC20 Each message's tokens and cost are recorded and shown, and the thread total is visible; chat cost is recorded as telemetry agent `chat` and shown as a "Chat" figure in the dashboard Cost panel (via `cost_summary.chat_usd`)
 
 *Quality gate*
-- [ ] AC21 `tests/test_chat.py` covers AC1-AC13 and AC17-AC20 with a fake client; full suite green; frontend builds; manual end-to-end on Mistral Large 4 recorded in the item
+- [x] AC21 `tests/test_chat.py` covers AC1-AC13 and AC17-AC20 with a fake client; full suite green; frontend builds; manual end-to-end on Mistral Large 4 recorded in the item
 
 **Build order (each phase shippable on its own)**
 1. **[DONE 2026-10-19]** Persistence + context builder + non-streaming Q&A with read tools (AC1-AC9, AC17-AC19) — read-only chat
 2. **[DONE 2026-10-19]** Streaming API + chat panel UI (AC14-AC16, AC20)
-3. Proposals + Apply/Dismiss (AC10-AC13)
+3. **[DONE 2026-10-19]** Proposals + Apply/Dismiss (AC10-AC13)
 
 **Phase 1 delivered (2026-10-19):** `core/chat.py` (context builder, tools, history budget, turn loop), `core/llm.py` `call_chat`, `memory/db.py` snapshot + thread tables, `api/routers/chat.py` (`POST /api/chat`, `GET /api/chat/{workspace_id}`, non-streaming), persistence hooks in the scan and GitHub scan routers, `tests/test_chat.py` (26 tests). Full suite 119 passing plus the known flaky timestamp-ordering test in `test_adjustments.py`/`test_db.py`.
 Verified live on Mistral Large 4 (isolated DB): real tool calling (9 tool calls on the first question), answers cite `file:line`, a follow-up recalled the earlier question and files without re-reading, `get_scenario_detail` used for a score question; ~$0.006-0.017 per turn, system prefix ~3k tokens.
 
 **Phase 2 delivered (2026-10-19):** `core/llm.py` `stream_chat` (token streaming, tool-call assembly, usage or estimate, continuation, thinking chunks hidden); `core/chat.py` `prepare_turn` / `run_turn` generator shared by the blocking and streaming endpoints, partial answers saved on Stop; `POST /api/chat/stream` (SSE; stops generation on client disconnect via a lock-guarded pump); chat spend recorded as telemetry agent `chat` with `cost_summary.chat_usd/chat_turns`; frontend `ChatPanel.jsx` (right-side panel on every page, opened from the header, state remembered), dependency-free `Markdown.jsx`, `streamChat`/`getChatHistory` in `api.js`, Chat figure in the dashboard Cost panel. Tests: `tests/test_chat.py` now 37 tests; suite 130 passing plus the known flaky timestamp-ordering test.
 Verified in the browser pane on an isolated stack (temp DB seeded with a scan of this repo, Mistral Large 4): starter question streams with live tool chips and markdown; **Stop** mid-answer saved the partial (marked stopped) with 9 tool actions and cost; a page refresh restored the conversation and running cost; a follow-up on the stopped answer used history only (7.5k tokens in, $0.0054); no console errors; chat spend appeared in `/api/telemetry` (`chat_usd`).
+
+**Phase 3 delivered (2026-10-19):** `chat_proposals` table; adjustments gain a `source` (`manual` / `chat`); per-scenario `db.delete_scenario`; tools `propose_score_adjustment` / `propose_unlock_scenario` (validated: known scenario, integer scores 1-10, a real justification, not a no-op, scenario must be locked to unlock); `apply_proposal` / `dismiss_proposal` (re-validated against the latest scan, claimed atomically so concurrent or repeated clicks apply once, a failed apply reopens the proposal); decided proposals are listed in the system prefix so the model never claims a pending change was made or re-proposes a dismissed one; `POST /api/chat/proposals/{id}/apply|dismiss`; stream event `proposal`; `core.models.priority_for_rpn`; scoring API returns `source` and `priority`; frontend `ProposalCard` (Apply / Dismiss, status badges, persona rule), adjustment overlay so applied changes show without a rescan. `tests/test_chat.py` now 66 tests; suite 158 passing plus the 2 known flaky timestamp-ordering tests in `test_db.py`/`test_adjustments.py`.
+Verified in the browser pane on an isolated stack with Mistral Large 4: the model investigated the code (8 tool calls), weighed the evidence and proposed Occurrence 5 -> 3 instead of simply agreeing; nothing changed until Apply (0 adjustments, Scoring page still 240); Apply saved a `chat` adjustment (RPN 144, Medium) and the Scoring page showed 144 immediately; a follow-up showed the model knew the change was applied; an unlock proposal was dismissed (registry untouched, later Apply refused with 409); persona gating checked (Developer: score card locked, unlock open; Security Engineer: both open); a manual adjustment on the Scoring page still works, now reflects in the list at once and keeps the selected risk.
+
+**Phase 3 decisions / trade-offs / behaviour changes:**
+- **Behaviour change to the existing Scoring page:** applied adjustments (manual and chat) now override the displayed scores immediately, via a frontend overlay on the project/component views. Before, a manual adjustment only took effect on the next rescan. The overlay is not applied to portfolio/org roll-ups. The Scoring page now also keeps the open risk selected after saving.
+- Unlock is per scenario (new), not the existing whole-project unlock; dropping one locked scenario means the next scan re-scores it, and a saboteur that is no longer told to reproduce it may rename or drop it.
+- A proposal is checked twice (when the model makes it and when the user applies it), because a rescan in between can remove the scenario; such proposals become "No longer applicable".
+- Applying a proposal needs no LLM and no API key.
+- The priority band rule (Critical > 400, High > 200) is now in `core/models.py` for the chat/scoring API and is still also inlined in `agents/actuary.py`, `agents/evaluator.py` and `workflows/fmea_pipeline.py`; consolidating those is a possible small follow-up.
+- Persona rules are enforced in the UI only; the API itself is unauthenticated (B-015).
+- Not done: the "New thread" control from the original scope; the Dashboard Cost panel's Chat figure was checked at API level only; the portfolio/org score overlay.
 
 **Phase 2 decisions / trade-offs:**
 - No new frontend dependency: answers are rendered by a ~100-line markdown component that only produces React nodes (model output can never inject HTML). It supports code fences, headings, lists, tables (monospaced), bold/italic/inline code; links stay plain text. Swap in a library later if richer rendering is wanted.

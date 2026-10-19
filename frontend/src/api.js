@@ -356,6 +356,25 @@ export async function* streamChat(workspaceId, message, signal) {
   }
 }
 
+async function _proposalCall(proposalId, action) {
+  const res = await fetch(`${BASE}/api/chat/proposals/${proposalId}/${action}`, { method: 'POST' });
+  if (!res.ok) {
+    let detail = {};
+    try { detail = (await res.json()).detail ?? {}; } catch { /* not JSON */ }
+    const err = new Error(detail.message ?? `HTTP ${res.status}`);
+    err.code = detail.code ?? 'http_error';
+    throw err;
+  }
+  return res.json();
+}
+
+/** POST /api/chat/proposals/{id}/apply — the user accepts a change the model proposed.
+ *  @returns {{ proposal, result }}  result has new_rpn/priority (score) or unlocked (scenario) */
+export const applyProposal   = (proposalId) => _proposalCall(proposalId, 'apply');
+
+/** POST /api/chat/proposals/{id}/dismiss — the user declines it. */
+export const dismissProposal = (proposalId) => _proposalCall(proposalId, 'dismiss');
+
 // ── Reasoning level (B-023) ──────────────────────────────────────────────────
 
 /** GET /api/settings/reasoning → { level, effective, supported, token_multiplier } */

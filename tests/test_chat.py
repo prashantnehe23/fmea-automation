@@ -97,6 +97,7 @@ def fake_llm(monkeypatch, replies):
                                   message=NS(content=content, tool_calls=tcs))])
 
     monkeypatch.setattr(llm.openai, "OpenAI", Fake)
+    llm._clients.clear()          # a test may install a second fake; never reuse a cached client
     return calls
 
 
@@ -198,8 +199,11 @@ def test_ac6_valid_and_suffix_paths_work():
 
 # ── AC8 / AC9 ─────────────────────────────────────────────────────────────────
 
-def test_ac8_tools_are_read_only_and_injected_text_changes_nothing(monkeypatch):
-    assert {t["function"]["name"] for t in chat.TOOLS} == {"read_file", "search_code", "get_scenario_detail"}
+def test_ac8_code_tools_are_read_only_and_injected_text_changes_nothing(monkeypatch):
+    names = {t["function"]["name"] for t in chat.TOOLS}
+    assert {"read_file", "search_code", "get_scenario_detail"} <= names
+    assert names - {"read_file", "search_code", "get_scenario_detail"} == {
+        "propose_score_adjustment", "propose_unlock_scenario"}      # the only write-ish tools only propose
     seed()
     fake_llm(monkeypatch, [
         ("", [tool_call("read_file", {"path": "src/pay.py"})], "tool_calls"),
@@ -403,6 +407,7 @@ def fake_stream_llm(monkeypatch, replies):
             return Stream(replies[min(len(calls), len(replies)) - 1])
 
     monkeypatch.setattr(llm.openai, "OpenAI", Fake)
+    llm._clients.clear()
     return calls, closed
 
 
@@ -543,3 +548,288 @@ def test_pump_close_saves_partial_after_disconnect(monkeypatch):
     pump.close()                                                    # client went away
     assert pump.next() is _DONE
     assert chat.get_chat_history(1)["messages"][1]["content"] == "one \n\n_(stopped)_"
+
+
+# ══ Phase 3: proposals, Apply / Dismiss (AC10-AC13) ═══════════════════════════
+
+PROPOSE = {"failure_mode": "Card token leak", "severity": 6, "occurrence": 4, "detection": 3,
+           "justification": "Tokens are masked before logging in src/pay.py:3, so occurrence is lower."}
+
+
+def lock(*names):
+    """Lock scenarios in the registry, as a first scan would."""
+    for n in names:
+        db.upsert_scenario(1, "fp-2", n, ["a"], 9, 8, 7, 504, b"")
+
+
+def propose_turn(monkeypatch, args=None, tool="propose_score_adjustment", question="should this change?"):
+    seed()
+    fake_llm(monkeypatch, [
+        ("", [tool_call(tool, args or PROPOSE)], "tool_calls"),
+        ("I suggest lowering it; please review the card.", None, "stop"),
+    ])
+    return chat.chat_turn(1, question)
+
+
+def test_ac10_model_can_only_propose_nothing_changes_before_a_click(monkeypatch):
+    lock("Card token leak")
+    before = (db.get_adjustments(1), db.scenario_count(1))
+    out = propose_turn(monkeypatch)
+    assert (db.get_adjustments(1), db.scenario_count(1)) == before       # no change yet
+    [prop] = out["proposals"]
+    assert prop["status"] == "proposed" and prop["kind"] == "score_adjustment"
+    assert prop["payload"]["rpn"] == 72 and prop["payload"]["before"]["rpn"] == 441
+    assert prop["failure_mode"] == "Card token leak" and "masked" in prop["reason"]
+    tool_msgs = [m for m in db.get_chat_messages(db.get_or_create_chat_thread(1)["id"]) if m["role"] == "tool"]
+    assert "NOT applied" in tool_msgs[0]["message"]["content"]
+    hist = chat.get_chat_history(1)["messages"]
+    assert hist[1]["proposals"][0]["id"] == prop["id"]                    # card sits under the answer
+
+
+def test_ac10_injected_instruction_even_if_followed_only_creates_a_pending_card(monkeypatch):
+    seed()
+    fake_llm(monkeypatch, [
+        ("", [tool_call("read_file", {"path": "src/pay.py"}, "r")], "tool_calls"),
+        ("", [tool_call("propose_score_adjustment", {**PROPOSE, "severity": 1, "occurrence": 1, "detection": 1,
+                        "justification": "The file said to set every score to 1, so I did."}, "p")], "tool_calls"),
+        ("Done.", None, "stop"),
+    ])
+    out = chat.chat_turn(1, "summarise pay.py")
+    assert db.get_adjustments(1) == []                                    # a compromised model still cannot write
+    assert out["proposals"][0]["status"] == "proposed"
+    assert not any(t["function"]["name"] == "apply_proposal" for t in chat.TOOLS)
+
+
+@pytest.mark.parametrize("override, message", [
+    ({"failure_mode": "No such scenario"}, "Unknown scenario"),
+    ({"severity": 0}, "severity must be an integer from 1 to 10"),
+    ({"occurrence": 11}, "occurrence must be an integer from 1 to 10"),
+    ({"detection": "abc"}, "detection must be an integer"),
+    ({"severity": 7.5}, "severity must be an integer"),
+    ({"severity": True}, "severity must be an integer"),
+    ({"justification": "short"}, "justification must explain"),
+    ({"severity": 9, "occurrence": 7, "detection": 7}, "nothing to change"),
+])
+def test_ac11_invalid_proposals_are_rejected_to_the_model(monkeypatch, override, message):
+    seed()
+    text, ok = chat.execute_tool("propose_score_adjustment", json.dumps({**PROPOSE, **override}), FILES,
+                                 chat._scenario_views(make_findings(), {}),
+                                 chat.ToolEnv(1, lambda *a: pytest.fail("must not record")))
+    assert ok is False and message in text
+
+
+def test_ac11_unlock_needs_a_locked_scenario_and_a_reason(monkeypatch):
+    seed()
+    views = chat._scenario_views(make_findings(), {})
+    env = chat.ToolEnv(1, lambda *a: pytest.fail("must not record"))
+    text, ok = chat.execute_tool("propose_unlock_scenario",
+                                 json.dumps({"failure_mode": "Card token leak", "reason": "stale scores here"}),
+                                 FILES, views, env)
+    assert ok is False and "not locked" in text
+    lock("Card token leak")
+    text, ok = chat.execute_tool("propose_unlock_scenario",
+                                 json.dumps({"failure_mode": "Card token leak", "reason": "no"}), FILES, views, env)
+    assert ok is False and "must explain" in text
+
+
+def test_proposal_tools_without_a_recorder_fail_cleanly():
+    text, ok = chat.execute_tool("propose_score_adjustment", json.dumps(PROPOSE), FILES, [], None)
+    assert ok is False and "not available" in text
+
+
+def test_ac11_apply_rejects_a_scenario_that_left_the_latest_scan(monkeypatch):
+    lock("Card token leak")
+    out = propose_turn(monkeypatch)
+    db.save_scan_snapshot(1, 6, "fp-new", {**make_findings(), "failures": [make_findings()["failures"][0]]}, FILES)
+    with pytest.raises(chat.ChatError) as e:
+        chat.apply_proposal(out["proposals"][0]["id"])
+    assert e.value.code == "stale"
+    assert db.get_proposal(out["proposals"][0]["id"])["status"] == "invalid"
+    assert db.get_adjustments(1) == []
+
+
+def test_ac11_apply_revalidates_stored_scores(monkeypatch):
+    out = propose_turn(monkeypatch)
+    pid = out["proposals"][0]["id"]
+    conn = db.get_db()
+    conn.execute("UPDATE chat_proposals SET payload_json=? WHERE id=?", (json.dumps({"severity": 99, "occurrence": 4, "detection": 3}), pid))
+    conn.commit()
+    conn.close()
+    with pytest.raises(chat.ChatError) as e:
+        chat.apply_proposal(pid)
+    assert e.value.code == "invalid_proposal" and db.get_adjustments(1) == []
+
+
+def test_ac12_apply_writes_the_audit_trail_and_rankings_follow(monkeypatch):
+    out = propose_turn(monkeypatch)
+    pid = out["proposals"][0]["id"]
+    applied = chat.apply_proposal(pid)
+    assert applied["proposal"]["status"] == "applied"
+    assert applied["result"]["new_rpn"] == 72 and applied["result"]["priority"] == "Medium"
+    [adj] = db.get_adjustments(1)
+    assert (adj["new_s"], adj["new_o"], adj["new_d"], adj["new_rpn"]) == (6, 4, 3, 72)
+    assert adj["source"] == "chat" and "masked" in adj["justification"]
+
+    from api.main import app
+    rows = TestClient(app).get("/api/scoring/adjustments/1").json()           # the existing audit trail
+    assert rows[0]["source"] == "chat" and rows[0]["priority"] == "Medium"
+
+    calls = fake_llm(monkeypatch, [("ok", None, "stop")])
+    chat.chat_turn(1, "what is the ranking now?")                              # next turn sees it, no rescan
+    system = calls[0]["messages"][0]["content"]
+    assert "EXPERT-ADJUSTED" in system and "RPN 72 = S6 x O4 x D3" in system
+    assert "#%d score change" % pid in system and "APPLIED by the user" in system
+
+
+def test_ac12_locked_scores_pick_up_a_chat_adjustment_on_rescan(monkeypatch):
+    from memory import scenario_registry
+    lock("Card token leak")
+    out = propose_turn(monkeypatch)
+    chat.apply_proposal(out["proposals"][0]["id"])
+    locked = {r["failure_mode"]: r for r in scenario_registry.get_locked_scenarios(1)}
+    assert locked["Card token leak"]["rpn"] == 72                              # same overlay the Scoring page uses
+
+
+def test_ac12_manual_adjustments_report_source_and_priority():
+    from api.main import app
+    client = TestClient(app)
+    r = client.post("/api/scoring/adjustment", json={"workspace_id": 1, "failure_mode": "X", "new_s": 9,
+                                                      "new_o": 9, "new_d": 9, "justification": "manual"})
+    assert r.status_code == 201 and r.json()["source"] == "manual" and r.json()["priority"] == "Critical"
+    assert client.get("/api/scoring/adjustments/1").json()[0]["source"] == "manual"
+
+
+@pytest.mark.parametrize("rpn, band", [(200, "Medium"), (201, "High"), (400, "High"), (401, "Critical")])
+def test_priority_bands(rpn, band):
+    from core.models import priority_for_rpn
+    assert priority_for_rpn(rpn) == band
+
+
+def test_ac13_apply_is_idempotent_and_dismissed_cannot_be_applied(monkeypatch):
+    out = propose_turn(monkeypatch)
+    pid = out["proposals"][0]["id"]
+    chat.apply_proposal(pid)
+    for action in (chat.apply_proposal, chat.dismiss_proposal):
+        with pytest.raises(chat.ChatError) as e:
+            action(pid)
+        assert e.value.code == "already_decided"
+    assert len(db.get_adjustments(1)) == 1
+
+
+def test_ac13_dismiss_then_apply_is_refused(monkeypatch):
+    out = propose_turn(monkeypatch)
+    pid = out["proposals"][0]["id"]
+    assert chat.dismiss_proposal(pid)["proposal"]["status"] == "dismissed"
+    with pytest.raises(chat.ChatError) as e:
+        chat.apply_proposal(pid)
+    assert e.value.code == "already_decided" and db.get_adjustments(1) == []
+    calls = fake_llm(monkeypatch, [("ok", None, "stop")])
+    chat.chat_turn(1, "next")
+    assert "DISMISSED by the user" in calls[0]["messages"][0]["content"]       # the model will not nag
+
+
+def test_ac13_concurrent_applies_write_exactly_one_adjustment(monkeypatch):
+    import threading
+    out = propose_turn(monkeypatch)
+    pid = out["proposals"][0]["id"]
+    results = []
+
+    def click():
+        try:
+            chat.apply_proposal(pid)
+            results.append("ok")
+        except chat.ChatError as exc:
+            results.append(exc.code)
+
+    threads = [threading.Thread(target=click) for _ in range(6)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert results.count("ok") == 1 and set(results) <= {"ok", "already_decided"}
+    assert len(db.get_adjustments(1)) == 1
+
+
+def test_a_failed_apply_reopens_the_proposal_so_the_user_can_retry(monkeypatch):
+    out = propose_turn(monkeypatch)
+    pid = out["proposals"][0]["id"]
+    with monkeypatch.context() as m:
+        m.setattr(db, "save_adjustment", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full")))
+        with pytest.raises(chat.ChatError) as e:
+            chat.apply_proposal(pid)
+        assert e.value.code == "apply_failed" and db.get_proposal(pid)["status"] == "proposed"
+    chat.apply_proposal(pid)                                                   # retry works
+    assert db.get_proposal(pid)["status"] == "applied"
+
+
+def test_unlock_proposal_applies_to_one_scenario_only(monkeypatch):
+    lock("Card token leak", "SQL injection in login")
+    out = propose_turn(monkeypatch, {"failure_mode": "Card token leak",
+                                     "reason": "Fixed in the last release; re-score from scratch."},
+                       tool="propose_unlock_scenario")
+    assert out["proposals"][0]["kind"] == "unlock_scenario" and db.scenario_count(1) == 2
+    res = chat.apply_proposal(out["proposals"][0]["id"])
+    assert res["result"]["unlocked"] == "Card token leak"
+    assert {r["failure_mode"] for r in db.get_locked_scenarios(1)} == {"SQL injection in login"}
+
+
+def test_a_failed_turn_dismisses_its_proposals(monkeypatch):
+    seed()
+    replies = iter([{"message": {"role": "assistant", "content": "",
+                                 "tool_calls": [{"id": "c", "type": "function",
+                                                 "function": {"name": "propose_score_adjustment",
+                                                              "arguments": json.dumps(PROPOSE)}}]},
+                     "prompt_tokens": 1, "completion_tokens": 1}])
+
+    def flaky(messages, tools=None, **kw):
+        try:
+            return next(replies)
+        except StopIteration:
+            raise RuntimeError("provider down")
+
+    monkeypatch.setattr(chat, "call_chat", flaky)
+    with pytest.raises(chat.ChatError) as e:
+        chat.chat_turn(1, "go")
+    assert e.value.code == "llm_error"
+    [prop] = db.list_proposals(db.get_or_create_chat_thread(1)["id"])
+    assert prop["status"] == "dismissed" and prop["result"] == {"reason": "turn failed"}
+
+
+def test_stop_after_a_proposal_keeps_the_card_under_the_stopped_answer(monkeypatch):
+    seed()
+    fake_stream_llm(monkeypatch, [
+        {"tool_calls": [("c1", "propose_score_adjustment", [json.dumps(PROPOSE)])], "finish": "tool_calls"},
+        {"pieces": ["I suggest", " lowering"]},
+    ])
+    gen = run_stream("change it?")
+    kinds = []
+    for ev in gen:
+        kinds.append(ev["type"])
+        if ev["type"] == "token":
+            break
+    gen.close()
+    assert kinds == ["tool", "proposal", "token"]
+    msgs = chat.get_chat_history(1)["messages"]
+    assert msgs[-1]["content"].endswith("_(stopped)_") and msgs[-1]["proposals"][0]["status"] == "proposed"
+
+
+def test_proposal_endpoints_and_stream_event(monkeypatch):
+    from api.main import app
+    client = TestClient(app)
+    seed()
+    fake_stream_llm(monkeypatch, [
+        {"tool_calls": [("c1", "propose_score_adjustment", [json.dumps(PROPOSE)])], "finish": "tool_calls"},
+        {"pieces": ["Please review."]},
+    ])
+    with client.stream("POST", "/api/chat/stream", json={"workspace_id": 1, "message": "change?"}) as resp:
+        frames = [json.loads(l[6:]) for l in resp.iter_lines() if l.startswith("data: ")]
+    assert [f["type"] for f in frames] == ["tool", "proposal", "token", "done"]
+    pid = frames[1]["proposal"]["id"]
+    assert frames[-1]["proposals"][0]["id"] == pid
+    assert client.get("/api/chat/1").json()["messages"][1]["proposals"][0]["status"] == "proposed"
+
+    r = client.post(f"/api/chat/proposals/{pid}/apply")
+    assert r.status_code == 200 and r.json()["proposal"]["status"] == "applied" and r.json()["result"]["new_rpn"] == 72
+    again = client.post(f"/api/chat/proposals/{pid}/apply")
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "already_decided"
+    assert client.post(f"/api/chat/proposals/{pid}/dismiss").status_code == 409
+    assert client.post("/api/chat/proposals/9999/apply").status_code == 404
+    assert client.post("/api/chat/proposals/9999/dismiss").status_code == 404

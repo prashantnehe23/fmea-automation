@@ -37,3 +37,10 @@ Users need to ask follow-up questions about scan results (why, how exploitable, 
 - Validation errors (no scan, no key, empty message) are raised before streaming starts, so they keep real HTTP status codes (409/422) instead of arriving as in-stream errors.
 - Chat cost is a telemetry span with agent `chat` outside any scan run and is summarised separately (`cost_summary.chat_usd`), so it never distorts "last scan" cost figures.
 - Frontend: no new dependency; a small markdown component renders to React nodes only (see B-025 phase 2 trade-offs).
+
+## Implementation notes (phase 3, 2026-10-19)
+- Writes are two-step by design: the model's tools only create a `chat_proposals` row; `apply_proposal` is reachable only through an HTTP endpoint that the UI calls on a click, so the model has no code path that changes scores or the registry. A claim step (`UPDATE ... WHERE status='proposed'`) makes Apply and Dismiss idempotent under repeated or concurrent clicks; a failed apply re-opens the proposal.
+- Decisions are fed back to the model through the system prefix ("Your earlier proposals and the user's decisions") so it neither claims a pending change was made nor re-proposes a dismissed one.
+- Applied score changes reuse the existing adjustments audit trail (now with `source = chat`) and the same overlay the scenario registry applies to locked scores on rescan. The UI overlays adjustments on displayed scores so the change is visible without a rescan; this also changes the manual Scoring page, which previously showed adjustments only after a rescan.
+- "Unlock scenario" is per scenario (a new `delete_scenario`), finer-grained than the existing whole-project unlock.
+- Permission rules mirror the existing UI (score changes: Security Engineer; unlock: everyone) and are enforced in the UI only until authentication exists (B-015).

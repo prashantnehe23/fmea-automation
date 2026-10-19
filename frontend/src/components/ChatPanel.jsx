@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Markdown from './Markdown';
-import { getChatHistory, streamChat } from '../api';
+import { getChatHistory, streamChat, applyProposal, dismissProposal } from '../api';
 
 /**
  * Results chat (B-025): ask follow-up questions about the selected project's latest scan.
@@ -37,7 +37,81 @@ function ToolChips({ activity }) {
   );
 }
 
-function Message({ m }) {
+function Score({ label, value }) {
+  return <span className="font-mono">{label}{value}</span>;
+}
+
+const STATUS_BADGE = {
+  applied:   { text: 'Applied ✓',      cls: 'bg-green-50 text-green-700' },
+  dismissed: { text: 'Dismissed',      cls: 'bg-gray-100 text-gray-500' },
+  invalid:   { text: 'No longer applicable', cls: 'bg-gray-100 text-gray-500' },
+};
+
+/** A change the model proposed. Nothing happens until the user clicks Apply.
+ *  `canDecide` follows the existing rules: score changes are for the Security Engineer persona
+ *  (as on the Scoring page); unlocking is open to everyone (as on the Scan page). */
+function ProposalCard({ p, busy, error, canDecide, onApply, onDismiss }) {
+  const pay = p.payload ?? {};
+  const before = pay.before ?? {};
+  const open = p.status === 'proposed';
+  return (
+    <div className="mt-2 border border-amber-200 bg-amber-50/60 rounded-xl p-2.5">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">
+        {p.kind === 'score_adjustment' ? 'Proposed score change' : 'Proposed unlock'}
+      </p>
+      <p className="text-xs font-semibold text-gray-800 mt-0.5">{p.failure_mode}</p>
+
+      {p.kind === 'score_adjustment' ? (
+        <p className="text-xs text-gray-700 mt-1 flex flex-wrap items-center gap-x-1.5">
+          <Score label="S" value={before.severity} /><Score label="O" value={before.occurrence} /><Score label="D" value={before.detection} />
+          <span className="text-gray-400">→</span>
+          <strong><Score label="S" value={pay.severity} /> <Score label="O" value={pay.occurrence} /> <Score label="D" value={pay.detection} /></strong>
+          <span className="text-gray-500">· RPN {before.rpn} → <strong>{pay.rpn}</strong></span>
+        </p>
+      ) : (
+        <p className="text-xs text-gray-700 mt-1">Drop this scenario's locked scores so the next scan re-scores it.</p>
+      )}
+
+      <p className="text-xs text-gray-600 mt-1.5 leading-relaxed">{p.reason}</p>
+
+      {open && !canDecide && (
+        <p className="text-[11px] text-amber-700 mt-2">
+          Only a Security Engineer can apply or dismiss score changes. Switch persona to decide.
+        </p>
+      )}
+
+      {open && canDecide ? (
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={() => onApply(p)}
+            disabled={busy}
+            className="text-xs font-semibold px-3 py-1 rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+          >{busy ? 'Working…' : 'Apply'}</button>
+          <button
+            onClick={() => onDismiss(p)}
+            disabled={busy}
+            className="text-xs font-semibold px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >Dismiss</button>
+        </div>
+      ) : !open && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${STATUS_BADGE[p.status]?.cls ?? ''}`}>
+            {STATUS_BADGE[p.status]?.text ?? p.status}
+          </span>
+          {p.status === 'applied' && p.result?.new_rpn != null && (
+            <span className="text-[11px] text-gray-500">RPN now {p.result.new_rpn} ({p.result.priority})</span>
+          )}
+          {p.status === 'applied' && p.result?.unlocked && (
+            <span className="text-[11px] text-gray-500">Re-scan to re-score it</span>
+          )}
+        </div>
+      )}
+      {error && <p className="text-xs text-red-500 mt-1.5">{error}</p>}
+    </div>
+  );
+}
+
+function Message({ m, proposalState, persona, onApply, onDismiss }) {
   if (m.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -57,6 +131,14 @@ function Message({ m }) {
             : <span className="text-xs text-gray-400">{m.tool_activity?.length ? 'Looking at the code…' : 'Thinking…'}</span>}
           {m.streaming && m.content && <span className="inline-block w-1.5 h-3 bg-gray-400 ml-0.5 align-middle animate-pulse" />}
         </div>
+        {(m.proposals ?? []).map(p => (
+          <ProposalCard
+            key={p.id} p={p}
+            busy={proposalState[p.id]?.busy} error={proposalState[p.id]?.error}
+            canDecide={p.kind === 'unlock_scenario' || persona === 'security_engineer'}
+            onApply={onApply} onDismiss={onDismiss}
+          />
+        ))}
         {m.error && (
           <p className="text-xs text-red-500 mt-1">{m.error}{ERROR_HINT[m.errorCode] ? ` ${ERROR_HINT[m.errorCode]}` : ''}</p>
         )}
@@ -70,13 +152,14 @@ function Message({ m }) {
   );
 }
 
-export default function ChatPanel({ workspaceId, projectName, onClose }) {
+export default function ChatPanel({ workspaceId, projectName, persona, onClose, onProposalApplied }) {
   const [messages, setMessages] = useState([]);
   const [totals, setTotals]     = useState(null);
   const [hasScan, setHasScan]   = useState(true);
   const [input, setInput]       = useState('');
   const [busy, setBusy]         = useState(false);
   const [loading, setLoading]   = useState(false);
+  const [proposalState, setProposalState] = useState({});   // id → { busy, error }
   const abortRef  = useRef(null);
   const bottomRef = useRef(null);
 
@@ -88,6 +171,7 @@ export default function ChatPanel({ workspaceId, projectName, onClose }) {
       setMessages(h.messages.map(m => ({
         id: m.id, role: m.role, content: m.content,
         tool_activity: m.tool_activity, usage: m.role === 'assistant' ? m.usage : null,
+        proposals: m.proposals ?? [],
       })));
       setTotals(h.totals);
       setHasScan(h.has_scan);
@@ -140,8 +224,16 @@ export default function ChatPanel({ workspaceId, projectName, onClose }) {
             next[next.length - 1] = { ...last, content: last.content + ev.text };
             return next;
           });
+        } else if (ev.type === 'proposal') {
+          setMessages(prev => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            next[next.length - 1] = { ...last, proposals: [...(last.proposals ?? []), ev.proposal] };
+            return next;
+          });
         } else if (ev.type === 'done') {
-          patchLast({ content: ev.answer, tool_activity: ev.tool_activity, usage: ev.usage, streaming: false });
+          patchLast({ content: ev.answer, tool_activity: ev.tool_activity, usage: ev.usage,
+                      proposals: ev.proposals ?? [], streaming: false });
           setTotals(ev.thread_totals);
         }
       }
@@ -155,6 +247,24 @@ export default function ChatPanel({ workspaceId, projectName, onClose }) {
     } finally {
       setBusy(false);
       abortRef.current = null;
+    }
+  };
+
+  const setProposal = (id, patch) =>
+    setMessages(prev => prev.map(m => ({
+      ...m, proposals: (m.proposals ?? []).map(p => (p.id === id ? { ...p, ...patch } : p)),
+    })));
+
+  const decide = async (p, action) => {
+    setProposalState(s => ({ ...s, [p.id]: { busy: true } }));
+    try {
+      const out = await (action === 'apply' ? applyProposal(p.id) : dismissProposal(p.id));
+      setProposal(p.id, out.proposal);
+      setProposalState(s => ({ ...s, [p.id]: {} }));
+      if (action === 'apply') onProposalApplied?.(out);
+    } catch (err) {
+      setProposalState(s => ({ ...s, [p.id]: { error: err.message } }));
+      if (['already_decided', 'stale', 'not_found'].includes(err.code)) await loadHistory();   // sync with the server
     }
   };
 
@@ -207,7 +317,12 @@ export default function ChatPanel({ workspaceId, projectName, onClose }) {
           </div>
         )}
 
-        {messages.map((m, i) => <Message key={m.id ?? `new-${i}`} m={m} />)}
+        {messages.map((m, i) => (
+          <Message
+            key={m.id ?? `new-${i}`} m={m} proposalState={proposalState} persona={persona}
+            onApply={p => decide(p, 'apply')} onDismiss={p => decide(p, 'dismiss')}
+          />
+        ))}
         <div ref={bottomRef} />
       </div>
 
