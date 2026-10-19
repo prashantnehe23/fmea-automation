@@ -90,23 +90,41 @@ def _content_text(content) -> str:
 
 
 def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
-    """Send a single-turn prompt to the configured model and return the text reply."""
+    """Send a single-turn prompt to the configured model and return the text reply.
+
+    Model-agnostic safeguards: per-model extra request params (e.g. reasoning off) come
+    from the registry, and a reply cut off by the token limit (finish_reason "length",
+    common when a reasoning model spends the budget thinking) is retried once with a
+    larger budget before failing with a clear error instead of returning broken JSON.
+    """
     global _call_count, _prompt_tokens, _completion_tokens
-    from core.providers import get_provider, provider_for_model
+    from core.providers import get_provider, model_params, provider_for_model
     model = _get_model()
     provider_id = provider_for_model(model)
     client = _get_client(provider_id)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-        **{get_provider(provider_id)["max_tokens_param"]: max_tokens},
+    token_param = get_provider(provider_id)["max_tokens_param"]
+
+    for attempt in range(2):
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            **{token_param: max_tokens},
+            **model_params(model),
+        )
+        _call_count += 1
+        if response.usage:
+            _prompt_tokens     += response.usage.prompt_tokens or 0
+            _completion_tokens += response.usage.completion_tokens or 0
+        choice = response.choices[0]
+        if choice.finish_reason != "length":
+            return _content_text(choice.message.content)
+        if attempt == 0:
+            max_tokens *= 2
+    raise RuntimeError(
+        f"{model} reply was cut off at {max_tokens} tokens. The model may be spending its "
+        "budget on reasoning; choose a different model or turn reasoning off in core/costs.py."
     )
-    _call_count += 1
-    if response.usage:
-        _prompt_tokens     += response.usage.prompt_tokens or 0
-        _completion_tokens += response.usage.completion_tokens or 0
-    return _content_text(response.choices[0].message.content)
 
 
 def _repair_json(text: str) -> str:

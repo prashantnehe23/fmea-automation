@@ -53,6 +53,15 @@ def provider_for_model(model_id: str) -> str:
     return DEFAULT_PROVIDER
 
 
+def model_params(model_id: str) -> dict:
+    """Extra request params for a model (registry field "extra_params"), e.g. reasoning off."""
+    from core.costs import AVAILABLE_MODELS
+    for m in AVAILABLE_MODELS:
+        if m["id"] == model_id:
+            return dict(m.get("extra_params", {}))
+    return {}
+
+
 def get_api_key(provider_id: str) -> str | None:
     """Return the user-entered key, falling back to the provider's env var."""
     stored = (get_setting("api_keys") or {}).get(provider_id)

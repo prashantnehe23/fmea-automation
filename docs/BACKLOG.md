@@ -241,7 +241,7 @@
 - `api/routers/settings.py`, `api/schemas.py` — `GET /api/settings/providers`, `PUT|DELETE /api/settings/providers/{id}/key`; `PATCH /model` returns 409 without a key
 - `frontend/src/api.js`, `Header.jsx` — provider-grouped model dropdown, masked key input/remove
 - `memory/scenario_registry.py`, `memory/db.py` — embeddings use the active provider's embedding model; `scenarios.embed_model` column; mismatched rows skipped and re-embedded
-- `tests/test_providers.py` (NEW, 11 tests)
+- `tests/test_providers.py` (NEW, 17 tests)
 
 **Acceptance criteria:**
 - [x] OpenAI and Mistral models selectable, each mapped to a provider
@@ -251,7 +251,8 @@
 - [x] `call_llm` uses the selected provider's base URL, key and token parameter
 - [x] New provider/model added via registry entries only (tested)
 - [x] Scenario embeddings use the active provider (Mistral-only users need no OpenAI key); vectors from a different embedding model are never compared and are re-embedded
-- [x] All `tests/test_providers.py` tests pass; full suite 64 passing
+- [x] Output handling is model-agnostic: chunked/reasoning content reduced to text, per-model `extra_params`, truncated replies retried once then raised clearly (verified live on Mistral Large 4 / Medium / Small; OpenAI path covered by unit tests)
+- [x] All `tests/test_providers.py` tests pass; full suite 70 passing
 
 **Known limits:** model IDs/prices are best-effort (web sources conflicted) — verify against provider docs; Mistral embeddings via the OpenAI-compatible endpoint are untested against the live API.
 

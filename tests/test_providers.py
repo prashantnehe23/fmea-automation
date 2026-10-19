@@ -78,7 +78,7 @@ def test_call_llm_routes_to_provider(monkeypatch):
             captured["kw"] = kw
             from types import SimpleNamespace as NS
             return NS(usage=NS(prompt_tokens=1, completion_tokens=1),
-                      choices=[NS(message=NS(content="ok"))])
+                      choices=[NS(finish_reason="stop", message=NS(content="ok"))])
 
     monkeypatch.setattr(llm.openai, "OpenAI", FakeOpenAI)
     providers.set_api_key("mistral", "m-key")
@@ -171,3 +171,63 @@ def test_content_text_handles_chunk_lists():
     assert llm._content_text("plain") == "plain"
     chunks = [{"type": "thinking", "thinking": "hmm"}, {"type": "text", "text": "A"}, NS(type="text", text="B"), "C"]
     assert llm._content_text(chunks) == "ABC"
+
+
+# ── Model-agnostic output handling (reasoning models, truncation) ──
+
+def _fake_client(monkeypatch, replies):
+    """Install a fake SDK whose create() returns the given (content, finish_reason) in turn."""
+    from types import SimpleNamespace as NS
+    calls = []
+
+    class Fake:
+        def __init__(self, api_key, base_url=None):
+            self.chat = self
+            self.completions = self
+
+        def create(self, **kw):
+            calls.append(kw)
+            content, finish = replies[min(len(calls), len(replies)) - 1]
+            return NS(usage=NS(prompt_tokens=1, completion_tokens=1),
+                      choices=[NS(finish_reason=finish, message=NS(content=content))])
+
+    monkeypatch.setattr(llm.openai, "OpenAI", Fake)
+    return calls
+
+
+def test_mistral_large_4_sends_reasoning_off(monkeypatch):
+    calls = _fake_client(monkeypatch, [("ok", "stop")])
+    providers.set_api_key("mistral", "k")
+    settings.set_setting("active_model", "mistral-large-4")
+    llm.call_llm("hi")
+    assert calls[0]["reasoning_effort"] == "none"
+
+
+def test_models_without_extra_params_send_none(monkeypatch):
+    calls = _fake_client(monkeypatch, [("ok", "stop")])
+    providers.set_api_key("openai", "k")
+    settings.set_setting("active_model", "gpt-4o-mini")
+    llm.call_llm("hi")
+    assert "reasoning_effort" not in calls[0]
+
+
+def test_truncated_reply_retried_with_double_budget(monkeypatch):
+    calls = _fake_client(monkeypatch, [('{"a": "unterm', "length"), ('{"a": 1}', "stop")])
+    providers.set_api_key("openai", "k")
+    settings.set_setting("active_model", "gpt-4o-mini")
+    assert llm.call_llm("hi", max_tokens=100) == '{"a": 1}'
+    assert [c["max_completion_tokens"] for c in calls] == [100, 200]
+
+
+def test_persistent_truncation_raises_clear_error(monkeypatch):
+    _fake_client(monkeypatch, [("cut", "length")])
+    providers.set_api_key("openai", "k")
+    settings.set_setting("active_model", "gpt-4o-mini")
+    with pytest.raises(RuntimeError, match="cut off"):
+        llm.call_llm("hi", max_tokens=100)
+
+
+def test_reasoning_chunk_list_yields_only_answer_text():
+    nested = [{"type": "thinking", "thinking": [{"type": "text", "text": "secret"}]},
+              {"type": "text", "text": '{"ok": true}'}]
+    assert llm._content_text(nested) == '{"ok": true}'

@@ -9,7 +9,8 @@
 1. **Provider registry** (`core/providers.py`) plus a `provider` field per model in `core/costs.py`. Adding a provider/model is data, not code.
 2. **OpenAI-compatible endpoint for Mistral** (`https://api.mistral.ai/v1`) using the existing `openai` SDK, rather than the `mistralai` SDK.
 3. **Embeddings follow the provider.** Each provider declares an `embed_model` (OpenAI `text-embedding-3-small`, Mistral `mistral-embed`); scenario dedup (ADR-003) uses the active model's provider, so one key covers everything. `scenarios.embed_model` tags each stored vector; rows from a different model are never compared and are re-embedded on the next scan. Pre-existing rows are treated as OpenAI.
-4. **API keys stored in `core/settings.json`** (gitignored), masked in the API/UI, with env vars as fallback.
+4. **Model-agnostic output handling in `call_llm`.** (a) Per-model `extra_params` in the registry (Mistral Large 4 is a reasoning model whose thinking tokens consume `max_tokens`, producing truncated JSON; it is sent `reasoning_effort="none"`). (b) Replies with `finish_reason == "length"` are retried once with a doubled budget, then fail with a clear error rather than returning broken JSON. (c) List-of-chunks message content is reduced to its text chunks.
+5. **API keys stored in `core/settings.json`** (gitignored), masked in the API/UI, with env vars as fallback.
 
 ## Alternatives considered
 - Official `mistralai` SDK: native features, but a new dependency and a second call path.
