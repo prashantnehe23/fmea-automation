@@ -287,6 +287,31 @@
 
 ---
 
+### B-024 · Adaptive Handling of Verbose / Truncated Model Output `[x]` DONE
+
+**Priority:** P0 (defect in B-022/B-023 work: scans failed on Mistral Large 4). **Decision:** [ADR-013](decisions/ADR-013-adaptive-llm-output.md)
+
+**Why:** Mistral Large 4 (reasoning off) writes long visible analysis and may omit the requested JSON; fixed per-agent token limits cut replies off and the scan failed, discarding valuable analysis. Flexibility to incoming tokens must be the model's ceiling, not a small agent-specific number.
+
+**Scope:**
+- `core/llm.py` — wide first-attempt budget (floor 16384, capped at model ceiling); continuation of cut-off replies; JSON recovery pass that keeps the model's analysis in context; salvage of truncated JSON; clear final error
+- `core/reasoning.py` — unchanged API; agent `max_tokens` is now the *expected* size
+- `tests/test_llm_adaptive.py` (NEW, 15 tests); `tests/test_providers.py`, `tests/test_reasoning.py` updated for the new budget rules
+
+**Acceptance criteria:**
+- [x] First-attempt budget is a wide ceiling, not the agent's small expected size
+- [x] JSON cut off by the limit is continued, not discarded; a model that restarts is not glued onto the partial
+- [x] Analysis without JSON triggers a recovery pass with the analysis kept in context
+- [x] Truncated JSON is salvaged, keeping every completed element and no half-written values
+- [x] Plain-text prompts never trigger JSON recovery
+- [x] Unrecoverable truncation raises a clear error
+- [x] Verified live on Mistral Large 4: repo-sized surveyor input (previously failed) now returns valid structured output; forced mid-JSON truncation continues correctly
+- [x] Full suite passing (94)
+
+**Known limits:** recovery costs one extra call when a model writes analysis first; the analysis text itself is not stored or displayed; JSON detection relies on the prompt mentioning "JSON".
+
+---
+
 ### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage) `[x]` DONE
 **Why:** Portfolios and projects are stored in browser localStorage. This means the hierarchy is device-local, lost on clearing storage, and cannot be shared across team members. The DB already has a `workspaces` table; projects and portfolios should be rows, not localStorage keys.
 

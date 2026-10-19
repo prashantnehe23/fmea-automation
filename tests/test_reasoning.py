@@ -67,25 +67,25 @@ def test_high_sends_param_and_scales_tokens(monkeypatch):
     calls = _fake(monkeypatch)
     settings.set_setting("active_model", "mistral-large-4")
     settings.set_setting("reasoning_level", "high")
-    llm.call_llm("hi", max_tokens=2000)
+    llm.call_llm("hi", max_tokens=6000)
     assert calls[0]["reasoning_effort"] == "high"
-    assert calls[0]["max_tokens"] == 8000  # 2000 x 4
+    assert calls[0]["max_tokens"] == 24000  # 6000 x 4
 
 
 def test_off_sends_none_with_base_budget(monkeypatch):
     calls = _fake(monkeypatch)
     settings.set_setting("active_model", "mistral-large-4")
     llm.call_llm("hi", max_tokens=2000)
-    assert calls[0]["reasoning_effort"] == "none" and calls[0]["max_tokens"] == 2000
+    assert calls[0]["reasoning_effort"] == "none" and calls[0]["max_tokens"] == llm.FIRST_ATTEMPT_FLOOR
 
 
 def test_openai_reasoning_uses_its_token_param(monkeypatch):
     calls = _fake(monkeypatch)
     settings.set_setting("active_model", "gpt-5.1")
     settings.set_setting("reasoning_level", "medium")
-    llm.call_llm("hi", max_tokens=1000)
+    llm.call_llm("hi", max_tokens=10000)
     assert calls[0]["reasoning_effort"] == "medium"
-    assert calls[0]["max_completion_tokens"] == 2500
+    assert calls[0]["max_completion_tokens"] == 25000
 
 
 def test_non_reasoning_model_unaffected(monkeypatch):
@@ -93,7 +93,7 @@ def test_non_reasoning_model_unaffected(monkeypatch):
     settings.set_setting("active_model", "gpt-4o-mini")
     settings.set_setting("reasoning_level", "high")
     llm.call_llm("hi", max_tokens=1000)
-    assert "reasoning_effort" not in calls[0] and calls[0]["max_completion_tokens"] == 1000
+    assert "reasoning_effort" not in calls[0] and calls[0]["max_completion_tokens"] == llm.FIRST_ATTEMPT_FLOOR
 
 
 def test_budget_capped_at_model_max(monkeypatch):
@@ -104,12 +104,12 @@ def test_budget_capped_at_model_max(monkeypatch):
     assert calls[0]["max_tokens"] == reasoning.DEFAULT_MAX_OUTPUT_TOKENS
 
 
-def test_truncation_retry_doubles_scaled_budget(monkeypatch):
+def test_continuation_uses_model_ceiling_after_scaled_first_budget(monkeypatch):
     calls = _fake(monkeypatch, [("cut", "length"), ("done", "stop")])
     settings.set_setting("active_model", "mistral-large-4")
     settings.set_setting("reasoning_level", "high")
-    assert llm.call_llm("hi", max_tokens=1000) == "done"
-    assert [c["max_tokens"] for c in calls] == [4000, 8000]
+    assert llm.call_llm("hi", max_tokens=6000) == "cutdone"
+    assert [c["max_tokens"] for c in calls] == [24000, reasoning.DEFAULT_MAX_OUTPUT_TOKENS]
 
 
 @pytest.fixture

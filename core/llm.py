@@ -10,6 +10,8 @@ Exports:
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 
@@ -89,13 +91,86 @@ def _content_text(content) -> str:
     return "".join(parts)
 
 
+_log = logging.getLogger(__name__)
+
+# max_tokens is only a ceiling (you pay for tokens generated), so the first attempt starts
+# wide instead of at an agent's small expected size. Verbose models (e.g. Mistral Large 4
+# writes a long visible analysis before the JSON) then finish in one pass.
+FIRST_ATTEMPT_FLOOR = 16384
+MAX_CONTINUATIONS = 3
+_WANTS_JSON = re.compile(r"\bJSON\b")
+_JSON_STARTED = re.compile(r"^\s*(```(?:json)?\s*)?[\[{]")
+
+_CONTINUE_MSG = (
+    "Your previous reply was cut off. Continue exactly where you stopped, without repeating "
+    "anything and without any preamble or markdown fences."
+)
+_RECOVER_MSG = (
+    "Using the analysis above, now output ONLY the final JSON in exactly the format the "
+    "original request specified: no prose, no explanation, no markdown fences."
+)
+
+
+def _parses(text: str) -> bool:
+    try:
+        json.loads(extract_json_text(text))
+        return True
+    except Exception:
+        return False
+
+
+def _salvage_json(text: str) -> str | None:
+    """Close a truncated JSON document, dropping only the incomplete trailing item.
+
+    Returns a parseable JSON string keeping every completed element, or None if nothing
+    usable can be recovered. Partially written trailing values are dropped, not kept.
+    """
+    s = extract_json_text(text)
+    stack: list[str] = []
+    cuts: list[tuple[int, str]] = []  # (end index, closers) at each top-level-safe comma
+    in_str = esc = False
+    for i, c in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c in "{[":
+            stack.append("}" if c == "{" else "]")
+        elif c in "}]":
+            if stack:
+                stack.pop()
+        elif c == "," and stack:
+            cuts.append((i, "".join(reversed(stack))))
+    # Cut at the last completed element: never keep a half-written string or number
+    # (e.g. 12 from 123), which could silently change the meaning.
+    candidates = list(reversed(cuts))
+    if not in_str and s.rstrip()[-1:] in "}]":
+        candidates.insert(0, (len(s), "".join(reversed(stack))))
+    for end, closers in candidates:
+        try:
+            json.loads(s[:end].rstrip().rstrip(",") + closers)
+            return s[:end].rstrip().rstrip(",") + closers
+        except Exception:
+            continue
+    return None
+
+
 def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     """Send a single-turn prompt to the configured model and return the text reply.
 
-    Model-agnostic safeguards: the user's reasoning level (core/reasoning.py) sets the
-    model's reasoning param and scales max_tokens, since reasoning tokens count against it.
-    A reply cut off by the token limit (finish_reason "length") is retried once with a
-    larger budget before failing with a clear error instead of returning broken JSON.
+    `max_tokens` is the agent's *expected* size, not a hard limit. Model-agnostic handling
+    so verbose or reasoning models never lose their work to a token limit:
+      1. The user's reasoning level (core/reasoning.py) sets the model's reasoning param and
+         scales the budget (reasoning tokens count against it); the first attempt is wide.
+      2. A reply cut off mid-JSON is continued from where it stopped, not discarded.
+      3. If the prompt wants JSON but the reply is analysis without it, the analysis is sent
+         back and the model is asked for just the JSON.
+      4. As a last resort a truncated JSON is closed, keeping every completed item.
     """
     global _call_count, _prompt_tokens, _completion_tokens
     from core.providers import get_provider, provider_for_model
@@ -103,17 +178,18 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     from core.settings import get_setting
     model = _get_model()
     provider_id = provider_for_model(model)
+    provider = get_provider(provider_id)
     client = _get_client(provider_id)
-    token_param = get_provider(provider_id)["max_tokens_param"]
     params, multiplier, cap = request_params(model, get_setting("reasoning_level") or DEFAULT_LEVEL)
-    budget = min(int(max_tokens * multiplier), cap)
+    first_budget = min(max(int(max_tokens * multiplier), FIRST_ATTEMPT_FLOOR), cap)
 
-    for attempt in range(2):
+    def complete(messages: list[dict], budget: int) -> tuple[str, str]:
+        global _call_count, _prompt_tokens, _completion_tokens
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.2,
-            **{token_param: budget},
+            **{provider["max_tokens_param"]: budget},
             **params,
         )
         _call_count += 1
@@ -121,14 +197,56 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
             _prompt_tokens     += response.usage.prompt_tokens or 0
             _completion_tokens += response.usage.completion_tokens or 0
         choice = response.choices[0]
-        if choice.finish_reason != "length":
-            return _content_text(choice.message.content)
-        if attempt == 0:
-            budget = min(budget * 2, cap)
-    raise RuntimeError(
-        f"{model} reply was cut off at {budget} tokens. The model may be spending its "
-        "budget on reasoning; lower the reasoning level in Settings or choose another model."
-    )
+        return _content_text(choice.message.content), choice.finish_reason
+
+    wants_json = bool(_WANTS_JSON.search(prompt))
+    user = {"role": "user", "content": prompt}
+    text, finish = complete([user], first_budget)
+
+    # 2. Continue a reply that was cut off while it was still producing the answer.
+    continuations = 0
+    while finish == "length" and (not wants_json or _JSON_STARTED.match(text)) \
+            and continuations < MAX_CONTINUATIONS:
+        continuations += 1
+        _log.warning("%s reply hit the token limit; continuing (%d/%d)",
+                     model, continuations, MAX_CONTINUATIONS)
+        more, finish = complete(
+            [user, {"role": "assistant", "content": text}, {"role": "user", "content": _CONTINUE_MSG}],
+            cap,
+        )
+        # A model that restarts instead of resuming begins a fresh answer: use it alone.
+        text = more if _JSON_STARTED.match(more) else text + more
+
+    if not wants_json or _parses(text):
+        if finish == "length":
+            _log.warning("%s reply still truncated after %d continuations", model, continuations)
+        return text
+
+    # 3. Analysis without the JSON (or JSON cut off before a continuation): ask for the JSON,
+    #    keeping the model's own analysis in context so none of it is wasted.
+    if not _JSON_STARTED.match(text):
+        _log.warning("%s reply had no parseable JSON; requesting the JSON from its analysis", model)
+        recovered, finish = complete(
+            [user, {"role": "assistant", "content": text}, {"role": "user", "content": _RECOVER_MSG}],
+            cap,
+        )
+        if _parses(recovered):
+            return recovered
+        text = recovered or text
+
+    # 4. Keep everything that was completed rather than failing the whole scan. Only for a
+    #    genuinely truncated reply: a complete-but-malformed JSON must not be cut down.
+    if finish == "length":
+        salvaged = _salvage_json(text)
+        if salvaged is not None:
+            _log.warning("%s JSON was truncated at the output limit; salvaged %d of %d chars",
+                         model, len(salvaged), len(text))
+            return salvaged
+        raise RuntimeError(
+            f"{model} reply was cut off at the model's {cap}-token output limit before any "
+            "usable JSON was produced. Try a different model or a smaller selection of files."
+        )
+    return text
 
 
 def _repair_json(text: str) -> str:

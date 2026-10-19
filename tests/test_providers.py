@@ -86,13 +86,13 @@ def test_call_llm_routes_to_provider(monkeypatch):
     assert llm.call_llm("hi", max_tokens=50) == "ok"
     assert captured["base_url"] == "https://api.mistral.ai/v1"
     assert captured["api_key"] == "m-key"
-    assert captured["kw"]["max_tokens"] == 50 and "max_completion_tokens" not in captured["kw"]
+    assert captured["kw"]["max_tokens"] == llm.FIRST_ATTEMPT_FLOOR and "max_completion_tokens" not in captured["kw"]
 
     providers.set_api_key("openai", "o-key")
     settings.set_setting("active_model", "gpt-4o-mini")
     llm.call_llm("hi", max_tokens=50)
     assert captured["api_key"] == "o-key"
-    assert captured["kw"]["max_completion_tokens"] == 50
+    assert captured["kw"]["max_completion_tokens"] == llm.FIRST_ATTEMPT_FLOOR
 
 
 def test_missing_key_gives_clear_error():
@@ -210,21 +210,6 @@ def test_models_without_extra_params_send_none(monkeypatch):
     llm.call_llm("hi")
     assert "reasoning_effort" not in calls[0]
 
-
-def test_truncated_reply_retried_with_double_budget(monkeypatch):
-    calls = _fake_client(monkeypatch, [('{"a": "unterm', "length"), ('{"a": 1}', "stop")])
-    providers.set_api_key("openai", "k")
-    settings.set_setting("active_model", "gpt-4o-mini")
-    assert llm.call_llm("hi", max_tokens=100) == '{"a": 1}'
-    assert [c["max_completion_tokens"] for c in calls] == [100, 200]
-
-
-def test_persistent_truncation_raises_clear_error(monkeypatch):
-    _fake_client(monkeypatch, [("cut", "length")])
-    providers.set_api_key("openai", "k")
-    settings.set_setting("active_model", "gpt-4o-mini")
-    with pytest.raises(RuntimeError, match="cut off"):
-        llm.call_llm("hi", max_tokens=100)
 
 
 def test_reasoning_chunk_list_yields_only_answer_text():
