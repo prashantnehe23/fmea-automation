@@ -1,16 +1,16 @@
 {
   "version": 1,
   "aggression_level": 4,
-  "total_analyses": 13,
+  "total_analyses": 15,
   "patterns": [
     {
       "pattern_key": "injection",
       "category": "injection",
-      "frequency": 14,
-      "avg_severity": 8.4,
-      "avg_occurrence": 5.4,
-      "avg_detection": 7.2,
-      "avg_rpn": 326.6,
+      "frequency": 18,
+      "avg_severity": 8.1,
+      "avg_occurrence": 4.9,
+      "avg_detection": 7.0,
+      "avg_rpn": 277.8,
       "first_seen": "2026-05-02T23:27:53.831098",
       "last_seen": "2026-05-02T23:27:53.831098"
     },
@@ -39,11 +39,11 @@
     {
       "pattern_key": "secrets",
       "category": "secrets",
-      "frequency": 17,
-      "avg_severity": 7.5,
+      "frequency": 25,
+      "avg_severity": 7.9,
       "avg_occurrence": 5.8,
       "avg_detection": 6.5,
-      "avg_rpn": 282.8,
+      "avg_rpn": 297.8,
       "first_seen": "2026-05-06T18:29:49.679069",
       "last_seen": "2026-05-06T18:29:49.679069"
     },
@@ -83,11 +83,11 @@
     {
       "pattern_key": "auth_bypass",
       "category": "auth_bypass",
-      "frequency": 5,
+      "frequency": 7,
       "avg_severity": 7.8,
-      "avg_occurrence": 5.6,
-      "avg_detection": 7.8,
-      "avg_rpn": 340.7,
+      "avg_occurrence": 5.4,
+      "avg_detection": 7.6,
+      "avg_rpn": 320.1,
       "first_seen": "2026-05-09T22:21:46.715364",
       "last_seen": "2026-05-09T22:21:46.715364"
     }

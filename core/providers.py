@@ -53,6 +53,15 @@ def provider_for_model(model_id: str) -> str:
     return DEFAULT_PROVIDER
 
 
+def model_supports_tools(model_id: str) -> bool:
+    """Whether the model supports tool calling (registry field "tool_calling", default True)."""
+    from core.costs import AVAILABLE_MODELS
+    for m in AVAILABLE_MODELS:
+        if m["id"] == model_id:
+            return m.get("tool_calling", True)
+    return True
+
+
 def get_api_key(provider_id: str) -> str | None:
     """Return the user-entered key, falling back to the provider's env var."""
     stored = (get_setting("api_keys") or {}).get(provider_id)

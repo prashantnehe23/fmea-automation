@@ -1,6 +1,6 @@
 # ADR-014: Results Chat — Persistent Context with On-Demand Code Access
 
-**Status:** Draft (awaiting engineer approval)  **Date:** 2026-10-19  **Backlog:** B-025
+**Status:** Accepted (approved by engineer 2026-10-19)  **Date:** 2026-10-19  **Backlog:** B-025
 
 ## Context
 Users need to ask follow-up questions about scan results (why, how exploitable, challenge a score) and, if they agree, change scenarios and rankings. LLM APIs are stateless: an open connection cannot remember the scanned code or findings. Re-sending the code with every question is costly (a repo-sized scan is ~57k input tokens) and fails for large repos.
@@ -24,3 +24,9 @@ Users need to ask follow-up questions about scan results (why, how exploitable, 
 - Tool calls add round trips and depend on model reliability; the UI shows tool activity so latency is visible.
 - Scanned code is untrusted prompt content, so injection defence rests on read-only allowlisted tools and user-confirmed writes.
 - Chat usage adds LLM cost per message, tracked in telemetry as agent `chat`.
+
+## Implementation notes (phase 1, 2026-10-19)
+- The database previously stored only a fingerprint stub for each scan, so full findings are now persisted alongside the source files (`scan_snapshots`, `scan_sources`), keyed by project + fingerprint. Cached rescans therefore also work with chat.
+- "Pinned to the latest scan" is implemented as the newest snapshot of the project, resolved on every turn; each stored message records its snapshot id.
+- Tool results stay in history (full memory of code already read) and the history is folded into a summary beyond 24k tokens. Measured on Mistral Large 4: prompt grew 7.5k -> 15.9k tokens across three turns.
+- Mistral's "prefix" assistant continuation is not used (see ADR-013); chat answers cut off at the limit are continued with a plain continue message.

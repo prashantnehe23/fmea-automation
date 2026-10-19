@@ -8,6 +8,8 @@ Tables:
   scans         — full pipeline result JSON, one row per run
   scenarios     — locked failure mode registry with embeddings for semantic dedup
   eval_history  — pipeline eval scores per scan
+  scan_snapshots / scan_sources — full findings + scanned files, for the results chat (B-025)
+  chat_threads / chat_messages  — persistent conversation per project (B-025)
 
 Design notes:
   - sqlite3 is in Python stdlib; zero extra dependencies.
@@ -108,6 +110,44 @@ CREATE TABLE IF NOT EXISTS adjustments (
     new_rpn       INTEGER NOT NULL,
     justification TEXT    NOT NULL,
     created_at    TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scan_snapshots (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id  INTEGER NOT NULL REFERENCES workspaces(id),
+    scan_id       INTEGER,
+    fingerprint   TEXT    NOT NULL,
+    findings_json TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL,
+    UNIQUE(workspace_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS scan_sources (
+    snapshot_id INTEGER NOT NULL REFERENCES scan_snapshots(id),
+    path        TEXT    NOT NULL,
+    content     TEXT    NOT NULL,
+    PRIMARY KEY (snapshot_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS chat_threads (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL UNIQUE REFERENCES workspaces(id),
+    summary      TEXT,
+    created_at   TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id         INTEGER NOT NULL REFERENCES chat_threads(id),
+    role              TEXT    NOT NULL,
+    message_json      TEXT    NOT NULL,
+    snapshot_id       INTEGER,
+    activity_json     TEXT,
+    prompt_tokens     INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    cost_usd          REAL    DEFAULT 0,
+    summarised        INTEGER DEFAULT 0,
+    created_at        TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS portfolios (
@@ -527,6 +567,178 @@ def get_adjustments(workspace_id: int) -> list[dict]:
             (workspace_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ── Results chat (B-025) ──────────────────────────────────────────────────────
+
+def save_scan_snapshot(
+    workspace_id: int,
+    scan_id: int | None,
+    fingerprint: str,
+    findings: dict,
+    files: dict[str, str],
+) -> int:
+    """Persist a scan's full findings and source files. Upserts on (workspace, fingerprint)."""
+    with _lock:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT id FROM scan_snapshots WHERE workspace_id=? AND fingerprint=?",
+                (workspace_id, fingerprint),
+            ).fetchone()
+            now = datetime.now().isoformat()
+            findings_json = json.dumps(findings, default=str)
+            if row:
+                snapshot_id = row["id"]
+                conn.execute(
+                    "UPDATE scan_snapshots SET scan_id=?, findings_json=?, created_at=? WHERE id=?",
+                    (scan_id, findings_json, now, snapshot_id),
+                )
+                conn.execute("DELETE FROM scan_sources WHERE snapshot_id=?", (snapshot_id,))
+            else:
+                cur = conn.execute(
+                    """INSERT INTO scan_snapshots
+                           (workspace_id, scan_id, fingerprint, findings_json, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (workspace_id, scan_id, fingerprint, findings_json, now),
+                )
+                snapshot_id = cur.lastrowid
+            conn.executemany(
+                "INSERT INTO scan_sources (snapshot_id, path, content) VALUES (?, ?, ?)",
+                [(snapshot_id, path, content) for path, content in files.items()],
+            )
+            conn.commit()
+            return snapshot_id  # type: ignore[return-value]
+        finally:
+            conn.close()
+
+
+def get_latest_snapshot(workspace_id: int) -> dict | None:
+    """Most recent snapshot for a project: {id, scan_id, fingerprint, findings, created_at}."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT id, scan_id, fingerprint, findings_json, created_at FROM scan_snapshots
+               WHERE workspace_id=? ORDER BY created_at DESC, id DESC LIMIT 1""",
+            (workspace_id,),
+        ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["findings"] = json.loads(item.pop("findings_json"))
+        return item
+    finally:
+        conn.close()
+
+
+def get_snapshot_files(snapshot_id: int) -> dict[str, str]:
+    """Return {path: content} for a snapshot, ordered by path."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT path, content FROM scan_sources WHERE snapshot_id=? ORDER BY path",
+            (snapshot_id,),
+        ).fetchall()
+        return {r["path"]: r["content"] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_or_create_chat_thread(workspace_id: int) -> dict:
+    """The single chat thread of a project: {id, workspace_id, summary}."""
+    with _lock:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT id, workspace_id, summary FROM chat_threads WHERE workspace_id=?",
+                (workspace_id,),
+            ).fetchone()
+            if row:
+                return dict(row)
+            cur = conn.execute(
+                "INSERT INTO chat_threads (workspace_id, created_at) VALUES (?, ?)",
+                (workspace_id, datetime.now().isoformat()),
+            )
+            conn.commit()
+            return {"id": cur.lastrowid, "workspace_id": workspace_id, "summary": None}
+        finally:
+            conn.close()
+
+
+def add_chat_message(
+    thread_id: int,
+    message: dict,
+    snapshot_id: int | None = None,
+    activity: list | None = None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    cost_usd: float = 0.0,
+) -> int:
+    """Append an OpenAI-format message ({"role", "content", ...}) to a thread."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """INSERT INTO chat_messages
+                       (thread_id, role, message_json, snapshot_id, activity_json,
+                        prompt_tokens, completion_tokens, cost_usd, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (thread_id, message["role"], json.dumps(message, default=str), snapshot_id,
+                 json.dumps(activity) if activity else None,
+                 prompt_tokens, completion_tokens, cost_usd, datetime.now().isoformat()),
+            )
+            conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
+        finally:
+            conn.close()
+
+
+def get_chat_messages(thread_id: int, include_summarised: bool = False) -> list[dict]:
+    """Messages oldest first: {id, role, message, snapshot_id, activity, tokens, cost_usd, ...}."""
+    conn = get_db()
+    try:
+        sql = "SELECT * FROM chat_messages WHERE thread_id=?"
+        if not include_summarised:
+            sql += " AND summarised=0"
+        rows = conn.execute(sql + " ORDER BY id", (thread_id,)).fetchall()
+        out = []
+        for r in rows:
+            item = dict(r)
+            item["message"] = json.loads(item.pop("message_json"))
+            item["activity"] = json.loads(item.pop("activity_json") or "[]")
+            out.append(item)
+        return out
+    finally:
+        conn.close()
+
+
+def fold_chat_history(thread_id: int, up_to_message_id: int, summary: str) -> None:
+    """Replace messages up to an id with a summary (they stay stored, flagged summarised)."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                "UPDATE chat_messages SET summarised=1 WHERE thread_id=? AND id<=?",
+                (thread_id, up_to_message_id),
+            )
+            conn.execute("UPDATE chat_threads SET summary=? WHERE id=?", (summary, thread_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def get_chat_totals(thread_id: int) -> dict:
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(prompt_tokens),0) p, COALESCE(SUM(completion_tokens),0) c,
+                      COALESCE(SUM(cost_usd),0) cost FROM chat_messages WHERE thread_id=?""",
+            (thread_id,),
+        ).fetchone()
+        return {"prompt_tokens": row["p"], "completion_tokens": row["c"],
+                "cost_usd": round(row["cost"], 6)}
     finally:
         conn.close()
 

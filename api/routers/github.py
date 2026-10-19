@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from api.schemas import WorkspaceIn, serialize_result
 from api.sse import sse_event
 from api.store import build_workspace, next_scan_id, scan_store
+from core.chat import persist_scan_for_chat
 from core.github_fetcher import fetch_readme, fetch_selected_files, scan_repo
 from core.workspace import WorkspaceContext
 from workflows.fmea_pipeline import run_fmea
@@ -171,6 +172,7 @@ async def github_scan(req: GithubScanRequest):
             "code": code,
             "workspace": req.workspace,
         }
+        persist_scan_for_chat(serialized, code, known_paths=fetched)  # B-025: results chat memory
 
         yield sse_event({
             "stage": "complete",

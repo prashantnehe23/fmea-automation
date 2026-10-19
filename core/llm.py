@@ -3,6 +3,7 @@ OpenAI-compatible LLM wrapper (OpenAI, Mistral, …) used by all agents.
 
 Exports:
     call_llm(prompt, *, max_tokens)  → raw response string from the model
+    call_chat(messages, *, tools)    → one multi-turn completion with optional tool calls
     extract_json_text(text)          → JSON substring stripped of markdown fences / preamble
     reset_call_count()               → reset the per-run call counter to zero
     get_call_count()                 → return calls made since last reset
@@ -247,6 +248,76 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
             "usable JSON was produced. Try a different model or a smaller selection of files."
         )
     return text
+
+
+def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_tokens: int = 4096) -> dict:
+    """One multi-turn chat completion with optional tool calling (B-025).
+
+    Same model-agnostic handling as call_llm: the active model and reasoning level, a wide
+    token budget, chunked/thinking content reduced to text, and a text answer that hits the
+    limit is continued rather than discarded.
+
+    Returns {"message": assistant message in OpenAI format (content, tool_calls?),
+             "prompt_tokens": int, "completion_tokens": int}.
+    """
+    global _call_count, _prompt_tokens, _completion_tokens
+    from core.providers import get_provider, provider_for_model
+    from core.reasoning import DEFAULT_LEVEL, request_params
+    from core.settings import get_setting
+    model = _get_model()
+    provider_id = provider_for_model(model)
+    provider = get_provider(provider_id)
+    client = _get_client(provider_id)
+    params, multiplier, cap = request_params(model, get_setting("reasoning_level") or DEFAULT_LEVEL)
+    budget = min(max(int(max_tokens * multiplier), FIRST_ATTEMPT_FLOOR), cap)
+    prompt_total = completion_total = 0
+
+    def complete(msgs: list[dict], limit: int):
+        global _call_count, _prompt_tokens, _completion_tokens
+        nonlocal prompt_total, completion_total
+        extra = {"tools": tools} if tools else {}
+        response = client.chat.completions.create(
+            model=model,
+            messages=msgs,
+            temperature=0.2,
+            **{provider["max_tokens_param"]: limit},
+            **extra,
+            **params,
+        )
+        _call_count += 1
+        if response.usage:
+            p, c = response.usage.prompt_tokens or 0, response.usage.completion_tokens or 0
+            _prompt_tokens += p
+            _completion_tokens += c
+            prompt_total += p
+            completion_total += c
+        return response.choices[0]
+
+    choice = complete(messages, budget)
+    text = _content_text(choice.message.content)
+    raw_calls = getattr(choice.message, "tool_calls", None) or []
+
+    continuations = 0
+    while choice.finish_reason == "length" and not raw_calls and continuations < MAX_CONTINUATIONS:
+        continuations += 1
+        _log.warning("%s chat reply hit the token limit; continuing (%d/%d)",
+                     model, continuations, MAX_CONTINUATIONS)
+        choice = complete(
+            messages + [{"role": "assistant", "content": text},
+                        {"role": "user", "content": _CONTINUE_MSG}],
+            cap,
+        )
+        more = _content_text(choice.message.content)
+        text += more
+
+    message: dict = {"role": "assistant", "content": text}
+    if raw_calls:
+        message["tool_calls"] = [
+            {"id": tc.id, "type": "function",
+             "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"}}
+            for tc in raw_calls
+        ]
+    return {"message": message, "prompt_tokens": prompt_total, "completion_tokens": completion_total}
 
 
 def _repair_json(text: str) -> str:

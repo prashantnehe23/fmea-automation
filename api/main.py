@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import eval as eval_router
 from api.routers import github as github_router
+from api.routers import chat as chat_router
 from api.routers import remediation, scan, scoring as scoring_router, settings as settings_router, telemetry as telemetry_router, workspace
 
 
@@ -51,6 +52,7 @@ app.include_router(github_router.router)
 app.include_router(telemetry_router.router)
 app.include_router(scoring_router.router)
 app.include_router(settings_router.router)
+app.include_router(chat_router.router)
 
 
 @app.on_event("startup")
