@@ -35,6 +35,9 @@
 | [x] | Multi-File Repository Context (B-005) — File selection right-rail panel; user picks which repo files to scan; backend filters before pipeline | `api/routers/github.py`, `frontend/src/pages/ScanPage.jsx`, `frontend/src/api.js` |
 | [x] | Full Hierarchy Persistence (B-007) — portfolios/projects moved to SQLite; API-first with localStorage cache; one-time Option A migration of existing data | `memory/db.py`, `api/routers/workspace.py`, `frontend/src/App.jsx`, `frontend/src/api.js` — ADR-010 |
 | [x] | Cost Per Run Tracking + Model Selector (B-021) — per-agent cost_usd via LiteLLM pricing; model selector in settings panel; CostPanel on dashboard | `core/costs.py`, `core/settings.py`, `api/routers/settings.py`, `Header.jsx`, `DashboardPage.jsx` |
+| [x] | Multi-Provider Model Selection + User API Keys (B-022) — OpenAI + Mistral registry, per-provider keys in Settings, embeddings follow the provider | `core/providers.py`, `core/costs.py`, `core/llm.py`, `api/routers/settings.py`, `Header.jsx` — ADR-011 |
+| [x] | User-Selectable Reasoning Level + Token Scaling (B-023) — Off/Low/Medium/High per model capability; evaluator cost uses active model rates | `core/reasoning.py`, `core/llm.py`, `api/routers/settings.py`, `Header.jsx` — ADR-012 |
+| [x] | Adaptive Handling of Verbose / Truncated Model Output (B-024) — wide budget, continuation, JSON recovery, safe salvage | `core/llm.py` — ADR-013 |
 
 ---
 
@@ -242,6 +245,8 @@
 - `frontend/src/api.js`, `Header.jsx` — provider-grouped model dropdown, masked key input/remove
 - `memory/scenario_registry.py`, `memory/db.py` — embeddings use the active provider's embedding model; `scenarios.embed_model` column; mismatched rows skipped and re-embedded
 - `tests/test_providers.py` (NEW, 17 tests)
+- `.claude/launch.json` — added `fmea-api` dev-server entry (port 8000)
+- `tests/test_costs.py`, `tests/test_scenario_registry.py` — isolated from the real `core/settings.json` so live settings/prices no longer affect results
 
 **Acceptance criteria:**
 - [x] OpenAI and Mistral models selectable, each mapped to a provider

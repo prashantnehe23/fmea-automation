@@ -21,6 +21,8 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-006](ADR-006-architecture-graph.md) | Architecture Graph: Code-Derived Dependency Graph over EA Tool Integration | Accepted | 2026-05-24 |
 | [ADR-007](ADR-007-react-frontend.md) | Frontend: React + Vite over Streamlit Extension | Accepted | 2026-05-28 |
 | [ADR-008](ADR-008-fastapi-layer.md) | API Layer: FastAPI over Direct Import / GraphQL / gRPC | Accepted | 2026-05-28 |
+| [ADR-009](ADR-009-observability.md) | Observability: Telemetry, Latency & Quality Monitoring | Accepted | 2026-06-07 |
+| [ADR-010](ADR-010-hierarchy-persistence.md) | Hierarchy Persistence: SQLite Replaces localStorage | Accepted | 2026-06-21 |
 | [ADR-011](ADR-011-multi-provider-llm.md) | Multi-Provider LLM via OpenAI-Compatible Registry | Accepted | 2026-10-18 |
 | [ADR-012](ADR-012-reasoning-control.md) | User-Controlled Reasoning Level with Automatic Token Scaling | Accepted | 2026-10-19 |
 | [ADR-013](ADR-013-adaptive-llm-output.md) | Adaptive Handling of Verbose and Truncated Model Output | Accepted | 2026-10-19 |
