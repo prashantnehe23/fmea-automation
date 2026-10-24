@@ -135,6 +135,7 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
           reason: r.justification,
           date:   new Date(r.created_at).toLocaleDateString('en-GB'),
           saved:  true,
+          flagged: r.flagged,
         })));
       })
       .catch(() => {}); // non-critical — audit trail simply stays empty
@@ -152,9 +153,12 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
   const pick = r => { setSelRisk(r); setAdj({ s: r.s, o: r.o, d: r.d }); setReason(''); setSaveState('idle'); };
   const newRpn  = adj.s * adj.o * adj.d;
   const changed = selRisk && (adj.s !== selRisk.s || adj.o !== selRisk.o || adj.d !== selRisk.d);
+  // B-034: lowering a Severity 9-10 scenario below 9 needs a real justification (the server enforces it too)
+  const lowersCatastrophic = selRisk && selRisk.s >= 9 && adj.s < 9;
+  const reasonTooShort = lowersCatastrophic && reason.trim().length < 15;
 
   const propose = async () => {
-    if (!reason.trim() || !selRisk) return;
+    if (!reason.trim() || !selRisk || reasonTooShort) return;
     const entry = {
       risk: selRisk.name, from: selRisk.rpn, to: newRpn, reason,
       date: new Date().toLocaleDateString('en-GB'),
@@ -163,8 +167,9 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
     if (workspaceId) {
       setSaveState('saving');
       try {
-        await postScoringAdjustment(workspaceId, selRisk.name, adj.s, adj.o, adj.d, reason);
+        const saved = await postScoringAdjustment(workspaceId, selRisk.name, adj.s, adj.o, adj.d, reason);
         entry.saved = true;
+        entry.flagged = saved.flagged;
         setSaveState('saved');
         onAdjustmentSaved?.();
       } catch {
@@ -326,10 +331,16 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
                   value={reason}
                   onChange={e => setReason(e.target.value)}
                 />
+                {lowersCatastrophic && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                    This lowers a catastrophic finding (Severity {selRisk.s}) below 9. Give a specific reason
+                    (at least 15 characters); the change is flagged in the audit trail.
+                  </p>
+                )}
                 <div className="flex items-center justify-between mt-3">
                   <button
                     onClick={propose}
-                    disabled={!reason.trim() || saveState === 'saving'}
+                    disabled={!reason.trim() || reasonTooShort || saveState === 'saving'}
                     className="px-5 py-2 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 disabled:opacity-40 shadow-sm"
                   >
                     {saveState === 'saving' ? 'Saving…' : 'Propose Adjustment'}
@@ -359,6 +370,9 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
                           <p className="text-xs font-semibold text-gray-700 truncate">{e.risk}</p>
                           {e.saved && (
                             <span className="flex-shrink-0 text-xs bg-green-50 border border-green-200 text-green-700 px-1.5 py-0.5 rounded-full">✓ registry</span>
+                          )}
+                          {e.flagged && (
+                            <span className="flex-shrink-0 text-xs bg-amber-50 border border-amber-300 text-amber-700 px-1.5 py-0.5 rounded-full">⚠ severity lowered below 9</span>
                           )}
                         </div>
                         <p className="text-xs text-gray-400 italic mt-0.5">"{e.reason}"</p>

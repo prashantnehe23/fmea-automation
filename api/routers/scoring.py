@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import memory.db as db
-from core.priority import priority_for
+from core.priority import MIN_DOWNGRADE_JUSTIFICATION_CHARS, lowers_catastrophic_severity, priority_for
 
 router = APIRouter(prefix="/api/scoring", tags=["scoring"])
 
@@ -37,10 +37,16 @@ class AdjustmentOut(BaseModel):
     created_at:   str
     source:       str = "manual"   # "manual" (Scoring page) or "chat" (B-025)
     priority:     str = ""
+    flagged:      bool = False     # took a Severity >= 9 scenario below 9 (B-034)
 
 
 @router.post("/adjustment", response_model=AdjustmentOut, status_code=201)
 def create_adjustment(body: AdjustmentIn):
+    current = db.get_current_severity(body.workspace_id, body.failure_mode)
+    flagged = current is not None and lowers_catastrophic_severity(current, body.new_s)
+    if flagged and len(body.justification.strip()) < MIN_DOWNGRADE_JUSTIFICATION_CHARS:
+        raise HTTPException(422, f"Lowering a Severity {current} scenario below 9 needs a justification "
+                                 f"of at least {MIN_DOWNGRADE_JUSTIFICATION_CHARS} characters.")
     adj_id = db.save_adjustment(
         workspace_id=body.workspace_id,
         failure_mode=body.failure_mode,
@@ -61,6 +67,7 @@ def create_adjustment(body: AdjustmentIn):
         "created_at":   datetime.now().isoformat(),
         "source":       "manual",
         "priority":     priority_for(body.new_s, body.new_o, body.new_d).band,
+        "flagged":      flagged,
     }
 
 
