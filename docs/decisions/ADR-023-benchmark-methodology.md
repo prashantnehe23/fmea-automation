@@ -25,3 +25,9 @@ Recall; precision; catastrophic recall; placement (share of caught catastrophic 
 - Keyword matching can miss correct findings that are phrased differently (understates recall) and can credit vague findings (overstates it). Mitigation: audit lists of unmatched findings and unmatched truth items in every report; optional fallback.
 - Synthetic repositories may be easier or different from real code; the benchmark measures relative change between commits, not absolute real-world recall.
 - Labels need engineer time to review; a wrong label silently skews every later comparison.
+
+## Addendum (2026-10-24): anchors and exploit paths
+- Every truth item carries an `anchor`, a code snippet that must appear on its labelled lines, so label line numbers cannot drift silently.
+- Every catastrophic item carries an expected exploit `path`: entry and sink (file plus anchor, both validated against the repository) and match terms for each end. The scorer reports `path_accuracy` (matched findings whose text names both ends) and lists `path_untraced`. This measures the goal-driven exploit tracing of ADR-015 addendum 2 rather than only whether the right vulnerability was named.
+- Threat classes gained `path_traversal`.
+- Precision counts any unlabelled finding as a false positive, so seeded repositories are kept small and otherwise clean; unlabelled genuine weaknesses remain a known limit.

@@ -6,41 +6,132 @@
       "id": "shop-001",
       "threat_class": "injection",
       "file": "app.py",
-      "lines": [31, 33],
+      "lines": [
+        31,
+        33
+      ],
       "root_cause_domain": "engineering",
       "catastrophic": true,
-      "description": "Search term is interpolated into an SQL string; any logged-in user can read every order including emails and card tokens.",
-      "keywords": ["sql injection", "sqli", "string interpolation", "f-string", "parameterized", "parameterised", "unsanitized", "unsanitised"]
+      "description": "Search term is interpolated into an SQL string (SQL injection), exposing every order including emails and card tokens.",
+      "keywords": [
+        "sql injection",
+        "sqli",
+        "string interpolation",
+        "f-string",
+        "parameterized",
+        "parameterised",
+        "unsanitized",
+        "unsanitised"
+      ],
+      "anchor": "f\"SELECT",
+      "path": {
+        "entry": {
+          "file": "app.py",
+          "anchor": "/orders/search"
+        },
+        "sink": {
+          "file": "app.py",
+          "anchor": "db().execute("
+        },
+        "entry_terms": [
+          "/orders/search",
+          "search_orders",
+          "search endpoint",
+          "search term",
+          "q parameter"
+        ],
+        "sink_terms": [
+          "execute",
+          "f-string",
+          "interpolat",
+          "sql"
+        ]
+      }
     },
     {
       "id": "shop-002",
       "threat_class": "authz",
       "file": "app.py",
-      "lines": [37, 46],
+      "lines": [
+        37,
+        46
+      ],
       "root_cause_domain": "security",
       "catastrophic": true,
       "description": "The refund endpoint only checks that a token is valid, not that the caller is staff; any customer can refund any order for any amount.",
-      "keywords": ["authorization", "authorisation", "role", "privilege", "any authenticated", "any logged-in", "access control", "admin"]
+      "keywords": [
+        "authorization",
+        "authorisation",
+        "role check",
+        "privilege",
+        "staff",
+        "any customer",
+        "access control",
+        "admin"
+      ],
+      "anchor": "def refund",
+      "path": {
+        "entry": {
+          "file": "app.py",
+          "anchor": "/admin/refund"
+        },
+        "sink": {
+          "file": "app.py",
+          "anchor": "UPDATE orders SET refunded"
+        },
+        "entry_terms": [
+          "/admin/refund",
+          "refund"
+        ],
+        "sink_terms": [
+          "update",
+          "refunded",
+          "any amount",
+          "any order"
+        ]
+      }
     },
     {
       "id": "shop-003",
       "threat_class": "secrets",
       "file": "config.py",
-      "lines": [2, 2],
+      "lines": [
+        2,
+        2
+      ],
       "root_cause_domain": "operational",
       "catastrophic": false,
       "description": "The token-signing secret is hardcoded and weak, so anyone with the source can forge tokens.",
-      "keywords": ["hardcoded", "hard-coded", "secret", "forge", "signing key", "committed"]
+      "keywords": [
+        "hardcoded",
+        "hard-coded",
+        "secret",
+        "forge",
+        "signing key",
+        "committed"
+      ],
+      "anchor": "JWT_SECRET"
     },
     {
       "id": "shop-004",
       "threat_class": "data_exposure",
       "file": "app.py",
-      "lines": [49, 52],
+      "lines": [
+        49,
+        52
+      ],
       "root_cause_domain": "engineering",
       "catastrophic": false,
       "description": "The global error handler returns stack traces to clients, leaking internals.",
-      "keywords": ["stack trace", "traceback", "error handler", "information disclosure", "verbose error", "leak"]
+      "keywords": [
+        "stack trace",
+        "traceback",
+        "error handler",
+        "information disclosure",
+        "verbose error",
+        "leak"
+      ],
+      "anchor": "traceback.format_exc"
     }
   ]
 }

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from benchmarks.score import (
-    evidence_valid, load_repo_files, load_truth, match_findings, score_scan, stability,
+    evidence_valid, load_repo_files, load_truth, match_findings, score_scan, stability, traces_path,
 )
 
 REPO = Path(__file__).resolve().parents[1] / "benchmarks" / "repos" / "shop-api"
@@ -169,3 +169,89 @@ def test_stability(truth, files):
     assert stability([a, b]) == pytest.approx(0.3333, abs=1e-4)   # 1 of 3 found in every run
     assert stability([a, a]) == 1.0
     assert stability([score_scan([], truth, files)]) is None
+
+
+# ── Phase 2: anchors, exploit paths, repository set ──────────────────────────
+
+REPOS = Path(__file__).resolve().parents[1] / "benchmarks" / "repos"
+ALL_REPOS = sorted(p for p in REPOS.iterdir() if (p / "truth.json").exists())
+
+
+@pytest.mark.parametrize("repo", ALL_REPOS, ids=lambda p: p.name)
+def test_every_benchmark_repo_has_a_valid_truth_file(repo):
+    truth = load_truth(repo)
+    assert truth["items"] and any(i["catastrophic"] for i in truth["items"])
+
+
+def test_the_benchmark_covers_the_required_scenarios():
+    truths = [load_truth(r) for r in ALL_REPOS]
+    items = [i for t in truths for i in t["items"]]
+    assert len(ALL_REPOS) >= 6
+    assert any(i["threat_class"] == "logic_flaw" and i["catastrophic"] and "chain" in i["description"].lower()
+               for i in items)                                                    # catastrophic path from chained issues
+    assert {"ci_compromise", "infra_misconfig"} <= {i["threat_class"] for i in items}      # infrastructure and CI
+    assert any(i["file"].endswith(".html") or i["path"]["sink"]["file"].endswith(".html")
+               for i in items if i.get("path"))                                   # web templates
+    assert len({Path(i["file"]).suffix for i in items}) >= 4                      # several languages and file types
+
+
+def test_the_adversarial_repo_really_contains_hostile_instructions():
+    repo = REPOS / "adversarial-api"
+    files = load_repo_files(repo)
+    assert "ignore previous instructions" in files["app.py"].lower()
+    assert "ignore all previous instructions" in files["README.md"].lower()
+
+
+def test_anchor_must_be_on_the_labelled_lines(tmp_path):
+    with pytest.raises(ValueError, match="anchor"):
+        load_truth(_broken_repo(tmp_path, lambda d: d["items"][0].update(anchor="not in the code")))
+
+
+def test_catastrophic_items_need_an_exploit_path(tmp_path):
+    with pytest.raises(ValueError, match="need an exploit path"):
+        load_truth(_broken_repo(tmp_path, lambda d: d["items"][0].pop("path")))
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d: d["items"][0]["path"]["sink"].update(anchor="nowhere"), "sink anchor"),
+    (lambda d: d["items"][0]["path"]["entry"].update(file="ghost.py"), "entry file"),
+    (lambda d: d["items"][0]["path"].update(entry_terms=[]), "entry_terms"),
+])
+def test_invalid_exploit_paths_are_rejected(tmp_path, mutate, message):
+    with pytest.raises(ValueError, match=message):
+        load_truth(_broken_repo(tmp_path, lambda d: mutate(d)))
+
+
+TRACED = {"failure_mode": "SQL injection", "trigger": "q parameter of /orders/search",
+          "evidence": "app.py:32 the f-string reaches db().execute", "priority": "High"}
+NAMED_ONLY = {"failure_mode": "SQL injection in app.py", "evidence": "app.py f-string SQL"}
+
+
+def test_path_accuracy_distinguishes_a_traced_path_from_a_name_match(truth, files):
+    assert score_scan([TRACED], truth, files)["path_accuracy"] == 1.0
+    s = score_scan([NAMED_ONLY], truth, files)
+    assert s["found"] == ["shop-001"] and s["path_accuracy"] == 0.0 and s["path_untraced"] == ["shop-001"]
+
+
+def test_path_accuracy_is_not_reported_when_no_matched_item_has_a_path(truth, files):
+    assert score_scan([SECRET], truth, files)["path_accuracy"] is None
+
+
+def test_labels_for_the_chain_repo_need_two_findings_not_one():
+    repo = REPOS / "chain-api"
+    one = {"failure_mode": "SSRF in preview",
+           "evidence": "public.py requests.get(url) ssrf, can reach the internal admin wipe-backups"}
+    s = score_scan([one], load_truth(repo), load_repo_files(repo))
+    assert s["counts"]["matched"] == 1 and len(s["missed"]) == 2          # the chain needs its own finding
+
+
+@pytest.mark.parametrize("repo", ALL_REPOS, ids=lambda p: p.name)
+def test_each_label_wins_for_a_finding_that_states_it(repo):
+    """A finding that says what the label says is assigned to that label (not a neighbour) and traces its path."""
+    truth = load_truth(repo)
+    for item in truth["items"]:
+        finding = {"failure_mode": item["description"], "evidence": f"{item['file']}: {item['description']}"}
+        assigned, _ = match_findings([finding], truth["items"])
+        assert assigned == {item["id"]: 0}, f"{item['id']} description matched {assigned}"
+        if item.get("path"):
+            assert traces_path(finding, item), f"{item['id']} description does not trace its own path"

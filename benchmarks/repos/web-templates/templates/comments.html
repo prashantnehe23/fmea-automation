@@ -1,0 +1,7 @@
+<h1>Comments</h1>
+{% for c in comments %}
+  <div class="comment">
+    <b>{{ c.author }}</b>
+    <p>{{ c.body|safe }}</p>
+  </div>
+{% endfor %}

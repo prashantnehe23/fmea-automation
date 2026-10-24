@@ -18,7 +18,7 @@ from typing import Callable
 THREAT_CLASSES = frozenset({
     "injection", "authn", "authz", "secrets", "ssrf", "xss", "deserialization", "crypto",
     "data_exposure", "supply_chain", "infra_misconfig", "ci_compromise", "race_condition",
-    "resource_exhaustion", "logic_flaw", "prompt_injection",
+    "resource_exhaustion", "logic_flaw", "prompt_injection", "path_traversal",
 })
 ROOT_CAUSE_DOMAINS = frozenset({"security", "architectural", "engineering", "operational"})
 HIGH_BANDS = frozenset({"High", "Critical"})
@@ -70,9 +70,29 @@ def load_truth(repo_dir: Path, require_signed_off: bool = False) -> dict:
             errors.append(f"{tid}: file {path!r} not in the repository")
         elif len(lines) != 2 or not 1 <= lines[0] <= lines[1] <= len(files[path].splitlines()):
             errors.append(f"{tid}: lines {lines} outside {path}")
+        elif not it.get("anchor") or it["anchor"] not in "\n".join(files[path].splitlines()[lines[0] - 1:lines[1]]):
+            errors.append(f"{tid}: anchor {it.get('anchor')!r} not found in {path} lines {lines}")
+        errors.extend(_path_errors(tid, it, files))
     if errors:
         raise ValueError(f"{repo_dir.name}/truth.json: " + "; ".join(errors))
     return data
+
+
+def _path_errors(tid: str, item: dict, files: dict[str, str]) -> list[str]:
+    """The expected exploit path (entry -> sink) is required for catastrophic items, optional otherwise."""
+    path = item.get("path")
+    if path is None:
+        return [f"{tid}: catastrophic items need an exploit path"] if item.get("catastrophic") else []
+    errors = []
+    for end in ("entry", "sink"):
+        spot = path.get(end) or {}
+        if spot.get("file") not in files:
+            errors.append(f"{tid}: path {end} file {spot.get('file')!r} not in the repository")
+        elif not spot.get("anchor") or spot["anchor"] not in files[spot["file"]]:
+            errors.append(f"{tid}: path {end} anchor {spot.get('anchor')!r} not found in {spot['file']}")
+        if not path.get(f"{end}_terms"):
+            errors.append(f"{tid}: path {end}_terms are empty")
+    return errors
 
 
 # ── Matching ──────────────────────────────────────────────────────────────────
@@ -154,6 +174,13 @@ def _ratio(num: int, den: int) -> float | None:
     return round(num / den, 4) if den else None
 
 
+def traces_path(finding: dict, item: dict) -> bool:
+    """True when the finding's text names both the labelled entry and the labelled sink."""
+    text, path = _finding_text(finding), item["path"]
+    return (any(t.lower() in text for t in path["entry_terms"])
+            and any(t.lower() in text for t in path["sink_terms"]))
+
+
 def score_scan(
     findings: list[dict],
     truth: dict,
@@ -167,6 +194,8 @@ def score_scan(
     catastrophic = [it["id"] for it in items if it["catastrophic"]]
     caught_cat = [t for t in catastrophic if t in assigned]
     placed = [t for t in caught_cat if findings[assigned[t]].get("priority") in HIGH_BANDS]
+    with_path = [t for t in assigned if by_id[t].get("path")]
+    traced = [t for t in with_path if traces_path(findings[assigned[t]], by_id[t])]
     with_rc = [t for t in assigned if findings[assigned[t]].get("root_cause")]
     rc_agree = [t for t in with_rc if findings[assigned[t]]["root_cause"] == by_id[t]["root_cause_domain"]]
     return {
@@ -178,6 +207,8 @@ def score_scan(
         "placement": _ratio(len(placed), len(caught_cat)),
         "evidence_validity": _ratio(sum(evidence_valid(f, files) for f in findings), len(findings)),
         "root_cause_agreement": _ratio(len(rc_agree), len(with_rc)),
+        "path_accuracy": _ratio(len(traced), len(with_path)),
+        "path_untraced": sorted(set(with_path) - set(traced)),
         "found": sorted(assigned),
         "missed": sorted(set(by_id) - set(assigned)),
         "missed_catastrophic": sorted(set(catastrophic) - set(assigned)),

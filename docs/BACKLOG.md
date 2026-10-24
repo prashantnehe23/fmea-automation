@@ -516,11 +516,22 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 | 10 | B-035 | Agent roster migration | P1 | B-028 phase B |
 | 11 | B-032 | Pipeline observability for the new stages (budget guard and estimate moved into B-028 phase D) | P2 | B-028 |
 
+**Revised core-scanning build order (engineer-approved 2026-10-24; supersedes the Order column above for the core items):**
+1. B-026 phase 2 — remaining benchmark repos, **with expected exploit paths in `truth.json` and path accuracy in the scorer**; then phase 3 (runner, baseline)
+2. B-033 — scan scope, wider file types, secret redaction
+3. B-036 — code navigation toolkit
+4. **Verifier slice (new, B-028 phase B0):** run the exploit verifier over today's saboteur findings, using the exploit goal / path-step schema (ADR-015 addendum 2), before the full inventory exists; measured on the benchmark
+5. B-027 phase 1 — Business Profile
+6. B-028 phase A — inventory, threat registry, coverage ledger
+7. B-028 phase B (hunters, full verifier) with B-035 roster migration; B-029 and B-030 alongside
+8. B-031 — finding identity and locks (before phase D)
+9. B-028 phases C and D — catastrophic pass, chain composer, budgets, parallelism, depth setting; then B-032
+
 **Effort and cost (estimates, to be replaced by measurements from B-026):** B-027 phase 1 small, B-026 medium, B-034 small, B-033 medium, B-030 medium, B-029 small-medium, B-036 medium, B-031 medium, B-028 large (four phases), B-035 medium, B-032 small-medium. A deep scan is expected to cost several times today's ~$0.2-0.5 per scan and needs parallelism to stay within minutes; quick mode keeps today's cost.
 
 ---
 
-### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — P0 (phase 1 of 3 done)
+### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — P0 (phases 1-2 of 3 done, labels awaiting sign-off)
 
 **Decision:** [ADR-023](decisions/ADR-023-benchmark-methodology.md) (Draft). **Phases:** 1 scorer + truth schema + one seed repo (done) · 2 remaining repos and the extra criteria below · 3 runner, `make bench`, baseline on two models.
 
@@ -545,6 +556,12 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - [ ] *(added)* Results are reported for **at least two models or reasoning levels** (Mistral Large 4 plus one other), so "model-agnostic" is measured, not assumed
 - [ ] *(added)* **Placement metric:** the share of catastrophic findings that land in High or Critical (B-034)
 - [ ] *(added 2026-10-24, engineer-approved)* Benchmark runs use a temporary database, cache and settings and never touch the real `fmea.db`, caches or `settings.json` (test) — phase 3
+
+- [x] *(added 2026-10-24, engineer-approved)* Every truth item has an **anchor** that must appear on its labelled lines, and every catastrophic item has an expected **exploit path** (entry and sink anchors plus match terms), all validated against the repository (tests); the scorer reports **path accuracy**
+- [x] *(added)* Each label states its own description well enough to win against its neighbours and to trace its path (test per repository), so label vocabulary clashes are caught early
+
+**Phase 2 delivered (2026-10-24):** five more repositories under `benchmarks/repos/` — `notes-express` (JS: header-trusted identity, path traversal, IDOR), `chain-api` (SSRF + unauthenticated internal admin + the compound path that wipes backups), `adversarial-api` (command injection with hostile instructions in code and README), `infra-deploy` (`pull_request_target` workflow, public backup bucket, secrets baked into the image), `web-templates` (stored XSS through `|safe`, readable session cookie) — 6 repositories, 17 labelled items, 9 catastrophic; `truth.json` gains `anchor` and `path`; scorer adds `path_accuracy` and `path_untraced`; `path_traversal` added to the threat classes; `tests/test_benchmark_scorer.py` now 44 tests. Suite 254 passing.
+**Phase 2 notes:** all labels are **unsigned** (`signed_off_by` is null) and need the engineer's review, especially the keywords. The repositories are intentionally small; real-but-unlabelled weaknesses in them (for example no rate limiting, no CSRF protection) will count as false positives, which is a known limit of precision. The adversarial, infrastructure/CI, template, chain, stability and two-model criteria above are provided for by these repositories and are *measured* when the runner exists (phase 3), so they stay unticked.
 
 **Phase 1 delivered (2026-10-24):** `benchmarks/score.py` (pure deterministic scorer: recall, precision, catastrophic recall, placement, evidence validity, root-cause agreement, stability; optional logged semantic judge hook; truth-file validation), `benchmarks/repos/shop-api/` (seed repo with 4 labelled items, 2 catastrophic; `signed_off_by` is empty until the engineer signs), `tests/test_benchmark_scorer.py` (22 tests, no network or LLM), ADR-023 (Draft).
 **Phase 1 notes:** matching is keyword-based because findings carry no structured location or threat class (ADR-023 decision 5); the seed labels and keywords need the engineer's review; the semantic judge is a hook only, no LLM implementation yet. Not yet done: the other 5+ repos, adversarial/infra/template samples, runner, `make bench`, baseline numbers.
@@ -695,6 +712,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **Why:** Make sure every part of the attack surface is examined against every applicable threat class, every hypothesis ends in an evidenced verdict, and nothing catastrophic is silently dropped.
 
 **Phases (each shippable and re-measured on B-026):**
+- **B0. Verifier slice (added 2026-10-24):** the exploit verifier and the exploit goal / path-step schema (ADR-015 addendum 2) applied to the existing saboteur findings, with attempt log and mechanical evidence check; no inventory yet; re-measured on B-026
 - **A. Inventory, threat registry, coverage ledger:** structured attack-surface inventory (two independent passes, unioned), threat-class registry with variant playbooks (data file), coverage ledger persisted per scan; no change to scoring yet
 - **B. Hunters and exploit verifier:** per-cell hypothesis generation over relevant code via the read-only code tools; verifier tries every playbook variant before refuting; attempt log; mechanical evidence verification; verdict confirmed / refuted / unresolved
 - **C. Catastrophic pass and chain composer:** pre-mortem from the profile's catastrophic outcomes; independent second verification before refuting any potential severity >= 9; compound-path search across confirmed findings
