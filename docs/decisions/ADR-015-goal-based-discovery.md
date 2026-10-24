@@ -40,3 +40,8 @@ Replace single-shot brainstorming with a coverage-driven pipeline (agents keep a
 - "Verified" means reasoned from the code with checked evidence, not executed. Verdicts carry a confidence and the method.
 - The learning memory's count-based "aggression level" (ADR-005) is replaced by coverage- and yield-based signals.
 - Effectiveness must be measured, not asserted: B-026 provides labelled benchmark repositories and recall/precision (including catastrophic recall) before and after each phase.
+
+## Addendum (2026-10-24): code navigation toolkit
+Tracing entry point → data flow → sink needs more than `read_file` and `search_code`. The verifier, hunters and the chat get a read-only **code index** per snapshot (B-036): symbols with file/line, an approximate call graph, entry-point detectors (HTTP routes, CLI mains, scheduled jobs, queue consumers, webhooks) and sink detectors (SQL execution, subprocess, `eval`/`exec`, file write, outbound HTTP, deserialisation, template rendering, secrets access), exposed as `find_definition`, `find_callers`, `find_callees`, `list_entry_points` and `list_sinks`. Python uses the standard `ast` module; other languages use text-based extractors marked `confidence: low` until Tree-sitter grammars arrive (B-013). The same allowlist and size limits as ADR-014 apply. Its effect on recall is measured on the benchmark (B-026) rather than assumed.
+
+Related decisions from the same review: ADR-020 (severity-aware prioritisation, so a found catastrophic scenario is never ranked as medium), ADR-021 (scan scope and secret handling, so the ledger is not blind to infrastructure and CI files) and ADR-022 (the future of the other agents).
