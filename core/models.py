@@ -164,3 +164,9 @@ class RemediationResult(BaseModel):
     test_description: str = ""       # plain-English: what the test verifies
     patched_snippet: str = ""        # complete fixed function/block (for in-memory apply)
     applied: bool = False
+
+
+def priority_for_rpn(rpn: int) -> str:
+    """Priority band for an RPN. (The same rule is inlined in agents/actuary.py,
+    agents/evaluator.py and workflows/fmea_pipeline.py; keep them in step.)"""
+    return "Critical" if rpn > 400 else "High" if rpn > 200 else "Medium"

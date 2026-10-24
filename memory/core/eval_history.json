@@ -176,5 +176,37 @@
       "validator": 0.1,
       "sre_agent": 1.0
     }
+  },
+  {
+    "timestamp": "2026-10-19T10:42:43.466649",
+    "overall_passed": false,
+    "avg_score": 0.9,
+    "llm_calls": 14,
+    "estimated_cost_usd": 0.0848,
+    "scenario_count": 7,
+    "agent_scores": {
+      "surveyor": 1.0,
+      "saboteur": 1.0,
+      "controls_assessor": 1.0,
+      "actuary": 1.0,
+      "validator": 0.4,
+      "sre_agent": 1.0
+    }
+  },
+  {
+    "timestamp": "2026-10-19T14:33:25.628391",
+    "overall_passed": true,
+    "avg_score": 1.0,
+    "llm_calls": 12,
+    "estimated_cost_usd": 0.0848,
+    "scenario_count": 7,
+    "agent_scores": {
+      "surveyor": 1.0,
+      "saboteur": 1.0,
+      "controls_assessor": 1.0,
+      "actuary": 1.0,
+      "validator": 1.0,
+      "sre_agent": 1.0
+    }
   }
 ]

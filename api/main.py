@@ -7,12 +7,24 @@ Start with:
 OpenAPI docs: http://localhost:8000/docs
 """
 
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import eval as eval_router
 from api.routers import github as github_router
-from api.routers import remediation, scan, scoring as scoring_router, telemetry as telemetry_router, workspace
+from api.routers import chat as chat_router
+from api.routers import remediation, scan, scoring as scoring_router, settings as settings_router, telemetry as telemetry_router, workspace
+
+
+def _bg_refresh_pricing() -> None:
+    try:
+        from core.costs import refresh_pricing
+        refresh_pricing()
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="FMEA Platform API",
@@ -39,6 +51,13 @@ app.include_router(eval_router.router)
 app.include_router(github_router.router)
 app.include_router(telemetry_router.router)
 app.include_router(scoring_router.router)
+app.include_router(settings_router.router)
+app.include_router(chat_router.router)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    threading.Thread(target=_bg_refresh_pricing, daemon=True).start()
 
 
 @app.get("/api/health")

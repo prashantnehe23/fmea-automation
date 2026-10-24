@@ -280,6 +280,151 @@ export async function getTelemetry(workspaceId, n = 20) {
   return res.json();
 }
 
+// ── Model selector (B-021) ───────────────────────────────────────────────────
+
+/**
+ * GET /api/settings/models — list available models with pricing.
+ * @returns {Array<{id, display, tier, prompt_per_1m, completion_per_1m, is_active}>}
+ */
+export async function getModels() {
+  const res = await fetch(`${BASE}/api/settings/models`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * GET /api/settings/model — currently active model ID.
+ * @returns {{ active_model: string }}
+ */
+export async function getActiveModel() {
+  const res = await fetch(`${BASE}/api/settings/model`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * PATCH /api/settings/model — change the active model.
+ * @param {string} modelId
+ * @returns {{ active_model: string }}
+ */
+export async function setActiveModel(modelId) {
+  const res = await fetch(`${BASE}/api/settings/model`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelId }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// ── Results chat (B-025) ─────────────────────────────────────────────────────
+
+/** GET /api/chat/{workspaceId} → { thread_id, messages, totals, has_scan, snapshot_id } */
+export async function getChatHistory(workspaceId) {
+  const res = await fetch(`${BASE}/api/chat/${workspaceId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * POST /api/chat/stream — ask a question; async generator of events:
+ *   {type:'tool', label, ok}  |  {type:'token', text}  |  {type:'done', answer, usage, thread_totals, ...}
+ * Throws Error with .code / .message for failures (no_scan, no_api_key, llm_error, ...).
+ * Pass an AbortSignal to stop generation; the server keeps the partial answer.
+ */
+export async function* streamChat(workspaceId, message, signal) {
+  const res = await fetch(`${BASE}/api/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: workspaceId, message }),
+    signal,
+  });
+  if (!res.ok) {
+    let detail = {};
+    try { detail = (await res.json()).detail ?? {}; } catch { /* not JSON */ }
+    const err = new Error(detail.message ?? `HTTP ${res.status}`);
+    err.code = detail.code ?? 'http_error';
+    throw err;
+  }
+  for await (const ev of _readSSE(res)) {
+    if (!ev.type && ev.code) {            // SSE "error" frame
+      const err = new Error(ev.message ?? 'Chat failed');
+      err.code = ev.code;
+      throw err;
+    }
+    yield ev;
+  }
+}
+
+async function _proposalCall(proposalId, action) {
+  const res = await fetch(`${BASE}/api/chat/proposals/${proposalId}/${action}`, { method: 'POST' });
+  if (!res.ok) {
+    let detail = {};
+    try { detail = (await res.json()).detail ?? {}; } catch { /* not JSON */ }
+    const err = new Error(detail.message ?? `HTTP ${res.status}`);
+    err.code = detail.code ?? 'http_error';
+    throw err;
+  }
+  return res.json();
+}
+
+/** POST /api/chat/proposals/{id}/apply — the user accepts a change the model proposed.
+ *  @returns {{ proposal, result }}  result has new_rpn/priority (score) or unlocked (scenario) */
+export const applyProposal   = (proposalId) => _proposalCall(proposalId, 'apply');
+
+/** POST /api/chat/proposals/{id}/dismiss — the user declines it. */
+export const dismissProposal = (proposalId) => _proposalCall(proposalId, 'dismiss');
+
+// ── Reasoning level (B-023) ──────────────────────────────────────────────────
+
+/** GET /api/settings/reasoning → { level, effective, supported, token_multiplier } */
+export async function getReasoning() {
+  const res = await fetch(`${BASE}/api/settings/reasoning`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/** PATCH /api/settings/reasoning — set the level (off | low | medium | high). */
+export async function setReasoning(level) {
+  const res = await fetch(`${BASE}/api/settings/reasoning`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// ── Provider API keys (B-022) ────────────────────────────────────────────────
+
+/**
+ * GET /api/settings/providers — providers with masked key status.
+ * @returns {Array<{id, display, key_set, key_hint, source}>}
+ */
+export async function getProviders() {
+  const res = await fetch(`${BASE}/api/settings/providers`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/** PUT /api/settings/providers/{id}/key — store a provider API key. */
+export async function setProviderKey(providerId, apiKey) {
+  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/key`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+/** DELETE /api/settings/providers/{id}/key — remove a stored key. */
+export async function deleteProviderKey(providerId) {
+  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/key`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 // ── Portfolio / Project hierarchy (B-007) ────────────────────────────────────
 
 function _mapProject(p) {

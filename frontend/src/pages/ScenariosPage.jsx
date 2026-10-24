@@ -60,10 +60,10 @@ function ContextCard({ ctx }) {
           {hasCtx && (
             <div>
               <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">README / Business Context</p>
-              <div
-                className="text-xs text-blue-900 leading-relaxed prose prose-xs max-w-none"
-                dangerouslySetInnerHTML={{ __html: ctx.business_context }}
-              />
+              {/* Plain text only: the README comes from the scanned repository and is untrusted (ADR-017) */}
+              <p className="text-xs text-blue-900 leading-relaxed whitespace-pre-wrap break-words">
+                {stripHtml(ctx.business_context)}
+              </p>
             </div>
           )}
           <div className="grid grid-cols-2 gap-4">

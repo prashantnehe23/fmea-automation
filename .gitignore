@@ -20,6 +20,9 @@ frontend/dist/
 .env.local
 .env.*.local
 
+# Runtime settings incl. user-entered API keys (B-022)
+core/settings.json
+
 # IDE
 .vscode/
 .idea/

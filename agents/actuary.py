@@ -17,6 +17,7 @@ import json
 
 from core.llm import call_llm, extract_json_text
 from core.models import ControlAssessment, FailureMode, RiskScore, SystemContext
+from core.untrusted import as_data_block
 
 _SCORING_DEFINITIONS = """
 SEVERITY (1–10) — Impact to business operations IF this failure occurs.
@@ -204,9 +205,10 @@ def score_all_failures(
     new_scored: list[RiskScore] = []
     if new_failures:
         prompt = _build_batch_prompt(new_failures, new_controls, context)
-        if business_context:
+        if as_data_block("business_context", business_context):
             prompt = (
-                f"Business context for severity calibration: {business_context}\n\n" + prompt
+                "Business context for severity calibration:\n"
+                + as_data_block("business_context", business_context) + "\n\n" + prompt
             )
         response = call_llm(prompt, max_tokens=6000)
         raw_list = json.loads(extract_json_text(response))

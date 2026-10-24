@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import Header  from './components/Header';
 import ScanPage        from './pages/ScanPage';
@@ -7,6 +7,7 @@ import ScoringPage     from './pages/ScoringPage';
 import MitigationsPage from './pages/MitigationsPage';
 import RemediationPage from './pages/RemediationPage';
 import DashboardPage   from './pages/DashboardPage';
+import ChatPanel       from './components/ChatPanel';
 import {
   PROCESS_STEPS,
   PERSONA_PRIMARY,
@@ -15,6 +16,7 @@ import {
 import {
   normalizeScanResult,
   getContextSummary,
+  getScoringAdjustments,
   listPortfolios,
   createPortfolio,
   createProject,
@@ -36,6 +38,7 @@ const KEY_HIERARCHY       = 'fmea_hierarchy_v2';
 const KEY_HISTORY         = 'fmea_scan_history_v2';
 const KEY_SEL             = 'fmea_sel_v2';
 const KEY_MIGRATION_DONE  = 'fmea_migration_v1_done'; // prevents double-run under React StrictMode
+const KEY_CHAT_OPEN       = 'fmea_chat_open_v1';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -106,6 +109,18 @@ async function _migrateHierarchy(localHierarchy, localScanHistory) {
   return { newHierarchy, remappedHistory };
 }
 
+// Score adjustments (Scoring page or chat) override the scan's scores for display, so a
+// change shows immediately; the backend applies the same overlay to locked scores on rescan.
+function applyAdjustments(risks, adjustments) {
+  if (!Object.keys(adjustments).length) return risks;
+  return risks.map(r => {
+    const a = adjustments[r.name];
+    if (!a) return r;
+    return { ...r, s: a.new_s, o: a.new_o, d: a.new_d, rpn: a.new_rpn,
+             priority: a.priority || r.priority, adjusted: true, original_rpn: r.rpn, adjusted_by: a.source };
+  });
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -117,15 +132,18 @@ export default function App() {
   const [persona, setPersona] = useState('developer');
   const [step,    setStep]    = useState('scan');
   const [scope,   setScope]   = useState('project');
+  const [chatOpen, setChatOpen] = useState(() => ls(KEY_CHAT_OPEN, false));
   const [sel,     setSel]     = useState(init.sel);
 
   const [hierarchy,   setHierarchyState]   = useState(init.hierarchy);
   const [scanHistory, setScanHistoryState] = useState(init.scanHistory);
   const [scanResult,  setScanResult]       = useState(init.scanResult);
   const [liveScanId,  setLiveScanId]       = useState(init.liveScanId);
+  const [adjustments, setAdjustments]     = useState({});   // failure_mode → latest score adjustment
 
   // Ref lets the project-switch effect always read latest scanHistory without
   // re-firing on every scan (we only want to fire on project *selection* changes)
+  const workspaceIdRef = useRef(null);
   const scanHistoryRef = useRef(init.scanHistory);
   scanHistoryRef.current = scanHistory;
 
@@ -162,6 +180,19 @@ export default function App() {
     }
     bootstrap();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshAdjustments = (wsId = workspaceIdRef.current) => {
+    if (!wsId) { setAdjustments({}); return; }
+    getScoringAdjustments(wsId)
+      .then(rows => {
+        const latest = {};
+        for (const row of rows) if (!(row.failure_mode in latest)) latest[row.failure_mode] = row;   // newest first
+        setAdjustments(latest);
+      })
+      .catch(() => {});   // non-critical: scores simply show as scanned
+  };
+
+  const toggleChat = () => setChatOpen(v => { lsSave(KEY_CHAT_OPEN, !v); return !v; });
 
   // ── Persist sel whenever it changes ─────────────────────────────────────────
   useEffect(() => { lsSave(KEY_SEL, sel); }, [sel]);
@@ -256,9 +287,10 @@ export default function App() {
   // For project/component scope: use the active scan result.
   // For portfolio/org scope: aggregate risks from every scanned project in scope,
   // tagging each risk with the correct projectId and portfolioId for aggregation tables.
-  const liveRisks = (() => {
+  const liveRisks = useMemo(() => {
     if (scope === 'project' || scope === 'component') {
-      return scanResult ? normalizeScanResult(scanResult, sel) : null;
+      const risks = scanResult ? normalizeScanResult(scanResult, sel) : null;
+      return risks && applyAdjustments(risks, adjustments);
     }
     if (scope === 'portfolio') {
       const portfolio = hierarchy.find(p => p.id === sel.portfolioId);
@@ -287,10 +319,12 @@ export default function App() {
       return risks.length ? risks : null;
     }
     return null;
-  })();
+  }, [scope, scanResult, sel, hierarchy, scanHistory, adjustments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const liveContext   = scanResult ? getContextSummary(scanResult) : null;
   const workspaceId   = sel.projectId ? (scanHistory[sel.projectId]?.workspace_id ?? null) : null;
+  workspaceIdRef.current = workspaceId;
+  useEffect(() => { refreshAdjustments(workspaceId); }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Persona / scope switching ─────────────────────────────────────────────────
 
@@ -329,7 +363,8 @@ export default function App() {
         onAddProject={addProject}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header persona={persona} step={step} sel={sel} scope={scope} />
+        <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} />
+        <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto bg-gray-50">
           <Content
             persona={persona}
@@ -343,8 +378,19 @@ export default function App() {
             workspaceId={workspaceId}
             onScanComplete={onScanComplete}
             onUpdateProjectRepo={updateProjectRepo}
+            onAdjustmentSaved={refreshAdjustments}
           />
         </main>
+        {chatOpen && (
+          <ChatPanel
+            workspaceId={workspaceId}
+            persona={persona}
+            projectName={hierarchy.flatMap(p => p.projects).find(pr => pr.id === sel.projectId)?.name ?? null}
+            onClose={toggleChat}
+            onProposalApplied={() => refreshAdjustments()}
+          />
+        )}
+        </div>
       </div>
     </div>
   );

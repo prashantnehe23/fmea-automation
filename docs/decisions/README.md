@@ -21,3 +21,14 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-006](ADR-006-architecture-graph.md) | Architecture Graph: Code-Derived Dependency Graph over EA Tool Integration | Accepted | 2026-05-24 |
 | [ADR-007](ADR-007-react-frontend.md) | Frontend: React + Vite over Streamlit Extension | Accepted | 2026-05-28 |
 | [ADR-008](ADR-008-fastapi-layer.md) | API Layer: FastAPI over Direct Import / GraphQL / gRPC | Accepted | 2026-05-28 |
+| [ADR-009](ADR-009-observability.md) | Observability: Telemetry, Latency & Quality Monitoring | Accepted | 2026-06-07 |
+| [ADR-010](ADR-010-hierarchy-persistence.md) | Hierarchy Persistence: SQLite Replaces localStorage | Accepted | 2026-06-21 |
+| [ADR-011](ADR-011-multi-provider-llm.md) | Multi-Provider LLM via OpenAI-Compatible Registry | Accepted | 2026-10-18 |
+| [ADR-012](ADR-012-reasoning-control.md) | User-Controlled Reasoning Level with Automatic Token Scaling | Accepted | 2026-10-19 |
+| [ADR-013](ADR-013-adaptive-llm-output.md) | Adaptive Handling of Verbose and Truncated Model Output | Accepted | 2026-10-19 |
+| [ADR-014](ADR-014-results-chat.md) | Results Chat: Persistent Context with On-Demand Code Access | Accepted | 2026-10-19 |
+| [ADR-015](ADR-015-goal-based-discovery.md) | Goal-Based Vulnerability Discovery: Inventory, Hunt, Prove, Cover | Draft | 2026-10-19 |
+| [ADR-016](ADR-016-root-cause-taxonomy.md) | Root-Cause Classification: Security, Architectural, Engineering, Operational | Draft | 2026-10-19 |
+| [ADR-017](ADR-017-business-profile-system-map.md) | Business Profile and System Map; Untrusted README | Draft | 2026-10-19 |
+| [ADR-018](ADR-018-corrective-preventive-remediation.md) | Remediation Split: Corrective and Preventive; No Time-Boxed Roadmap | Draft | 2026-10-19 |
+| [ADR-019](ADR-019-finding-identity-and-locks.md) | Finding Identity, Lifecycle and Lock Semantics | Draft | 2026-10-19 |

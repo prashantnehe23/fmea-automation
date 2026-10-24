@@ -8,6 +8,9 @@ Tables:
   scans         — full pipeline result JSON, one row per run
   scenarios     — locked failure mode registry with embeddings for semantic dedup
   eval_history  — pipeline eval scores per scan
+  scan_snapshots / scan_sources — full findings + scanned files, for the results chat (B-025)
+  chat_threads / chat_messages  — persistent conversation per project (B-025)
+  chat_proposals                — changes the chat model proposed; applied only on user click (B-025)
 
 Design notes:
   - sqlite3 is in Python stdlib; zero extra dependencies.
@@ -110,6 +113,59 @@ CREATE TABLE IF NOT EXISTS adjustments (
     created_at    TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS scan_snapshots (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id  INTEGER NOT NULL REFERENCES workspaces(id),
+    scan_id       INTEGER,
+    fingerprint   TEXT    NOT NULL,
+    findings_json TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL,
+    UNIQUE(workspace_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS scan_sources (
+    snapshot_id INTEGER NOT NULL REFERENCES scan_snapshots(id),
+    path        TEXT    NOT NULL,
+    content     TEXT    NOT NULL,
+    PRIMARY KEY (snapshot_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS chat_threads (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL UNIQUE REFERENCES workspaces(id),
+    summary      TEXT,
+    created_at   TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id         INTEGER NOT NULL REFERENCES chat_threads(id),
+    role              TEXT    NOT NULL,
+    message_json      TEXT    NOT NULL,
+    snapshot_id       INTEGER,
+    activity_json     TEXT,
+    prompt_tokens     INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    cost_usd          REAL    DEFAULT 0,
+    summarised        INTEGER DEFAULT 0,
+    created_at        TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_proposals (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id    INTEGER NOT NULL REFERENCES chat_threads(id),
+    message_id   INTEGER,
+    snapshot_id  INTEGER,
+    kind         TEXT    NOT NULL,
+    failure_mode TEXT    NOT NULL,
+    payload_json TEXT    NOT NULL,
+    reason       TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'proposed',
+    result_json  TEXT,
+    created_at   TEXT    NOT NULL,
+    decided_at   TEXT
+);
+
 CREATE TABLE IF NOT EXISTS portfolios (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL,
@@ -135,12 +191,18 @@ def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(_DDL)
-    # Migrate existing telemetry table to add run_id column (idempotent)
-    try:
-        conn.execute("ALTER TABLE telemetry ADD COLUMN run_id TEXT")
-        conn.commit()
-    except Exception:
-        pass  # column already exists
+    # Idempotent column migrations for existing telemetry rows
+    for _col_sql in (
+        "ALTER TABLE telemetry ADD COLUMN run_id TEXT",
+        "ALTER TABLE telemetry ADD COLUMN cost_usd REAL DEFAULT 0",
+        "ALTER TABLE scenarios ADD COLUMN embed_model TEXT",
+        "ALTER TABLE adjustments ADD COLUMN source TEXT DEFAULT 'manual'",
+    ):
+        try:
+            conn.execute(_col_sql)
+            conn.commit()
+        except Exception:
+            pass  # column already exists
     conn.commit()
     return conn
 
@@ -273,6 +335,7 @@ def upsert_scenario(
     detection: int,
     rpn: int,
     embedding: bytes,
+    embed_model: str = "",
 ) -> None:
     """
     Insert scenario if not present (keyed on workspace_id + failure_mode).
@@ -285,8 +348,8 @@ def upsert_scenario(
                 """
                 INSERT OR IGNORE INTO scenarios
                     (workspace_id, first_fingerprint, failure_mode, attack_chain_json,
-                     severity, occurrence, detection, rpn, embedding, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     severity, occurrence, detection, rpn, embedding, embed_model, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     workspace_id,
@@ -298,6 +361,7 @@ def upsert_scenario(
                     detection,
                     rpn,
                     embedding,
+                    embed_model,
                     datetime.now().isoformat(),
                 ),
             )
@@ -315,7 +379,7 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
     try:
         rows = conn.execute(
             """
-            SELECT failure_mode, attack_chain_json, severity, occurrence, detection, rpn, embedding
+            SELECT failure_mode, attack_chain_json, severity, occurrence, detection, rpn, embedding, embed_model
             FROM scenarios WHERE workspace_id=?
             ORDER BY rpn DESC
             """,
@@ -327,6 +391,8 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
             # Deserialise numpy array from BLOB
             if item["embedding"]:
                 item["embedding"] = np.frombuffer(item["embedding"], dtype=np.float32)
+                # Rows stored before B-022 were all made by OpenAI's model
+                item["embed_model"] = item["embed_model"] or "text-embedding-3-small"
             else:
                 item["embedding"] = None
             if item.get("attack_chain_json"):
@@ -339,6 +405,22 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
         conn.close()
 
 
+def update_scenario_embedding(
+    workspace_id: int, failure_mode: str, embedding: bytes, embed_model: str
+) -> None:
+    """Replace a locked scenario's embedding (scores stay untouched)."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                "UPDATE scenarios SET embedding=?, embed_model=? WHERE workspace_id=? AND failure_mode=?",
+                (embedding, embed_model, workspace_id, failure_mode),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
 def delete_scenarios(workspace_id: int) -> None:
     """Wipe all locked scenarios for this workspace (user-triggered unlock)."""
     with _lock:
@@ -346,6 +428,22 @@ def delete_scenarios(workspace_id: int) -> None:
         try:
             conn.execute("DELETE FROM scenarios WHERE workspace_id=?", (workspace_id,))
             conn.commit()
+        finally:
+            conn.close()
+
+
+def delete_scenario(workspace_id: int, failure_mode: str) -> bool:
+    """Unlock one scenario (its locked scores are dropped; the next scan re-scores it).
+    Returns True if a locked scenario was removed."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                "DELETE FROM scenarios WHERE workspace_id=? AND failure_mode=?",
+                (workspace_id, failure_mode),
+            )
+            conn.commit()
+            return cur.rowcount > 0
         finally:
             conn.close()
 
@@ -437,6 +535,7 @@ def save_telemetry_span(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     error: str | None = None,
+    cost_usd: float = 0.0,
 ) -> None:
     """Record one agent execution span. Non-blocking best-effort — silently ignored on failure."""
     with _lock:
@@ -446,11 +545,11 @@ def save_telemetry_span(
                 """
                 INSERT INTO telemetry
                     (run_id, scan_id, workspace_id, agent, duration_ms,
-                     prompt_tokens, completion_tokens, error, ts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     prompt_tokens, completion_tokens, error, cost_usd, ts)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (run_id, scan_id, workspace_id, agent, duration_ms,
-                 prompt_tokens, completion_tokens, error,
+                 prompt_tokens, completion_tokens, error, cost_usd,
                  datetime.now().isoformat()),
             )
             conn.commit()
@@ -467,8 +566,9 @@ def save_adjustment(
     new_o: int,
     new_d: int,
     justification: str,
+    source: str = "manual",
 ) -> int:
-    """Persist a security-engineer score adjustment. Returns adjustment id."""
+    """Persist a score adjustment (source: "manual" or "chat"). Returns adjustment id."""
     new_rpn = new_s * new_o * new_d
     with _lock:
         conn = get_db()
@@ -476,11 +576,11 @@ def save_adjustment(
             cur = conn.execute(
                 """
                 INSERT INTO adjustments
-                    (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn,
-                 justification, datetime.now().isoformat()),
+                 justification, datetime.now().isoformat(), source or "manual"),
             )
             conn.commit()
             return cur.lastrowid  # type: ignore[return-value]
@@ -494,15 +594,298 @@ def get_adjustments(workspace_id: int) -> list[dict]:
     try:
         rows = conn.execute(
             """
-            SELECT id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at
+            SELECT id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at,
+                   COALESCE(source, 'manual') AS source
             FROM adjustments WHERE workspace_id=?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, id DESC
             """,
             (workspace_id,),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+# ── Results chat (B-025) ──────────────────────────────────────────────────────
+
+def save_scan_snapshot(
+    workspace_id: int,
+    scan_id: int | None,
+    fingerprint: str,
+    findings: dict,
+    files: dict[str, str],
+) -> int:
+    """Persist a scan's full findings and source files. Upserts on (workspace, fingerprint)."""
+    with _lock:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT id FROM scan_snapshots WHERE workspace_id=? AND fingerprint=?",
+                (workspace_id, fingerprint),
+            ).fetchone()
+            now = datetime.now().isoformat()
+            findings_json = json.dumps(findings, default=str)
+            if row:
+                snapshot_id = row["id"]
+                conn.execute(
+                    "UPDATE scan_snapshots SET scan_id=?, findings_json=?, created_at=? WHERE id=?",
+                    (scan_id, findings_json, now, snapshot_id),
+                )
+                conn.execute("DELETE FROM scan_sources WHERE snapshot_id=?", (snapshot_id,))
+            else:
+                cur = conn.execute(
+                    """INSERT INTO scan_snapshots
+                           (workspace_id, scan_id, fingerprint, findings_json, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (workspace_id, scan_id, fingerprint, findings_json, now),
+                )
+                snapshot_id = cur.lastrowid
+            conn.executemany(
+                "INSERT INTO scan_sources (snapshot_id, path, content) VALUES (?, ?, ?)",
+                [(snapshot_id, path, content) for path, content in files.items()],
+            )
+            conn.commit()
+            return snapshot_id  # type: ignore[return-value]
+        finally:
+            conn.close()
+
+
+def get_latest_snapshot(workspace_id: int) -> dict | None:
+    """Most recent snapshot for a project: {id, scan_id, fingerprint, findings, created_at}."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT id, scan_id, fingerprint, findings_json, created_at FROM scan_snapshots
+               WHERE workspace_id=? ORDER BY created_at DESC, id DESC LIMIT 1""",
+            (workspace_id,),
+        ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["findings"] = json.loads(item.pop("findings_json"))
+        return item
+    finally:
+        conn.close()
+
+
+def get_snapshot_files(snapshot_id: int) -> dict[str, str]:
+    """Return {path: content} for a snapshot, ordered by path."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT path, content FROM scan_sources WHERE snapshot_id=? ORDER BY path",
+            (snapshot_id,),
+        ).fetchall()
+        return {r["path"]: r["content"] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_or_create_chat_thread(workspace_id: int) -> dict:
+    """The single chat thread of a project: {id, workspace_id, summary}."""
+    with _lock:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT id, workspace_id, summary FROM chat_threads WHERE workspace_id=?",
+                (workspace_id,),
+            ).fetchone()
+            if row:
+                return dict(row)
+            cur = conn.execute(
+                "INSERT INTO chat_threads (workspace_id, created_at) VALUES (?, ?)",
+                (workspace_id, datetime.now().isoformat()),
+            )
+            conn.commit()
+            return {"id": cur.lastrowid, "workspace_id": workspace_id, "summary": None}
+        finally:
+            conn.close()
+
+
+def add_chat_message(
+    thread_id: int,
+    message: dict,
+    snapshot_id: int | None = None,
+    activity: list | None = None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    cost_usd: float = 0.0,
+) -> int:
+    """Append an OpenAI-format message ({"role", "content", ...}) to a thread."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """INSERT INTO chat_messages
+                       (thread_id, role, message_json, snapshot_id, activity_json,
+                        prompt_tokens, completion_tokens, cost_usd, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (thread_id, message["role"], json.dumps(message, default=str), snapshot_id,
+                 json.dumps(activity) if activity else None,
+                 prompt_tokens, completion_tokens, cost_usd, datetime.now().isoformat()),
+            )
+            conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
+        finally:
+            conn.close()
+
+
+def get_chat_messages(thread_id: int, include_summarised: bool = False) -> list[dict]:
+    """Messages oldest first: {id, role, message, snapshot_id, activity, tokens, cost_usd, ...}."""
+    conn = get_db()
+    try:
+        sql = "SELECT * FROM chat_messages WHERE thread_id=?"
+        if not include_summarised:
+            sql += " AND summarised=0"
+        rows = conn.execute(sql + " ORDER BY id", (thread_id,)).fetchall()
+        out = []
+        for r in rows:
+            item = dict(r)
+            item["message"] = json.loads(item.pop("message_json"))
+            item["activity"] = json.loads(item.pop("activity_json") or "[]")
+            out.append(item)
+        return out
+    finally:
+        conn.close()
+
+
+def fold_chat_history(thread_id: int, up_to_message_id: int, summary: str) -> None:
+    """Replace messages up to an id with a summary (they stay stored, flagged summarised)."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                "UPDATE chat_messages SET summarised=1 WHERE thread_id=? AND id<=?",
+                (thread_id, up_to_message_id),
+            )
+            conn.execute("UPDATE chat_threads SET summary=? WHERE id=?", (summary, thread_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def get_chat_totals(thread_id: int) -> dict:
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(prompt_tokens),0) p, COALESCE(SUM(completion_tokens),0) c,
+                      COALESCE(SUM(cost_usd),0) cost FROM chat_messages WHERE thread_id=?""",
+            (thread_id,),
+        ).fetchone()
+        return {"prompt_tokens": row["p"], "completion_tokens": row["c"],
+                "cost_usd": round(row["cost"], 6)}
+    finally:
+        conn.close()
+
+
+def get_chat_thread(thread_id: int) -> dict | None:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id, workspace_id, summary FROM chat_threads WHERE id=?",
+                           (thread_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def set_proposal_result(proposal_id: int, result: dict) -> None:
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("UPDATE chat_proposals SET result_json=? WHERE id=?",
+                         (json.dumps(result), proposal_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def create_proposal(thread_id: int, snapshot_id: int | None, kind: str, failure_mode: str,
+                    payload: dict, reason: str) -> int:
+    """Record a change proposed by the chat model. Nothing is applied until the user decides."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """INSERT INTO chat_proposals
+                       (thread_id, snapshot_id, kind, failure_mode, payload_json, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (thread_id, snapshot_id, kind, failure_mode, json.dumps(payload), reason,
+                 datetime.now().isoformat()),
+            )
+            conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
+        finally:
+            conn.close()
+
+
+def _proposal_row(row) -> dict:
+    item = dict(row)
+    item["payload"] = json.loads(item.pop("payload_json"))
+    item["result"] = json.loads(item.pop("result_json") or "null")
+    return item
+
+
+def get_proposal(proposal_id: int) -> dict | None:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM chat_proposals WHERE id=?", (proposal_id,)).fetchone()
+        return _proposal_row(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_proposals(thread_id: int) -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM chat_proposals WHERE thread_id=? ORDER BY id", (thread_id,)
+        ).fetchall()
+        return [_proposal_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def attach_proposals_to_message(proposal_ids: list[int], message_id: int) -> None:
+    if not proposal_ids:
+        return
+    with _lock:
+        conn = get_db()
+        try:
+            conn.executemany("UPDATE chat_proposals SET message_id=? WHERE id=?",
+                             [(message_id, pid) for pid in proposal_ids])
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def decide_proposal(proposal_id: int, new_status: str, result: dict | None = None) -> bool:
+    """Atomically move a proposal out of 'proposed'. Returns False if it was already decided,
+    which is what makes Apply / Dismiss idempotent even under concurrent clicks."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """UPDATE chat_proposals SET status=?, result_json=?, decided_at=?
+                   WHERE id=? AND status='proposed'""",
+                (new_status, json.dumps(result) if result is not None else None,
+                 datetime.now().isoformat(), proposal_id),
+            )
+            conn.commit()
+            return cur.rowcount == 1
+        finally:
+            conn.close()
+
+
+def reopen_proposal(proposal_id: int) -> None:
+    """Undo a claim when applying failed, so the user can retry."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("UPDATE chat_proposals SET status='proposed', result_json=NULL, decided_at=NULL WHERE id=?",
+                         (proposal_id,))
+            conn.commit()
+        finally:
+            conn.close()
 
 
 # ── Portfolio / Project hierarchy (B-007) ─────────────────────────────────────
@@ -682,7 +1065,8 @@ def get_telemetry_summary(workspace_id: int, n_scans: int = 20) -> dict:
             placeholders = ",".join("?" * len(run_ids))
             spans = conn.execute(
                 f"""
-                SELECT agent, duration_ms, prompt_tokens, completion_tokens, error, run_id
+                SELECT agent, duration_ms, prompt_tokens, completion_tokens,
+                       error, run_id, cost_usd
                 FROM telemetry
                 WHERE workspace_id=? AND run_id IN ({placeholders})
                 ORDER BY id ASC
@@ -728,12 +1112,72 @@ def get_telemetry_summary(workspace_id: int, n_scans: int = 20) -> dict:
             for r in reversed(eval_rows)
         ]
 
+        # Cost summary — per-run totals for trend + last scan breakdown
+        cost_summary: dict = {
+            "last_scan_usd": 0.0,
+            "per_agent_usd": {},
+            "cost_trend": [],
+            "projected_monthly_usd": 0.0,
+        }
+        if run_ids:
+            run_cost_rows = conn.execute(
+                f"""
+                SELECT run_id, SUM(cost_usd) AS total_usd, MAX(ts) AS run_ts
+                FROM telemetry
+                WHERE workspace_id=? AND run_id IN ({placeholders})
+                GROUP BY run_id
+                ORDER BY run_ts ASC
+                """,
+                [workspace_id, *run_ids],
+            ).fetchall()
+            run_cost_rows = [dict(r) for r in run_cost_rows]
+
+            per_agent: dict[str, float] = {}
+            for s in spans:
+                if s["run_id"] == last_run_id:
+                    agent = s["agent"]
+                    per_agent[agent] = round(per_agent.get(agent, 0.0) + (s["cost_usd"] or 0.0), 6)
+
+            last_scan_usd = next(
+                (r["total_usd"] or 0.0 for r in run_cost_rows if r["run_id"] == last_run_id), 0.0
+            )
+
+            cost_trend = [
+                {"timestamp": r["run_ts"], "total_usd": round(r["total_usd"] or 0.0, 6)}
+                for r in run_cost_rows
+            ]
+
+            projected = 0.0
+            if len(run_cost_rows) >= 2:
+                from datetime import datetime as _dt
+                t_first = _dt.fromisoformat(run_cost_rows[0]["run_ts"])
+                t_last  = _dt.fromisoformat(run_cost_rows[-1]["run_ts"])
+                span_days = max((t_last - t_first).total_seconds() / 86400, 1 / 24)
+                avg_cost = sum(r["total_usd"] or 0.0 for r in run_cost_rows) / len(run_cost_rows)
+                projected = round(avg_cost * (len(run_cost_rows) / span_days) * 30, 2)
+
+            cost_summary = {
+                "last_scan_usd":        round(last_scan_usd, 6),
+                "per_agent_usd":        per_agent,
+                "cost_trend":           cost_trend,
+                "projected_monthly_usd": projected,
+            }
+
+        # Chat spend (B-025) is recorded as agent "chat" spans outside any scan run
+        chat_row = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS n FROM telemetry "
+            "WHERE workspace_id=? AND agent='chat'", (workspace_id,)
+        ).fetchone()
+        cost_summary["chat_usd"] = round(chat_row["usd"], 6)
+        cost_summary["chat_turns"] = chat_row["n"]
+
         return {
             "last_scan_latency": last_scan_latency,
             "agent_avg_ms": agent_avg_ms,
             "error_rate": error_rate,
             "quality_trend": quality_trend,
             "total_spans": total,
+            "cost_summary": cost_summary,
         }
     finally:
         conn.close()

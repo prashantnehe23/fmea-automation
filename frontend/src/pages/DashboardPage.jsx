@@ -36,6 +36,109 @@ function Sparkline({ points }) {
   );
 }
 
+// ── Cost panel ────────────────────────────────────────────────────────────────
+
+function CostSparkline({ points }) {
+  if (!points.length) return <span className="text-xs text-gray-300">No data</span>;
+  const vals = points.map(p => p.total_usd);
+  const min = Math.min(...vals, 0);
+  const max = Math.max(...vals, 0.001);
+  const W = 120, H = 32, PAD = 2;
+  const x = (i) => PAD + (i / Math.max(vals.length - 1, 1)) * (W - PAD * 2);
+  const y = (v) => H - PAD - ((v - min) / (max - min)) * (H - PAD * 2);
+  const d = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return (
+    <svg width={W} height={H} className="overflow-visible">
+      <path d={d} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx={x(vals.length - 1)} cy={y(vals[vals.length - 1])} r="2.5" fill="#6366f1" />
+    </svg>
+  );
+}
+
+function CostPanel({ workspaceId }) {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId) { setLoading(false); return; }
+    setLoading(true);
+    getTelemetry(workspaceId)
+      .then(d => { setData(d?.cost_summary ?? null); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [workspaceId]);
+
+  if (!workspaceId || loading || !data) return null;
+
+  const agents = Object.entries(data.per_agent_usd ?? {});
+  const maxAgent = Math.max(...agents.map(([, v]) => v), 0.000001);
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm space-y-4">
+      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cost Tracking</h3>
+
+      {/* Summary row */}
+      <div className="flex gap-4">
+        <div>
+          <p className="text-xs text-gray-400">Last scan</p>
+          <p className="text-lg font-bold text-gray-800">
+            ${(data.last_scan_usd ?? 0).toFixed(4)}
+          </p>
+        </div>
+        {data.chat_usd > 0 && (
+          <div className="border-l border-gray-100 pl-4">
+            <p className="text-xs text-gray-400">Chat ({data.chat_turns} questions)</p>
+            <p className="text-lg font-bold text-blue-600">
+              ${data.chat_usd.toFixed(4)}
+            </p>
+          </div>
+        )}
+        {data.projected_monthly_usd > 0 && (
+          <div className="border-l border-gray-100 pl-4">
+            <p className="text-xs text-gray-400">Projected / month</p>
+            <p className="text-lg font-bold text-indigo-600">
+              ${data.projected_monthly_usd.toFixed(2)}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Per-agent bars */}
+      {agents.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 mb-2">Last Scan — Cost by Agent</p>
+          {agents.sort(([, a], [, b]) => b - a).map(([agent, usd]) => {
+            const pct = Math.round((usd / maxAgent) * 100);
+            return (
+              <div key={agent} className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs text-gray-500 w-20 flex-shrink-0">
+                  {AGENT_LABEL[agent] ?? agent}
+                </span>
+                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-indigo-400 transition-all" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-xs font-mono text-gray-500 w-16 text-right flex-shrink-0">
+                  ${usd.toFixed(4)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Cost trend */}
+      {(data.cost_trend ?? []).length > 1 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 mb-2">
+            Cost Trend
+            <span className="font-normal text-gray-400 ml-1">({data.cost_trend.length} scans)</span>
+          </p>
+          <CostSparkline points={data.cost_trend} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── System Health panel ───────────────────────────────────────────────────────
 
 function SystemHealthPanel({ workspaceId }) {
@@ -293,6 +396,9 @@ export default function DashboardPage({ persona, sel, scope, liveRisks, liveCont
               </div>
             ))}
           </div>
+
+          {/* Cost Tracking */}
+          <CostPanel workspaceId={workspaceId} />
 
           {/* System Health */}
           <SystemHealthPanel workspaceId={workspaceId} />

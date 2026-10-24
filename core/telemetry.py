@@ -32,10 +32,13 @@ def set_scan_context(scan_id: int | None, workspace_id: int | None) -> None:
     """
     Store (scan_id, workspace_id) in thread-local state for agent_span() to read.
     Generates a fresh run_id UUID so all spans in this pipeline run are linked.
+    Captures the active model at scan start for per-span cost attribution.
     """
+    from core.llm import get_model_name
     _ctx.scan_id = scan_id
     _ctx.workspace_id = workspace_id
     _ctx.run_id = str(uuid.uuid4())
+    _ctx.model = get_model_name()
 
 
 def update_scan_id(scan_id: int) -> None:
@@ -93,7 +96,10 @@ def _record(
 ) -> None:
     """Write one telemetry span to SQLite. Silently ignored on any error."""
     try:
+        from core.costs import compute_cost
         import memory.db as _db
+        model = getattr(_ctx, "model", None) or "gpt-5.1"
+        cost_usd = compute_cost(model, prompt_tokens, completion_tokens)
         _db.save_telemetry_span(
             run_id=getattr(_ctx, "run_id", None),
             scan_id=getattr(_ctx, "scan_id", None),
@@ -103,6 +109,7 @@ def _record(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             error=error,
+            cost_usd=cost_usd,
         )
     except Exception:
         pass  # telemetry must never crash the pipeline

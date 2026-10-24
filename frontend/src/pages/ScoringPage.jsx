@@ -112,7 +112,7 @@ function ScoreSlider({ label, dim, colorClass, hint, value, rationale, onChange,
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy = [], workspaceId }) {
+export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy = [], workspaceId, onAdjustmentSaved }) {
   const risks  = liveRisks ?? [];
   const label  = getSelectionLabel(sel, scope, hierarchy);
 
@@ -142,7 +142,7 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
 
   useEffect(() => {
     if (liveRisks?.length) {
-      const first = liveRisks[0];
+      const first = liveRisks.find(r => r.name === selRisk?.name) ?? liveRisks[0];   // keep the open risk
       setSelRisk(first);
       setAdj({ s: first.s, o: first.o, d: first.d });
       setReason('');
@@ -166,6 +166,7 @@ export default function ScoringPage({ persona, sel, scope, liveRisks, hierarchy 
         await postScoringAdjustment(workspaceId, selRisk.name, adj.s, adj.o, adj.d, reason);
         entry.saved = true;
         setSaveState('saved');
+        onAdjustmentSaved?.();
       } catch {
         setSaveState('error');
       }

@@ -22,10 +22,6 @@ from core.models import (
     ValidationResult,
 )
 
-# gpt-4.1 pricing (USD per 1M tokens)
-_INPUT_COST_PER_M = 2.00
-_OUTPUT_COST_PER_M = 8.00
-
 # Rough per-call token estimates (input, output) for each agent type after batching
 _CALL_TOKEN_ESTIMATES: dict[str, tuple[int, int]] = {
     "surveyor":          (3_000,    800),
@@ -316,7 +312,7 @@ def _eval_sre(
 def _estimate_cost(llm_calls: int, scenario_count: int) -> float:
     """
     Rough USD cost estimate based on known call structure after batching.
-    Assumes gpt-4o pricing. Actual cost depends on prompt/code size.
+    Priced at the active model's rates (core/costs.py). Actual cost depends on prompt/code size.
     """
     total_input = total_output = 0
 
@@ -332,9 +328,9 @@ def _estimate_cost(llm_calls: int, scenario_count: int) -> float:
     total_input += inp * scenario_count
     total_output += out * scenario_count
 
-    cost = (total_input / 1_000_000 * _INPUT_COST_PER_M +
-            total_output / 1_000_000 * _OUTPUT_COST_PER_M)
-    return round(cost, 4)
+    from core.costs import compute_cost
+    from core.llm import get_model_name
+    return round(compute_cost(get_model_name(), total_input, total_output), 4)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────────

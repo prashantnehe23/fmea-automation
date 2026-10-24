@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from api.schemas import ScanRequest, serialize_result
 from api.sse import sse_event
 from api.store import build_workspace, next_scan_id, scan_store
+from core.chat import persist_scan_for_chat
 from workflows.fmea_pipeline import run_fmea
 
 router = APIRouter()
@@ -78,6 +79,7 @@ async def submit_scan(req: ScanRequest):
             "code": req.code,
             "workspace": req.workspace,
         }
+        persist_scan_for_chat(serialized, req.code)  # B-025: results chat memory
 
         yield sse_event({"stage": "complete", "scan_id": scan_id, "result": serialized})
 
