@@ -1,12 +1,12 @@
 # FMEA Platform — Product Backlog
 
-> Last updated: 2026-06-07  
+> Last updated: 2026-10-24 (restructured by status; agent-by-agent review added B-033..B-036)  
 > Single source of truth — `docs/BACKLOG.md`  
-> Status: `[x]` Done · `[~]` In progress · `[ ]` Not started
+> Status: `[x]` Done · `[~]` In progress · `[ ]` Not started · Priorities: P0 must-have, P1 next, P2 later, P3 strategic
 
 ---
 
-## Tier 0 — Shipped ✅
+## Shipped ✅
 
 | # | Item | Key files |
 |---|---|---|
@@ -17,7 +17,7 @@
 | [x] | Auto-remediation agent (code diff + pytest stub + before/after RPN + in-memory apply) | `agents/remediator.py`, `core/models.py` |
 | [x] | Four-level memory architecture (L1 workspace learning implemented) | `memory/workspace_store.py` — ADR-005 |
 | [x] | Eval / LLM-as-judge pipeline | `agents/validator.py`, `agents/evaluator.py` |
-| [x] | ADRs 001–008 | `docs/decisions/` |
+| [x] | ADRs 001–014 accepted (015–022 proposed, see `docs/decisions/README.md`) | `docs/decisions/` |
 | [x] | FastAPI API layer with SSE streaming (scan, remediation, github routers) | `api/main.py`, `api/routers/` — ADR-008 |
 | [x] | GitHub-first scan flow — README fetched for business context, entire repo scanned | `api/routers/github.py`, `core/github_fetcher.py` |
 | [x] | React + Vite + Tailwind frontend — 5 personas, 6 pages, scope-aware views | `frontend/` — ADR-007 |
@@ -39,10 +39,11 @@
 | [x] | User-Selectable Reasoning Level + Token Scaling (B-023) — Off/Low/Medium/High per model capability; evaluator cost uses active model rates | `core/reasoning.py`, `core/llm.py`, `api/routers/settings.py`, `Header.jsx` — ADR-012 |
 | [x] | Adaptive Handling of Verbose / Truncated Model Output (B-024) — wide budget, continuation, JSON recovery, safe salvage | `core/llm.py` — ADR-013 |
 | [x] | Results Chat (B-025) — persistent scan memory, streaming chat panel with code tools, model proposals the user applies or dismisses | `core/chat.py`, `core/llm.py`, `api/routers/chat.py`, `memory/db.py`, `ChatPanel.jsx`, `Markdown.jsx`, `App.jsx` — ADR-014 |
+| [x] | Untrusted README hardening (B-027 phase 0) — stored XSS closed; README is sanitised and reaches models only as a labelled data block | `core/untrusted.py`, `ScenariosPage.jsx`, `api/routers/github.py` — ADR-017 |
 
 ---
 
-## Tier 1 — P0: Must-have to complete the core loop ✅
+## Shipped — item details ✅
 
 ### B-001 · Expert Score Adjustment — Close the L2 Memory Loop `[x]` DONE
 **Why:** The Scoring page lets a security engineer propose RPN adjustments with justification. Those adjustments are currently local UI state only — never written back to the scenario registry. Without persistence, every rescan ignores human corrections.
@@ -64,8 +65,6 @@
 
 ---
 
-## Tier 2 — P1: High value, next sprint
-
 ### B-003 · Workspace Business Tier — User Configurable `[x]` DONE
 **Why:** `business_tier` and `user_type` are currently hardcoded to `'Tier 1'` and `'external_customers'` in ScanPage. These affect how the saboteur prioritises failure modes. They must come from the project definition.
 
@@ -80,24 +79,6 @@
 - [x] Workspace object sent to API reflects these values, not hardcoded strings
 
 **Shipped:** 2026-06-20 — `frontend/src/components/HierarchyTree.jsx` (form dropdowns), `frontend/src/App.jsx` (addProject signature + project object), `frontend/src/pages/ScanPage.jsx` (reads from project, fallback defaults)
-
----
-
-### B-004 · Scan History Page
-**Why:** Users cannot see previous scan runs for a project. There is no RPN trend, no way to compare two scans, and no record of when a risk was first detected.
-
-**Scope:**
-- New "History" sidebar tab (project scope only; `step: 'history'`)
-- Table: Scan date | Files scanned | Risks | Critical | Avg RPN | ⚡ Cache / 🔬 Fresh | New scenarios
-- Click a row to restore that scan's results across all pages
-- RPN trend sparkline (avg RPN across scans) using data already stored in `scanHistory` localStorage
-- Backend: `GET /api/history/{workspace_id}` → `get_all_scans()` from `memory/db.py`
-
-**Acceptance criteria:**
-- [ ] History tab visible in sidebar when a project is selected
-- [ ] Table lists all scans for the project with correct metadata
-- [ ] Clicking a past scan loads its results on Scenarios / Scoring / Mitigations pages
-- [ ] RPN sparkline shows trend over last N scans
 
 ---
 
@@ -140,6 +121,33 @@
 - [ ] Eval health sparkline visible on Dashboard for the selected project
 - [ ] Banner warning shown on Scan page when quality is degraded
 - [ ] API endpoint returns eval history correctly ordered by timestamp
+
+---
+
+### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage) `[x]` DONE
+**Why:** Portfolios and projects are stored in browser localStorage. This means the hierarchy is device-local, lost on clearing storage, and cannot be shared across team members. The DB already has a `workspaces` table; projects and portfolios should be rows, not localStorage keys.
+
+**Scope:**
+- `memory/db.py` — `portfolios`, `projects` tables; `create_portfolio`, `list_portfolios`, `delete_portfolio`, `create_project`, `update_project`, `delete_project`
+- `api/routers/workspace.py` — 6 new endpoints: `GET/POST /api/portfolios`, `DELETE /api/portfolios/{id}`, `POST /api/portfolios/{id}/projects`, `PATCH /api/projects/{id}`, `DELETE /api/projects/{id}`
+- `api/schemas.py` — `PortfolioIn`, `ProjectIn`, `ProjectPatch` models
+- `frontend/src/api.js` — `listPortfolios`, `createPortfolio`, `deletePortfolio`, `createProject`, `updateProject`, `deleteProject` + camelCase mappers
+- `frontend/src/App.jsx` — bootstrap effect (API-first, localStorage as cache); async `addPortfolio`/`addProject`/`updateProjectRepo`; one-time Option A migration (remap scanHistory keys)
+- `tests/test_hierarchy.py` — 6 tests covering all ACs
+- `docs/decisions/ADR-010-hierarchy-persistence.md` — new ADR
+
+**Migration strategy (Option A):** On first load after upgrade, if API is empty but localStorage has old hierarchy, sequential POST of each portfolio/project to API, scanHistory rekeyed to new integer IDs, old hierarchy key cleared, selection reset to empty.
+
+**Acceptance criteria:**
+- [ ] Creating a portfolio/project writes to SQLite, not just localStorage
+- [ ] Hierarchy loads from API on page load (localStorage used only as a cache/fallback)
+- [ ] Two browser tabs see the same hierarchy
+- [x] All 7 `tests/test_hierarchy.py` tests pass
+- [x] Existing test suite (48 tests total) still passes
+
+**ADR:** ADR-010
+
+**Shipped:** 2026-06-21 — `memory/db.py` (portfolios/projects tables + CRUD), `api/schemas.py` (PortfolioIn/ProjectIn/ProjectPatch), `api/routers/workspace.py` (6 new endpoints), `frontend/src/api.js` (6 new functions + camelCase mappers), `frontend/src/App.jsx` (bootstrap effect, async mutations, Option A migration with StrictMode guard), `tests/test_hierarchy.py` (7 tests), `docs/decisions/ADR-010-hierarchy-persistence.md`
 
 ---
 
@@ -439,58 +447,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### PROGRAMME · Scan Effectiveness — find every catastrophic scenario, explain the root, shorten the noise `[ ]` PROPOSED 2026-10-19
-
-**Goal:** make scans effective and insightful: no scenario capable of a catastrophic outcome is silently lost; every finding is verified against the code, classified by root cause, and comes with corrective and preventive actions; the business context is short. **Honest limit:** no tool can prove the absence of vulnerabilities, so the measurable goal is coverage plus evidenced verdicts plus explicit residual risk (ADR-015), tracked against a labelled benchmark (B-026).
-
-**Engineer decisions recorded 2026-10-19:** start with the XSS fix, then the benchmark (B-027 phase 0, then B-026); verification is static reasoning with code tools (no sandboxed exploit execution in the first release); default scan depth is Standard with Deep opt-in under a USD budget and Quick keeps today's single pass; actions carry now / next / later ordering bands but no dates.
-
-**Decisions (Draft; the choices above are confirmed, the ADRs as a whole still need approval):** [ADR-015](decisions/ADR-015-goal-based-discovery.md) goal-based discovery, [ADR-016](decisions/ADR-016-root-cause-taxonomy.md) root-cause taxonomy, [ADR-017](decisions/ADR-017-business-profile-system-map.md) business profile / system map, [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md) corrective / preventive split, [ADR-019](decisions/ADR-019-finding-identity-and-locks.md) finding identity and locks.
-
-**What the code review found (2026-10-19):**
-- Discovery is one LLM call over the whole code, capped at 7 scenarios (a billing cap); no coverage record; evidence is optional and never checked; the validator never sees the code; scenario linkage reads only the first 12,000 characters.
-- Locked scenarios share the cap, so with 7 locked a newly introduced vulnerability has no room.
-- The "category" of a scenario is keyword-matched from its name (`_extract_category`), e.g. "Unauthenticated API *key* overwrite" is filed as secrets.
-- The business context is the README's first 2,000 characters, rendered as raw HTML (`dangerouslySetInnerHTML`): a cross-site scripting hole in our own app, and the same untrusted text goes into every agent prompt.
-- The SRE agent is the biggest cost driver and produces Day 30/60/90 and Gantt data that the evaluator enforces.
-
-**Items and suggested priority (engineer decides):**
-
-| Item | Title | Suggested | Depends on |
-|---|---|---|---|
-| B-027 | Business Profile + System Map, untrusted-README hardening | P0 (XSS fix first), P1 rest | none |
-| B-026 | Scan effectiveness benchmark (ground-truth harness) | P0 | none |
-| B-030 | Corrective and Preventive remediation agents; retire 30-60-90 / Gantt | P1 | none (domain-aware preventive improves after B-029) |
-| B-029 | Root-cause classification (security / architectural / engineering / operational) | P1 | none; best after B-026 for labels |
-| B-031 | Finding identity, lifecycle and lock semantics | P1 | before B-028 phase D |
-| B-028 | Goal-based discovery engine (phases A-D) | P1 (core of the programme) | B-026, B-027, B-031 |
-| B-032 | Pipeline observability, cost estimate and budget guard for the new stages | P2 | B-028 |
-
-**Suggested order:** (1) B-027 phase 0 (XSS fix) immediately; (2) B-026 baseline so every later change is measured; (3) B-027 and B-030 in parallel, both low risk and visible; (4) B-029; (5) B-031, then B-028 phases A to D, each phase re-measured on B-026; (6) B-032 alongside B-028.
-
-**Estimated effort and cost (estimates, to be replaced by measurements from B-026):** B-027 small, B-026 medium, B-030 medium, B-029 small-medium, B-031 medium, B-028 large (four phases), B-032 small-medium. A deep scan is expected to cost several times today's ~$0.2-0.5 per scan and needs parallelism to stay within minutes; quick mode keeps today's cost.
-
----
-
-### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[ ]` PROPOSED — P0
-
-**Why:** "More effective" cannot be claimed without measuring. Today there is no ground truth, so recall (what we miss) and false positives are invisible, and every agent change is judged by feel.
-
-**Scope:**
-- `benchmarks/` (NEW) — 6-10 small seeded repositories (varied languages/frameworks, including at least one with a catastrophic path built from chained moderate issues) with a `truth.json` per repo: each real vulnerability with threat class, location, expected root-cause domain, catastrophic yes/no. This repository's own known issues (unauthenticated settings/chat endpoints, plaintext keys, README-to-HTML injection) form one labelled sample.
-- `benchmarks/score.py` (NEW) — runs a scan on each repo and reports recall, precision, **catastrophic recall**, evidence validity rate, root-cause agreement, cost, time, calls
-- `make bench` target; results stored as JSON for comparison across commits
-- Baseline run of the current pipeline recorded in this item
-
-**Acceptance criteria:**
-- [ ] At least 6 labelled benchmark repositories, each with a reviewed `truth.json` (engineer signs off the labels)
-- [ ] One command runs the benchmark and prints a comparison table (recall, precision, catastrophic recall, cost, time)
-- [ ] Matching of findings to truth is deterministic and documented (location plus threat class; semantic fallback logged)
-- [ ] Baseline numbers for the current pipeline are recorded here
-- [ ] Targets for B-028 are written into this item after the baseline (engineer approves)
-- [ ] Unit tests cover the scorer with synthetic scans (perfect, empty, partial, extra findings)
-
----
+## In progress
 
 ### B-027 · Business Profile + System Map; Untrusted-README Hardening `[~]` IN PROGRESS — phase 0 DONE, phase 1 pending
 
@@ -519,6 +476,212 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
+## Next — scan-effectiveness programme (in suggested order)
+
+### PROGRAMME · Scan Effectiveness — find every catastrophic scenario, explain the root, shorten the noise `[~]` IN PROGRESS (B-027 phase 0 done)
+
+**Goal:** make scans effective and insightful: no scenario capable of a catastrophic outcome is silently lost *or buried*; every finding is verified against the code, classified by root cause, and comes with corrective and preventive actions; the business context is short. **Honest limit:** no tool can prove the absence of vulnerabilities, so the measurable goal is coverage plus evidenced verdicts plus explicit residual risk (ADR-015), tracked against a labelled benchmark (B-026).
+
+**Engineer decisions recorded 2026-10-19:** start with the XSS fix, then the benchmark; verification is static reasoning with code tools (no sandboxed exploit execution in the first release); default scan depth is Standard with Deep opt-in under a USD budget and Quick keeps today's single pass; actions carry now / next / later ordering bands but no dates.
+
+**Decisions (Draft; the choices above are confirmed, the ADRs as a whole still need approval):** [ADR-015](decisions/ADR-015-goal-based-discovery.md) goal-based discovery, [ADR-016](decisions/ADR-016-root-cause-taxonomy.md) root-cause taxonomy, [ADR-017](decisions/ADR-017-business-profile-system-map.md) business profile / system map, [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md) corrective / preventive split, [ADR-019](decisions/ADR-019-finding-identity-and-locks.md) finding identity and locks, [ADR-020](decisions/ADR-020-severity-aware-prioritisation.md) severity-aware prioritisation, [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md) scan scope and secrets, [ADR-022](decisions/ADR-022-agent-roster-after-goal-based-discovery.md) agent roster.
+
+**What the code review found (2026-10-19):**
+- Discovery is one LLM call over the whole code, capped at 7 scenarios (a billing cap); no coverage record; evidence is optional and never checked; the validator never sees the code; scenario linkage reads only the first 12,000 characters.
+- Locked scenarios share the cap, so with 7 locked a newly introduced vulnerability has no room.
+- The "category" of a scenario is keyword-matched from its name (`_extract_category`).
+- The business context was the README's first 2,000 characters rendered as raw HTML (fixed in B-027 phase 0).
+- The SRE agent is the biggest cost driver and produces Day 30/60/90 and Gantt data that the evaluator enforces.
+
+**Added by the 2026-10-24 backlog review (agent-by-agent audit):**
+- The fetcher never shows the agents Dockerfiles, `.env`, Terraform, Makefiles, `.github/workflows`, lockfiles or web templates, and silently drops files beyond 300 KB (B-033).
+- Priority comes from RPN alone, so a severity-10 failure with low occurrence and detection is `Medium`; the validator can lower severity by 2 (B-034).
+- The controls assessor, scenario linkage, actuary, validator, judge, remediator, chat and learning memory had no stated future under the new design (B-035).
+- The verifier has no code-navigation tools beyond reading and text search (B-036).
+- Nothing tested hostile instructions hidden in code, run-to-run stability, or more than one model; added to B-026 and B-028.
+
+**Items, suggested priority and order (engineer decides):**
+
+| Order | Item | Title | Suggested | Depends on |
+|---|---|---|---|---|
+| 1 | B-027 | Business Profile + System Map (phase 0 XSS fix done) | P1 phase 1 | none |
+| 2 | B-026 | Scan effectiveness benchmark (ground-truth harness) | P0 | none |
+| 3 | B-034 | Severity-aware prioritisation and catastrophic guardrails | P0 | none (measured by B-026) |
+| 4 | B-033 | Scan scope and coverage transparency | P1 | none (baseline in B-026 shows the gap) |
+| 5 | B-030 | Corrective and Preventive remediation agents; retire 30-60-90 / Gantt | P1 | none |
+| 6 | B-029 | Root-cause classification | P1 | best after B-026 for labels |
+| 7 | B-036 | Code navigation toolkit | P1 | before B-028 phase B |
+| 8 | B-031 | Finding identity, lifecycle and lock semantics | P1 | before B-028 phase D |
+| 9 | B-028 | Goal-based discovery engine (phases A-D, includes budget guard and cost estimate) | P1 (core) | B-026, B-027, B-031, B-033, B-036 |
+| 10 | B-035 | Agent roster migration | P1 | B-028 phase B |
+| 11 | B-032 | Pipeline observability for the new stages (budget guard and estimate moved into B-028 phase D) | P2 | B-028 |
+
+**Effort and cost (estimates, to be replaced by measurements from B-026):** B-027 phase 1 small, B-026 medium, B-034 small, B-033 medium, B-030 medium, B-029 small-medium, B-036 medium, B-031 medium, B-028 large (four phases), B-035 medium, B-032 small-medium. A deep scan is expected to cost several times today's ~$0.2-0.5 per scan and needs parallelism to stay within minutes; quick mode keeps today's cost.
+
+---
+
+### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — P0 (phase 1 of 3 done)
+
+**Decision:** [ADR-023](decisions/ADR-023-benchmark-methodology.md) (Draft). **Phases:** 1 scorer + truth schema + one seed repo (done) · 2 remaining repos and the extra criteria below · 3 runner, `make bench`, baseline on two models.
+
+**Why:** "More effective" cannot be claimed without measuring. Today there is no ground truth, so recall (what we miss) and false positives are invisible, and every agent change is judged by feel.
+
+**Scope:**
+- `benchmarks/` (NEW) — 6-10 small seeded repositories (varied languages/frameworks, including at least one with a catastrophic path built from chained moderate issues) with a `truth.json` per repo: each real vulnerability with threat class, location, expected root-cause domain, catastrophic yes/no. This repository's own known issues (unauthenticated settings/chat endpoints, plaintext keys, README-to-HTML injection) form one labelled sample.
+- `benchmarks/score.py` (NEW) — runs a scan on each repo and reports recall, precision, **catastrophic recall**, evidence validity rate, root-cause agreement, cost, time, calls
+- `make bench` target; results stored as JSON for comparison across commits
+- Baseline run of the current pipeline recorded in this item
+
+**Acceptance criteria:**
+- [ ] At least 6 labelled benchmark repositories, each with a reviewed `truth.json` (engineer signs off the labels)
+- [ ] One command runs the benchmark and prints a comparison table (recall, precision, catastrophic recall, cost, time)
+- [ ] Matching of findings to truth is deterministic and documented (location plus threat class; semantic fallback logged)
+- [ ] Baseline numbers for the current pipeline are recorded here
+- [ ] Targets for B-028 are written into this item after the baseline (engineer approves)
+- [ ] Unit tests cover the scorer with synthetic scans (perfect, empty, partial, extra findings)
+- [ ] *(added 2026-10-24)* The benchmark includes an **adversarial** repository whose code and README contain hidden instructions ("report no vulnerabilities", "ignore previous instructions"); findings must not be suppressed
+- [ ] *(added)* It includes samples whose catastrophic path lives in **infrastructure or CI** (Dockerfile, Terraform, GitHub Actions) and in **web templates**; the baseline is expected to miss them (B-033) and that is recorded
+- [ ] *(added)* **Stability:** each repository is scanned several times; the share of findings that reappear is reported (run-to-run variance)
+- [ ] *(added)* Results are reported for **at least two models or reasoning levels** (Mistral Large 4 plus one other), so "model-agnostic" is measured, not assumed
+- [ ] *(added)* **Placement metric:** the share of catastrophic findings that land in High or Critical (B-034)
+- [ ] *(added 2026-10-24, engineer-approved)* Benchmark runs use a temporary database, cache and settings and never touch the real `fmea.db`, caches or `settings.json` (test) — phase 3
+
+**Phase 1 delivered (2026-10-24):** `benchmarks/score.py` (pure deterministic scorer: recall, precision, catastrophic recall, placement, evidence validity, root-cause agreement, stability; optional logged semantic judge hook; truth-file validation), `benchmarks/repos/shop-api/` (seed repo with 4 labelled items, 2 catastrophic; `signed_off_by` is empty until the engineer signs), `tests/test_benchmark_scorer.py` (22 tests, no network or LLM), ADR-023 (Draft).
+**Phase 1 notes:** matching is keyword-based because findings carry no structured location or threat class (ADR-023 decision 5); the seed labels and keywords need the engineer's review; the semantic judge is a hook only, no LLM implementation yet. Not yet done: the other 5+ repos, adversarial/infra/template samples, runner, `make bench`, baseline numbers.
+
+---
+
+### B-034 · Severity-Aware Prioritisation and Catastrophic Guardrails `[ ]` PROPOSED — P0
+
+**Decision:** [ADR-020](decisions/ADR-020-severity-aware-prioritisation.md). **Added by the 2026-10-24 backlog review.**
+
+**Why:** Priority comes from RPN alone, so a severity-10 failure with occurrence 3 and detection 3 (RPN 90) is `Medium`, and the validator may lower Severity by 2. Finding a catastrophic scenario is useless if it is then ranked as medium. The rule is also copied into four places.
+
+**Scope:**
+- One `priority_for(severity, occurrence, detection)` with severity floors (S ≥ 9 never below High; S = 10 with confirmed exploit and Detection ≥ 6 is Critical), thresholds in one configuration table; replaces the inline copies in the actuary, evaluator, pipeline, chat apply and scoring API
+- `priority_reason` shown next to the band
+- Catastrophic watchlist (every S ≥ 9) on results and dashboard regardless of RPN or lock
+- Validator cannot lower Severity below 9 unless the finding is unrealistic; expert adjustments below 9 on a watchlist item need a justification and are flagged in the audit trail
+- Priority derived on read so old scans and locked scores follow the rule without a migration
+
+**Acceptance criteria:**
+- [ ] S10 / O2 / D2 is `High` or above, with a stated reason (unit test); S9 / O1 / D1 is `High`
+- [ ] Bands for non-catastrophic scores are unchanged (existing band tests stay green)
+- [ ] Exactly one priority implementation exists in the codebase (a test fails if the old inline expression reappears)
+- [ ] The validator cannot take Severity from ≥ 9 to < 9 for a realistic finding (test with a fake model); an unrealistic finding may be lowered
+- [ ] An expert adjustment lowering Severity below 9 on a watchlist item is rejected without a justification and is flagged in the audit trail (Scoring page and chat Apply)
+- [ ] The watchlist lists all S ≥ 9 findings, including locked ones
+- [ ] Old stored scans show the new bands on display without migration
+- [ ] The benchmark (B-026) reports the share of catastrophic findings placed in High or above
+
+---
+
+### B-033 · Scan Scope and Coverage Transparency `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md). **Added by the 2026-10-24 backlog review.**
+
+**Why:** The fetcher decides silently what the agents can see. Dockerfiles, `.env`, Terraform, Makefiles, `.github/workflows`, lockfiles and web templates (`.html`, `.vue`, `.svelte`, `.ejs`, `.j2`) never reach any agent, and beyond 300 KB of text the remaining files are dropped with only a marker inside the code. A coverage ledger (B-028) can only cover what was fetched, so these are invisible holes, in exactly the files where infrastructure and CI catastrophes live.
+
+**Scope:**
+- `core/github_fetcher.py` + new `core/scan_scope.py`: per-scan **scope manifest** (path, included/excluded, reason), stored with the snapshot and shown in the results ("N files examined, M not examined")
+- Widen scope: Dockerfile*, docker-compose*, `*.tf`/`*.tfvars`/`*.hcl`, Makefile, `.github/workflows/*`, Kubernetes/Helm manifests, web templates, dependency manifests
+- Lockfiles parsed into a dependency inventory (names, versions) instead of dumped as text
+- No silent truncation: prioritise entry points, auth, data access and infrastructure first; list the rest as unexamined; unexamined files become `unresolved` ledger cells once B-028 exists
+- Secrets: redact values in `.env`-style files and recognised credential patterns before any text goes to a model; deterministic check reports a committed secrets file
+- Per-project include/exclude patterns, edited through the file-selection panel (B-005)
+
+**Acceptance criteria:**
+- [ ] Every scan stores a scope manifest with an explicit reason for every excluded path
+- [ ] The results show examined / not examined counts and the list of unexamined files
+- [ ] Dockerfile, compose, Terraform, GitHub Actions workflows, `.env*` and web templates are classified as in scope (tests on sample trees)
+- [ ] Secret values never appear in any prompt (test captures prompts for a repo containing a `.env` and an inline key); the key names are kept
+- [ ] A committed `.env` or private key is reported deterministically even if the model is never called (test)
+- [ ] A 600 KB repository produces a prioritised subset plus an explicit unexamined list, never a silent cut (test)
+- [ ] Include/exclude patterns persist per project and are honoured by the scan
+- [ ] Lockfiles yield a dependency inventory available to agents; raw lockfile text is not sent
+- [ ] Existing file selection (B-005), scans and chat keep working (regression tests)
+
+---
+
+### B-030 · Corrective and Preventive Remediation Agents; Retire 30-60-90 and Gantt `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md). **Supersedes:** B-010.
+
+**Why:** One SRE agent mixes fixing and preventing, costs the most, and invents timelines that delivery teams should own.
+
+**Scope:** `Action` model; `agents/corrective_agent.py` and `agents/preventive_agent.py` (NEW, run in parallel per finding, preventive chosen by root-cause domain when available); remove `roadmap_90_day`, `roadmap_tasks` and their coercion, evaluator and judge rules; Mitigations page with Corrective and Preventive sections and urgency bands (now / next / later, ordering only); remediator consumes corrective `code_fix` actions; legacy Streamlit dashboard and tests updated; chat `get_scenario_detail` updated; compat mapping for stored results; B-010 closed.
+
+**Acceptance criteria:**
+- [ ] Each finding has corrective actions and preventive actions, each with kind, target, verification, owner role and urgency band
+- [ ] No dates, day ranges or Gantt fields are generated or shown anywhere (grep and UI check)
+- [ ] The evaluator no longer requires Day 30/60/90 and has new rules: at least one corrective action with a verification, at least one preventive action, no action without a target
+- [ ] Preventive actions differ by root-cause domain in tests (architectural vs operational example)
+- [ ] The remediator generates diffs from corrective `code_fix` actions (existing remediator tests updated and green)
+- [ ] Old stored scans still render: `fixes` appear as corrective, `monitoring` and `resilience_upgrades` as preventive
+- [ ] SRE-related cost per scan is recorded before and after (B-021 telemetry) and not worse than before for the same input
+- [ ] B-010 is marked superseded; the 90-day roadmap UI and `agents/roadmap_agent` plan are removed from the backlog
+
+---
+
+### B-029 · Root-Cause Classification (Security / Architectural / Engineering / Operational) `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-016](decisions/ADR-016-root-cause-taxonomy.md)
+
+**Why:** Users need to see the root of each problem to route it to the right owner and spot systemic patterns.
+
+**Scope:** root-cause domain registry (rubric as data); Root-Cause Analyst agent (primary domain, contributing domains, root-cause chain, confidence); fields on the finding, registry and snapshot; badges and domain filter on Scenarios and Scoring pages; dashboard breakdown (share of risk by domain); chat tools expose domains; learning memory uses domains instead of keyword categories; works on today's findings and on B-028 findings.
+
+**Acceptance criteria:**
+- [ ] Every new finding has a primary domain from the four, optional contributing domains, a root-cause chain and a confidence
+- [ ] The rubric lives in a registry file; adding a domain needs no code change beyond the registry (test)
+- [ ] Benchmark root-cause agreement is recorded against `truth.json` (target set after baseline)
+- [ ] Scenarios page shows the domain badge and can filter by domain; the dashboard shows risk share per domain
+- [ ] The chat can answer "which problems are architectural?" from stored data (tool test)
+- [ ] `_extract_category` keyword matching is removed from the learning memory path; existing memory files still load
+- [ ] Old scans show "not classified" and do not error
+- [ ] Unit tests with a fake model cover coerce/fallback when the model returns an unknown domain
+
+---
+
+### B-036 · Code Navigation Toolkit for Agents `[ ]` PROPOSED — P1 (prerequisite of B-028 phase B)
+
+**Decision:** Addendum to [ADR-015](decisions/ADR-015-goal-based-discovery.md). **Added by the 2026-10-24 backlog review.**
+
+**Why:** The verifier must trace entry point → data flow → sink, but the only code tools are `read_file` and `search_code`. Without find-callers, find-definition, entry-point and sink lists, tracing is guesswork over text search and unreliable on large repositories. The same toolkit improves the chat (B-025) and underpins B-008 and B-013.
+
+**Scope:**
+- `core/code_index.py` (NEW): per-snapshot index of symbols (functions, classes, routes) with file/line; approximate call graph (callers/callees by name); Python through the standard `ast` module; other languages by text-based extractors with `confidence: low` until Tree-sitter grammars arrive (B-013)
+- Entry-point detectors (FastAPI/Flask/Django routes, Express routes, CLI mains, scheduled jobs, queue consumers, webhooks) and **sink** detectors (SQL execution, subprocess, `eval`/`exec`, file write, outbound HTTP, deserialisation, template rendering, secrets access)
+- Tools: `find_definition`, `find_callers`, `find_callees`, `list_entry_points`, `list_sinks`; same allowlist and size limits as the existing read-only tools; no file-system access beyond the stored snapshot
+- Registered with the chat (B-025) and the verifier (B-028B); the index is built lazily per snapshot and cached
+
+**Acceptance criteria:**
+- [ ] On test repositories the index finds FastAPI and Flask routes, callers across files, and sinks (unit tests)
+- [ ] Unsupported languages fall back to text search with `confidence: low` and a notice
+- [ ] Tool outputs are bounded in size and cannot reach paths outside the snapshot (allowlist test, as in B-025)
+- [ ] Index build time for a 300 KB repository is recorded and stays within the agreed bound
+- [ ] The chat can answer "who calls this function?" using the tools
+- [ ] With the toolkit the verifier's recall on the benchmark is measured against runs without it (B-026), and the difference is recorded here
+
+---
+
+### B-031 · Finding Identity, Lifecycle and Lock Semantics `[ ]` PROPOSED — P1
+
+**Decision:** [ADR-019](decisions/ADR-019-finding-identity-and-locks.md). **Revises:** parts of ADR-003 and B-001.
+
+**Why:** Locks keyed by name and sharing the cap do not fit uncapped, verified discovery, and users want to know what got fixed or regressed.
+
+**Scope:** stable finding identity (threat class + surface + sink anchors, embedding fallback); lifecycle states (new, confirmed, fixed, regressed, accepted, unresolved) with the causing scan; locked findings keep scores but never limit discovery; "locked but now refuted" shown for confirmation; migration of existing registry rows; chat tool and dashboard for "what changed since last scan".
+
+**Acceptance criteria:**
+- [ ] 7 locked findings plus a newly introduced vulnerability: the new one is reported (regression test for today's cap problem)
+- [ ] Same code returns identical results from the cache; changed code keeps locked scores and expert adjustments (existing behaviour tests stay green)
+- [ ] A finding refuted after a code fix becomes a `fixed` candidate shown for confirmation, not silently dropped or kept
+- [ ] A fixed finding that returns becomes `regressed`
+- [ ] Migration maps existing registry rows without losing locked scores (test on a copy of a real DB)
+- [ ] Identity survives a pure rename of the scenario text and a file move (tests)
+
+---
 
 ### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[ ]` PROPOSED — P1
 
@@ -545,64 +708,39 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - [ ] Works through the model-agnostic LLM layer on Mistral Large 4 and OpenAI request shapes; models without tool calling fall back to whole-file context with a notice
 - [ ] The UI shows coverage (examined / not examined), the attempt log per finding, and live progress; wall-clock for the benchmark deep scan is recorded and within the agreed bound
 - [ ] Existing scans, chat and proposals keep working on old and new results (compat tests)
+- [ ] *(added 2026-10-24)* Hunters, verifiers and the composer receive code only as delimited untrusted data; the adversarial benchmark repository does not suppress or alter findings (B-026)
+- [ ] *(added)* Files that were in scope but unexamined (B-033) appear as `unresolved` ledger cells and in the residual-risk list
+- [ ] *(added)* The cost estimate before a Deep scan and the USD budget guard ship with this item (moved from B-032), so Deep is never available without them
+- [ ] *(added)* Hypothesis sources include deterministic checks (B-033 secrets) and, later, cross-component patterns (B-009) and prior chains (B-019)
+- [ ] *(added)* The learning memory's count-based aggression level is no longer used (see B-035)
 
 ---
 
-### B-029 · Root-Cause Classification (Security / Architectural / Engineering / Operational) `[ ]` PROPOSED — P1
+### B-035 · Agent Roster Migration `[ ]` PROPOSED — P1 (alongside B-028 phase B)
 
-**Decision:** [ADR-016](decisions/ADR-016-root-cause-taxonomy.md)
+**Decision:** [ADR-022](decisions/ADR-022-agent-roster-after-goal-based-discovery.md). **Added by the 2026-10-24 backlog review.**
 
-**Why:** Users need to see the root of each problem to route it to the right owner and spot systemic patterns.
+**Why:** The programme redesigns discovery, classification, context and remediation but leaves the controls assessor, scenario linkage, actuary, validator, judge, remediator, chat and learning memory without a stated future; several now duplicate or contradict the new agents.
 
-**Scope:** root-cause domain registry (rubric as data); Root-Cause Analyst agent (primary domain, contributing domains, root-cause chain, confidence); fields on the finding, registry and snapshot; badges and domain filter on Scenarios and Scoring pages; dashboard breakdown (share of risk by domain); chat tools expose domains; learning memory uses domains instead of keyword categories; works on today's findings and on B-028 findings.
-
-**Acceptance criteria:**
-- [ ] Every new finding has a primary domain from the four, optional contributing domains, a root-cause chain and a confidence
-- [ ] The rubric lives in a registry file; adding a domain needs no code change beyond the registry (test)
-- [ ] Benchmark root-cause agreement is recorded against `truth.json` (target set after baseline)
-- [ ] Scenarios page shows the domain badge and can filter by domain; the dashboard shows risk share per domain
-- [ ] The chat can answer "which problems are architectural?" from stored data (tool test)
-- [ ] `_extract_category` keyword matching is removed from the learning memory path; existing memory files still load
-- [ ] Old scans show "not classified" and do not error
-- [ ] Unit tests with a fake model cover coerce/fallback when the model returns an unknown domain
-
----
-
-### B-030 · Corrective and Preventive Remediation Agents; Retire 30-60-90 and Gantt `[ ]` PROPOSED — P1
-
-**Decision:** [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md). **Supersedes:** B-010.
-
-**Why:** One SRE agent mixes fixing and preventing, costs the most, and invents timelines that delivery teams should own.
-
-**Scope:** `Action` model; `agents/corrective_agent.py` and `agents/preventive_agent.py` (NEW, run in parallel per finding, preventive chosen by root-cause domain when available); remove `roadmap_90_day`, `roadmap_tasks` and their coercion, evaluator and judge rules; Mitigations page with Corrective and Preventive sections and urgency bands (now / next / later, ordering only); remediator consumes corrective `code_fix` actions; legacy Streamlit dashboard and tests updated; chat `get_scenario_detail` updated; compat mapping for stored results; B-010 closed.
+**Scope (each keeps a Quick-depth path where noted):**
+- Controls assessor folded into the verifier (controls on the path and gaps become finding fields); linkage replaced by the chain composer plus anchor-based grouping
+- Actuary scores verified findings using the exploit narrative, observed controls and the profile's catastrophic outcomes
+- Validator re-scoped to calibration review with code access and the ADR-020 guardrails
+- LLM judge rubrics (data) for discovery quality, attempt logs, refutation reasoning, corrective and preventive action quality
+- Remediator closes the loop: the verifier re-attempts the exploit variants against the patched code (`fix_verified` / `fix_not_effective`), replacing the full re-scan for before/after RPN
+- Chat tools: coverage ledger, attempt log, residual risk; proposals to re-open a refuted finding for re-verification and to reclassify a root-cause domain
+- Learning memory: root-cause domains instead of keyword categories; coverage/yield instead of the aggression counter
 
 **Acceptance criteria:**
-- [ ] Each finding has corrective actions and preventive actions, each with kind, target, verification, owner role and urgency band
-- [ ] No dates, day ranges or Gantt fields are generated or shown anywhere (grep and UI check)
-- [ ] The evaluator no longer requires Day 30/60/90 and has new rules: at least one corrective action with a verification, at least one preventive action, no action without a target
-- [ ] Preventive actions differ by root-cause domain in tests (architectural vs operational example)
-- [ ] The remediator generates diffs from corrective `code_fix` actions (existing remediator tests updated and green)
-- [ ] Old stored scans still render: `fixes` appear as corrective, `monitoring` and `resilience_upgrades` as preventive
-- [ ] SRE-related cost per scan is recorded before and after (B-021 telemetry) and not worse than before for the same input
-- [ ] B-010 is marked superseded; the 90-day roadmap UI and `agents/roadmap_agent` plan are removed from the backlog
-
----
-
-### B-031 · Finding Identity, Lifecycle and Lock Semantics `[ ]` PROPOSED — P1
-
-**Decision:** [ADR-019](decisions/ADR-019-finding-identity-and-locks.md). **Revises:** parts of ADR-003 and B-001.
-
-**Why:** Locks keyed by name and sharing the cap do not fit uncapped, verified discovery, and users want to know what got fixed or regressed.
-
-**Scope:** stable finding identity (threat class + surface + sink anchors, embedding fallback); lifecycle states (new, confirmed, fixed, regressed, accepted, unresolved) with the causing scan; locked findings keep scores but never limit discovery; "locked but now refuted" shown for confirmation; migration of existing registry rows; chat tool and dashboard for "what changed since last scan".
-
-**Acceptance criteria:**
-- [ ] 7 locked findings plus a newly introduced vulnerability: the new one is reported (regression test for today's cap problem)
-- [ ] Same code returns identical results from the cache; changed code keeps locked scores and expert adjustments (existing behaviour tests stay green)
-- [ ] A finding refuted after a code fix becomes a `fixed` candidate shown for confirmation, not silently dropped or kept
-- [ ] A fixed finding that returns becomes `regressed`
-- [ ] Migration maps existing registry rows without losing locked scores (test on a copy of a real DB)
-- [ ] Identity survives a pure rename of the scenario text and a file move (tests)
+- [ ] In Standard and Deep depth no standalone controls-assessor or linkage call is made; controls and gaps are present on every verified finding (test)
+- [ ] Quick depth reproduces today's agents and cost (regression test)
+- [ ] The actuary prompt for a verified finding contains the exploit narrative and the profile's catastrophic outcomes (prompt test)
+- [ ] The validator receives code access and cannot breach the severity guardrails (test)
+- [ ] The judge rubric covers the new artifacts and loads from a data file (test)
+- [ ] After a generated patch the remediator reports `fix_verified` or `fix_not_effective` from the verifier's re-attempt and no full re-scan runs (test with fake model); the result updates the finding lifecycle (B-031)
+- [ ] The chat can answer "what was not examined?" and "why was X refuted?" from stored data, and a user can ask it to propose re-opening a refuted finding (the user clicks Apply, as in B-025)
+- [ ] `_extract_category` keyword matching and the aggression counter are no longer used; existing learning-memory files still load
+- [ ] Benchmark (B-026) shows no regression in precision after each migration step
 
 ---
 
@@ -612,10 +750,9 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 **Why:** More agents mean more cost and failure modes; users keep control only if they can see and bound them (B-021, B-023, B-018).
 
-**Scope:** telemetry spans per hunter/verifier/composer; cost estimate before a deep scan and live spend; budget settings in Settings; evaluator rules for coverage, evidence-verification rate, refuted/confirmed ratio, drift in findings between scans; dashboard panels.
+**Scope:** telemetry spans per hunter/verifier/composer; live spend (the *pre-scan cost estimate and budget guard moved into B-028 phase D* on 2026-10-24 so Deep never ships without them); evaluator rules for coverage, evidence-verification rate, refuted/confirmed ratio, drift in findings between scans; dashboard panels.
 
 **Acceptance criteria:**
-- [ ] Before a deep scan the UI shows an estimated cost range and the budget ceiling
 - [ ] Per-stage cost and duration are visible for the last scan (inventory, hunters, verifiers, composer, remediation)
 - [ ] Evaluator flags: coverage below target, evidence-verification rate below target, unresolved catastrophic cells, large drift versus the previous scan
 - [ ] Telemetry keeps working for old scans and the chat (agent `chat`) unchanged
@@ -623,34 +760,27 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-007 · Full Hierarchy Persistence in SQLite (Replace localStorage) `[x]` DONE
-**Why:** Portfolios and projects are stored in browser localStorage. This means the hierarchy is device-local, lost on clearing storage, and cannot be shared across team members. The DB already has a `workspaces` table; projects and portfolios should be rows, not localStorage keys.
+## Later — P2
+
+### B-004 · Scan History Page
+**Why:** Users cannot see previous scan runs for a project. There is no RPN trend, no way to compare two scans, and no record of when a risk was first detected.
 
 **Scope:**
-- `memory/db.py` — `portfolios`, `projects` tables; `create_portfolio`, `list_portfolios`, `delete_portfolio`, `create_project`, `update_project`, `delete_project`
-- `api/routers/workspace.py` — 6 new endpoints: `GET/POST /api/portfolios`, `DELETE /api/portfolios/{id}`, `POST /api/portfolios/{id}/projects`, `PATCH /api/projects/{id}`, `DELETE /api/projects/{id}`
-- `api/schemas.py` — `PortfolioIn`, `ProjectIn`, `ProjectPatch` models
-- `frontend/src/api.js` — `listPortfolios`, `createPortfolio`, `deletePortfolio`, `createProject`, `updateProject`, `deleteProject` + camelCase mappers
-- `frontend/src/App.jsx` — bootstrap effect (API-first, localStorage as cache); async `addPortfolio`/`addProject`/`updateProjectRepo`; one-time Option A migration (remap scanHistory keys)
-- `tests/test_hierarchy.py` — 6 tests covering all ACs
-- `docs/decisions/ADR-010-hierarchy-persistence.md` — new ADR
-
-**Migration strategy (Option A):** On first load after upgrade, if API is empty but localStorage has old hierarchy, sequential POST of each portfolio/project to API, scanHistory rekeyed to new integer IDs, old hierarchy key cleared, selection reset to empty.
+- New "History" sidebar tab (project scope only; `step: 'history'`)
+- Table: Scan date | Files scanned | Risks | Critical | Avg RPN | ⚡ Cache / 🔬 Fresh | New scenarios
+- Click a row to restore that scan's results across all pages
+- RPN trend sparkline (avg RPN across scans) using data already stored in `scanHistory` localStorage
+- Backend: `GET /api/history/{workspace_id}` → `get_all_scans()` from `memory/db.py`
 
 **Acceptance criteria:**
-- [ ] Creating a portfolio/project writes to SQLite, not just localStorage
-- [ ] Hierarchy loads from API on page load (localStorage used only as a cache/fallback)
-- [ ] Two browser tabs see the same hierarchy
-- [x] All 7 `tests/test_hierarchy.py` tests pass
-- [x] Existing test suite (48 tests total) still passes
+- [ ] History tab visible in sidebar when a project is selected
+- [ ] Table lists all scans for the project with correct metadata
+- [ ] Clicking a past scan loads its results on Scenarios / Scoring / Mitigations pages
+- [ ] RPN sparkline shows trend over last N scans
 
-**ADR:** ADR-010
-
-**Shipped:** 2026-06-21 — `memory/db.py` (portfolios/projects tables + CRUD), `api/schemas.py` (PortfolioIn/ProjectIn/ProjectPatch), `api/routers/workspace.py` (6 new endpoints), `frontend/src/api.js` (6 new functions + camelCase mappers), `frontend/src/App.jsx` (bootstrap effect, async mutations, Option A migration with StrictMode guard), `tests/test_hierarchy.py` (7 tests), `docs/decisions/ADR-010-hierarchy-persistence.md`
+> **Re-scope note (2026-10-24):** read history from the stored scan snapshots in SQLite (B-025) rather than browser localStorage, and add a "what changed" column from finding lifecycle states (new / fixed / regressed, B-031). Open since the first sprint; schedule after B-031.
 
 ---
-
-## Tier 3 — P2: Important, plan for next quarter
 
 ### B-008 · Interface-Aware Incremental Scanning (AST Extractor)
 **Why:** Scanning large codebases with full LLM pipeline on every rescan is expensive. The AST extractor identifies only functions whose interface or body changed since the last scan. Unchanged functions inherit locked scenarios at zero LLM cost.
@@ -670,6 +800,8 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **ADR:** ADR-004 (already written — this is the implementation)  
 **Note:** User has deferred this. Confirm priority before starting.
 
+> **Re-basing note (2026-10-24):** this item assumes the saboteur generates scenarios for changed functions. Under goal-based discovery (B-028) the unit of work is a coverage-ledger cell, so incremental scanning must become *re-verify the cells whose anchors changed plus re-inventory the diff*, and ADR-004 needs a revision. Also depends on B-036 (code index) and B-013. Still deferred by the user; re-confirm before starting.
+
 ---
 
 ### B-009 · Level 3 Memory — Cross-Component Pattern Recognition
@@ -686,6 +818,8 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - [ ] No false positives for unrelated vulnerability types
 
 **ADR:** ADR-005 (Level 3 row)
+
+> **Re-basing note (2026-10-24):** becomes a *hypothesis source* for the hunters of B-028 ("this pattern was confirmed in A, check B") and uses finding identity from B-031.
 
 ---
 
@@ -720,6 +854,8 @@ This is different from the existing scenario registry (which deduplicates within
 
 **ADR:** Requires new ADR extending ADR-005 (Level 4 memory — cross-workspace knowledge, opt-in for cross-customer sharing)  
 **Dependency:** B-018 (observability) recommended first — need quality signal to know which chains are trustworthy enough to save
+
+> **Re-basing note (2026-10-24):** retrieved chains seed the B-028 hunters (and the chain composer), not "the saboteur prompt", which Standard and Deep depth retire. Stored chains should carry the root-cause domain (B-029) and verification status, and only *confirmed* chains should be saved.
 
 ---
 
@@ -766,6 +902,8 @@ This is different from the existing scenario registry (which deduplicates within
 
 **Dependency:** B-018 (observability/telemetry) provides the quality trend data that makes improvement suggestions more targeted
 
+> **Re-basing note (2026-10-24):** the agent targets in the table (saboteur prompt, SRE prompt) become hunter, verifier, root-cause analyst, corrective and preventive agents. Evidence for suggestions should include verification outcomes and refutation reasons from B-028, not only validator confidence.
+
 ---
 
 ### B-010 · Gantt / 90-Day Remediation Roadmap — *proposed to be superseded by B-030 (awaiting approval of ADR-018)*
@@ -780,6 +918,8 @@ This is different from the existing scenario registry (which deduplicates within
 - [ ] Roadmap agent produces non-overlapping phases from the SRE plans
 - [ ] Gantt chart renders correctly for 5–20 failure modes
 - [ ] CSV export contains all columns needed for board distribution
+
+> **Status (2026-10-24):** pending approval of ADR-018 / B-030, which removes the 30/60/90 roadmap this item would visualise.
 
 ---
 
@@ -796,29 +936,31 @@ This is different from the existing scenario registry (which deduplicates within
 - [ ] Document includes all key FMEA outputs for the selected project
 - [ ] Readable without access to the app
 
+> **Re-basing note (2026-10-24):** the mitigation section exports corrective and preventive actions (B-030), not a roadmap, and should include coverage, residual risk and the catastrophic watchlist (B-028, B-034).
+
 ---
 
-## Tier 4 — P3: Future / strategic
+## Strategic — P3
 
 | # | Item | Notes |
 |---|---|---|
-| [ ] | **B-012 · CI/CD integration** (GitHub Actions / Jenkins) | Block PR merge if new Critical risks introduced. `POST /api/ci/check` returns pass/fail + risk delta. |
-| [ ] | **B-013 · Multi-language AST support** (TypeScript, Java, Go) | Extend `core/ast_extractor.py` with Tree-sitter grammars. Detect language from file extension. |
+| [ ] | **B-012 · CI/CD integration** (GitHub Actions / Jenkins) | Block PR merge if new Critical risks introduced. `POST /api/ci/check` returns pass/fail + risk delta. *(2026-10-24: use Standard depth with a budget; fail on new or regressed S ≥ 9 findings (B-034) and on unresolved catastrophic cells (B-028); needs B-031.)* |
+| [ ] | **B-013 · Multi-language AST support** (TypeScript, Java, Go) | Extend `core/ast_extractor.py` with Tree-sitter grammars. Detect language from file extension. *(2026-10-24: also feeds the code index of B-036, whose non-Python extractors are text-based until then.)* |
 | [ ] | **B-014 · IDE integration** (VS Code extension) | Right-click a function → "Run FMEA on this function". Inline risk annotations as diagnostics. |
 | [ ] | **B-015 · Authentication + multi-user support** | OAuth2 + JWT. Per-user workspace ownership. Role-based API access. Hard dependency for cloud/SaaS. |
-| [ ] | **B-016 · Slack / Teams alerting** | Webhook POST when new Critical risk registered or eval score drops. Configurable per workspace. |
+| [ ] | **B-016 · Slack / Teams alerting** | Webhook POST when new Critical risk registered or eval score drops. Configurable per workspace. *(2026-10-24: also alert on regressed findings (B-031), new S ≥ 9 findings (B-034) and unresolved catastrophic cells (B-028).)* |
 | [ ] | **B-017 · Level 4 memory — cross-customer anonymised patterns** | Opt-in. Anonymised embedding sharing across opted-in workspaces. Requires privacy review. See ADR-005. |
 
 ---
 
 ## Assumptions and constraints
 
-- B-001 (Lock UI) is the only item blocking a complete demo of the deterministic-results feature.
-- B-007 (hierarchy in SQLite) is a prerequisite for any team or cloud deployment.
-- B-015 (authentication) is a hard dependency for any external beta; scope it into the sprint that precedes release.
-- B-008 (incremental scanning) is deferred by user decision — do not start without re-confirming.
-- B-006 (Eval Drift Dashboard) is superseded by B-018 (Observability) — B-018 covers a superset of B-006 scope. B-006 can be closed once B-018 is implemented.
-- B-018 (Observability) is a recommended prerequisite for B-020 (Confidence-Driven Improvement) — improvement suggestions are more targeted with quality trend context.
-- B-019 (Attack Chain Memory) requires a new ADR extending ADR-005 before implementation starts. Privacy review required for any cross-customer sharing.
-- B-020 (Confidence-Driven Improvement) is advisory only — no agent prompt or rule is ever auto-modified. Engineer approval required for every suggestion.
-- All new architectural decisions must produce an ADR in `docs/decisions/` before implementation.
+- New work needs engineer approval of priority and of any architecture decision (ADR in `docs/decisions/`) before implementation starts.
+- Effectiveness claims are measured against the labelled benchmark (B-026); no scan-quality improvement is declared done without a before/after measurement.
+- B-015 (authentication) is a hard dependency for any external beta or multi-user use. Until then, persona permissions are enforced in the UI only.
+- B-008 (incremental scanning) is deferred by user decision; do not start without re-confirming, and rebase it on the coverage ledger first (see its note).
+- B-006 was superseded by B-018; B-010 is pending supersession by B-030 (ADR-018 approval).
+- B-019 (attack chain memory) and B-017 (cross-customer patterns) need a privacy review and an ADR extending ADR-005 before implementation.
+- B-020 is advisory only: no agent prompt or rule is ever auto-modified.
+- Verification in the discovery engine is static reasoning with checked evidence; running exploits in a sandbox is out of scope for the first release.
+- The default scan depth is Standard; Deep is opt-in under a cost estimate and a hard USD budget; Quick keeps today's single pass.
