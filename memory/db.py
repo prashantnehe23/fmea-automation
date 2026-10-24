@@ -30,6 +30,8 @@ from typing import Any
 
 import numpy as np
 
+from core.priority import lowers_catastrophic_severity
+
 _DB_PATH = Path(__file__).resolve().parent / "fmea.db"
 _lock = threading.Lock()
 
@@ -197,6 +199,7 @@ def get_db() -> sqlite3.Connection:
         "ALTER TABLE telemetry ADD COLUMN cost_usd REAL DEFAULT 0",
         "ALTER TABLE scenarios ADD COLUMN embed_model TEXT",
         "ALTER TABLE adjustments ADD COLUMN source TEXT DEFAULT 'manual'",
+        "ALTER TABLE adjustments ADD COLUMN flagged INTEGER DEFAULT 0",
     ):
         try:
             conn.execute(_col_sql)
@@ -568,19 +571,24 @@ def save_adjustment(
     justification: str,
     source: str = "manual",
 ) -> int:
-    """Persist a score adjustment (source: "manual" or "chat"). Returns adjustment id."""
+    """Persist a score adjustment (source: "manual" or "chat"). Returns adjustment id.
+
+    An adjustment that takes a Severity >= 9 scenario below 9 is flagged for the audit trail (B-034)."""
     new_rpn = new_s * new_o * new_d
+    current = get_current_severity(workspace_id, failure_mode)
+    flagged = int(current is not None and lowers_catastrophic_severity(current, new_s))
     with _lock:
         conn = get_db()
         try:
             cur = conn.execute(
                 """
                 INSERT INTO adjustments
-                    (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at,
+                     source, flagged)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn,
-                 justification, datetime.now().isoformat(), source or "manual"),
+                 justification, datetime.now().isoformat(), source or "manual", flagged),
             )
             conn.commit()
             return cur.lastrowid  # type: ignore[return-value]
@@ -595,13 +603,29 @@ def get_adjustments(workspace_id: int) -> list[dict]:
         rows = conn.execute(
             """
             SELECT id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at,
-                   COALESCE(source, 'manual') AS source
+                   COALESCE(source, 'manual') AS source, COALESCE(flagged, 0) AS flagged
             FROM adjustments WHERE workspace_id=?
             ORDER BY created_at DESC, id DESC
             """,
             (workspace_id,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [{**dict(r), "flagged": bool(r["flagged"])} for r in rows]
+    finally:
+        conn.close()
+
+
+def get_current_severity(workspace_id: int, failure_mode: str) -> int | None:
+    """Severity in force for a scenario: the latest adjustment, else its registry score, else None."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT new_s FROM adjustments WHERE workspace_id=? AND failure_mode=? "
+            "ORDER BY created_at DESC, id DESC LIMIT 1", (workspace_id, failure_mode)).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT severity AS new_s FROM scenarios WHERE workspace_id=? AND failure_mode=?",
+                (workspace_id, failure_mode)).fetchone()
+        return int(row["new_s"]) if row else None
     finally:
         conn.close()
 

@@ -690,6 +690,20 @@ def test_ac12_locked_scores_pick_up_a_chat_adjustment_on_rescan(monkeypatch):
     assert locked["Card token leak"]["rpn"] == 72                              # same overlay the Scoring page uses
 
 
+def test_b034_chat_apply_flags_a_catastrophic_severity_downgrade(monkeypatch):
+    lock("Card token leak")                                                    # registry severity 9
+    out = propose_turn(monkeypatch)                                            # proposes severity 6
+    chat.apply_proposal(out["proposals"][0]["id"])
+    rows = TestClient(__import__("api.main", fromlist=["app"]).app).get("/api/scoring/adjustments/1").json()
+    assert rows[0]["source"] == "chat" and rows[0]["flagged"] is True
+
+
+def test_b034_chat_apply_of_a_non_catastrophic_change_is_not_flagged(monkeypatch):
+    out = propose_turn(monkeypatch)                                            # scenario not in the registry
+    chat.apply_proposal(out["proposals"][0]["id"])
+    assert db.get_adjustments(1)[0]["flagged"] is False
+
+
 def test_ac12_manual_adjustments_report_source_and_priority():
     from api.main import app
     client = TestClient(app)

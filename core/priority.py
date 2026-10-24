@@ -15,6 +15,7 @@ RPN_HIGH_ABOVE = 200
 CATASTROPHIC_SEVERITY = 9          # S >= this is never below High; also the watchlist threshold
 CRITICAL_SEVERITY = 10             # S == this, with a confirmed exploit and weak detection, is Critical
 CRITICAL_MIN_DETECTION = 6
+MIN_DOWNGRADE_JUSTIFICATION_CHARS = 15   # same bar as the chat proposals
 CONFIRMED_MIN_CONFIDENCE = 0.7     # validator confidence that counts as "confirmed" until B-028 proves exploits
 
 _RANK = {"Medium": 0, "High": 1, "Critical": 2}
@@ -37,6 +38,11 @@ def priority_for(severity: int, occurrence: int, detection: int, exploit_confirm
         reason = (f"Critical: severity {severity} with a confirmed exploit path and weak detection "
                   f"(D{detection}), RPN {rpn} alone would be {rpn_band}")
     return Priority(band, reason)
+
+
+def lowers_catastrophic_severity(current: int, new: int) -> bool:
+    """True when an adjustment takes a watchlist severity (>= 9) below 9."""
+    return current >= CATASTROPHIC_SEVERITY and new < CATASTROPHIC_SEVERITY
 
 
 def exploit_confirmed_from(validation) -> bool:
