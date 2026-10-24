@@ -1,0 +1,114 @@
+{
+  "repo": "notes-express",
+  "signed_off_by": null,
+  "items": [
+    {
+      "id": "notes-001",
+      "threat_class": "authn",
+      "file": "server.js",
+      "lines": [
+        12,
+        12
+      ],
+      "anchor": "req.get(\"x-user\")",
+      "root_cause_domain": "security",
+      "catastrophic": true,
+      "description": "Identity is whatever the x-user request header says, so anyone can act as any user.",
+      "keywords": [
+        "x-user",
+        "header",
+        "spoof",
+        "forge",
+        "trusts",
+        "client-supplied",
+        "authentication"
+      ],
+      "path": {
+        "entry": {
+          "file": "server.js",
+          "anchor": "function currentUser"
+        },
+        "sink": {
+          "file": "server.js",
+          "anchor": "req.get(\"x-user\")"
+        },
+        "entry_terms": [
+          "currentuser",
+          "x-user",
+          "authentication"
+        ],
+        "sink_terms": [
+          "x-user",
+          "header",
+          "spoof",
+          "forge"
+        ]
+      }
+    },
+    {
+      "id": "notes-002",
+      "threat_class": "path_traversal",
+      "file": "server.js",
+      "lines": [
+        22,
+        22
+      ],
+      "anchor": "req.query.name",
+      "root_cause_domain": "engineering",
+      "catastrophic": true,
+      "description": "The export file name is joined into a path without validation, so ../ reads any file on the server.",
+      "keywords": [
+        "path traversal",
+        "directory traversal",
+        "../",
+        "readfilesync",
+        "arbitrary file",
+        "path.join"
+      ],
+      "path": {
+        "entry": {
+          "file": "server.js",
+          "anchor": "/export"
+        },
+        "sink": {
+          "file": "server.js",
+          "anchor": "fs.readFileSync"
+        },
+        "entry_terms": [
+          "/export",
+          "export",
+          "name parameter",
+          "req.query.name"
+        ],
+        "sink_terms": [
+          "readfilesync",
+          "path.join",
+          "reads any file",
+          "arbitrary file",
+          "path traversal"
+        ]
+      }
+    },
+    {
+      "id": "notes-003",
+      "threat_class": "authz",
+      "file": "server.js",
+      "lines": [
+        17,
+        17
+      ],
+      "anchor": "res.json(NOTES[req.params.id])",
+      "root_cause_domain": "security",
+      "catastrophic": false,
+      "description": "Notes are returned by id with no owner check, so any user can read other users' notes (IDOR).",
+      "keywords": [
+        "idor",
+        "insecure direct object",
+        "owner",
+        "ownership",
+        "other users",
+        "object-level"
+      ]
+    }
+  ]
+}

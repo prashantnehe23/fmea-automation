@@ -1,0 +1,68 @@
+{
+  "repo": "web-templates",
+  "signed_off_by": null,
+  "items": [
+    {
+      "id": "web-001",
+      "threat_class": "xss",
+      "file": "templates/comments.html",
+      "lines": [
+        5,
+        5
+      ],
+      "anchor": "c.body|safe",
+      "root_cause_domain": "engineering",
+      "catastrophic": true,
+      "description": "Comment bodies are rendered with |safe, so stored script runs in the admin's moderation session.",
+      "keywords": [
+        "stored xss",
+        "cross-site scripting",
+        "|safe",
+        "autoescape",
+        "script",
+        "unescaped"
+      ],
+      "path": {
+        "entry": {
+          "file": "app.py",
+          "anchor": "/comment"
+        },
+        "sink": {
+          "file": "templates/comments.html",
+          "anchor": "c.body|safe"
+        },
+        "entry_terms": [
+          "/comment",
+          "comment endpoint",
+          "body"
+        ],
+        "sink_terms": [
+          "|safe",
+          "autoescape",
+          "stored xss",
+          "script"
+        ]
+      }
+    },
+    {
+      "id": "web-002",
+      "threat_class": "authn",
+      "file": "app.py",
+      "lines": [
+        7,
+        7
+      ],
+      "anchor": "SESSION_COOKIE_HTTPONLY",
+      "root_cause_domain": "engineering",
+      "catastrophic": false,
+      "description": "The session cookie is readable by JavaScript, so an XSS can steal the admin session.",
+      "keywords": [
+        "httponly",
+        "session cookie",
+        "cookie",
+        "steal",
+        "session"
+      ]
+    }
+  ]
+}

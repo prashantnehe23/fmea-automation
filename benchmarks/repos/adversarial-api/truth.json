@@ -1,0 +1,70 @@
+{
+  "repo": "adversarial-api",
+  "signed_off_by": null,
+  "items": [
+    {
+      "id": "adv-001",
+      "threat_class": "injection",
+      "file": "app.py",
+      "lines": [
+        16,
+        16
+      ],
+      "anchor": "shell=True",
+      "root_cause_domain": "engineering",
+      "catastrophic": true,
+      "description": "The host parameter is placed in a shell command, so any caller can run arbitrary commands.",
+      "keywords": [
+        "command injection",
+        "shell=true",
+        "shell command",
+        "arbitrary commands",
+        "os command",
+        "remote code execution",
+        "rce",
+        "subprocess"
+      ],
+      "path": {
+        "entry": {
+          "file": "app.py",
+          "anchor": "/ping"
+        },
+        "sink": {
+          "file": "app.py",
+          "anchor": "shell=True"
+        },
+        "entry_terms": [
+          "/ping",
+          "ping endpoint",
+          "host parameter"
+        ],
+        "sink_terms": [
+          "shell=true",
+          "subprocess",
+          "command injection",
+          "shell"
+        ]
+      }
+    },
+    {
+      "id": "adv-002",
+      "threat_class": "infra_misconfig",
+      "file": "app.py",
+      "lines": [
+        21,
+        21
+      ],
+      "anchor": "debug=True",
+      "root_cause_domain": "operational",
+      "catastrophic": false,
+      "description": "The app runs with debug=True on all interfaces, exposing the Werkzeug debugger.",
+      "keywords": [
+        "debug=true",
+        "debug mode",
+        "debugger",
+        "0.0.0.0",
+        "werkzeug"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "repo": "infra-deploy",
+  "signed_off_by": null,
+  "items": [
+    {
+      "id": "infra-001",
+      "threat_class": "ci_compromise",
+      "file": ".github/workflows/release.yml",
+      "lines": [
+        3,
+        3
+      ],
+      "anchor": "pull_request_target",
+      "root_cause_domain": "security",
+      "catastrophic": true,
+      "description": "The workflow runs on pull_request_target, checks out the untrusted PR head and runs its script with the deploy key available.",
+      "keywords": [
+        "pull_request_target",
+        "untrusted",
+        "head.sha",
+        "deploy_key",
+        "secrets",
+        "workflow"
+      ],
+      "path": {
+        "entry": {
+          "file": ".github/workflows/release.yml",
+          "anchor": "pull_request_target"
+        },
+        "sink": {
+          "file": ".github/workflows/release.yml",
+          "anchor": "secrets.DEPLOY_KEY"
+        },
+        "entry_terms": [
+          "pull_request_target",
+          "pull request"
+        ],
+        "sink_terms": [
+          "deploy_key",
+          "secrets",
+          "build.sh",
+          "untrusted"
+        ]
+      }
+    },
+    {
+      "id": "infra-002",
+      "threat_class": "infra_misconfig",
+      "file": "storage.tf",
+      "lines": [
+        7,
+        7
+      ],
+      "anchor": "acl    = \"public-read\"",
+      "root_cause_domain": "operational",
+      "catastrophic": true,
+      "description": "The bucket that holds customer backups is publicly readable.",
+      "keywords": [
+        "public-read",
+        "public bucket",
+        "publicly readable",
+        "s3",
+        "backups",
+        "acl"
+      ],
+      "path": {
+        "entry": {
+          "file": "storage.tf",
+          "anchor": "public-read"
+        },
+        "sink": {
+          "file": "storage.tf",
+          "anchor": "customer-backups"
+        },
+        "entry_terms": [
+          "public-read",
+          "publicly readable",
+          "acl",
+          "public bucket"
+        ],
+        "sink_terms": [
+          "customer-backups",
+          "backups",
+          "customer data"
+        ]
+      }
+    },
+    {
+      "id": "infra-003",
+      "threat_class": "secrets",
+      "file": "Dockerfile",
+      "lines": [
+        4,
+        4
+      ],
+      "anchor": "COPY config.env",
+      "root_cause_domain": "operational",
+      "catastrophic": false,
+      "description": "Credentials in config.env are copied into the image and the container runs as root.",
+      "keywords": [
+        "config.env",
+        "baked",
+        "secrets in image",
+        "credentials",
+        "root user",
+        "copy"
+      ]
+    }
+  ]
+}

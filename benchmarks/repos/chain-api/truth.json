@@ -1,0 +1,90 @@
+{
+  "repo": "chain-api",
+  "signed_off_by": null,
+  "items": [
+    {
+      "id": "chain-001",
+      "threat_class": "ssrf",
+      "file": "public.py",
+      "lines": [
+        10,
+        10
+      ],
+      "anchor": "requests.get(url",
+      "root_cause_domain": "security",
+      "catastrophic": false,
+      "description": "The preview endpoint fetches any URL the caller supplies, including internal addresses.",
+      "keywords": [
+        "ssrf",
+        "server-side request forgery",
+        "user-supplied url",
+        "arbitrary url",
+        "internal"
+      ]
+    },
+    {
+      "id": "chain-002",
+      "threat_class": "authn",
+      "file": "internal_admin.py",
+      "lines": [
+        10,
+        10
+      ],
+      "anchor": "def wipe_backups",
+      "root_cause_domain": "architectural",
+      "catastrophic": false,
+      "description": "The internal admin service has no authentication and relies on being reachable only from localhost.",
+      "keywords": [
+        "unauthenticated",
+        "no authentication",
+        "localhost",
+        "internal admin",
+        "network position",
+        "trust"
+      ]
+    },
+    {
+      "id": "chain-003",
+      "threat_class": "logic_flaw",
+      "file": "public.py",
+      "lines": [
+        10,
+        10
+      ],
+      "anchor": "requests.get(url",
+      "root_cause_domain": "architectural",
+      "catastrophic": true,
+      "description": "Chain: the SSRF in /preview can call the unauthenticated internal admin service on localhost and wipe the backups.",
+      "keywords": [
+        "chain",
+        "chained",
+        "compound",
+        "combined",
+        "wipe-backups",
+        "wipe",
+        "backups",
+        "attack path"
+      ],
+      "path": {
+        "entry": {
+          "file": "public.py",
+          "anchor": "/preview"
+        },
+        "sink": {
+          "file": "internal_admin.py",
+          "anchor": "shutil.rmtree"
+        },
+        "entry_terms": [
+          "/preview",
+          "preview"
+        ],
+        "sink_terms": [
+          "wipe",
+          "backups",
+          "rmtree",
+          "internal admin"
+        ]
+      }
+    }
+  ]
+}
