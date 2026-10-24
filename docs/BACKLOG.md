@@ -520,7 +520,9 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[ ]` PROPOSED — P0
+### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — P0 (phase 1 of 3 done)
+
+**Decision:** [ADR-023](decisions/ADR-023-benchmark-methodology.md) (Draft). **Phases:** 1 scorer + truth schema + one seed repo (done) · 2 remaining repos and the extra criteria below · 3 runner, `make bench`, baseline on two models.
 
 **Why:** "More effective" cannot be claimed without measuring. Today there is no ground truth, so recall (what we miss) and false positives are invisible, and every agent change is judged by feel.
 
@@ -542,6 +544,10 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - [ ] *(added)* **Stability:** each repository is scanned several times; the share of findings that reappear is reported (run-to-run variance)
 - [ ] *(added)* Results are reported for **at least two models or reasoning levels** (Mistral Large 4 plus one other), so "model-agnostic" is measured, not assumed
 - [ ] *(added)* **Placement metric:** the share of catastrophic findings that land in High or Critical (B-034)
+- [ ] *(added 2026-10-24, engineer-approved)* Benchmark runs use a temporary database, cache and settings and never touch the real `fmea.db`, caches or `settings.json` (test) — phase 3
+
+**Phase 1 delivered (2026-10-24):** `benchmarks/score.py` (pure deterministic scorer: recall, precision, catastrophic recall, placement, evidence validity, root-cause agreement, stability; optional logged semantic judge hook; truth-file validation), `benchmarks/repos/shop-api/` (seed repo with 4 labelled items, 2 catastrophic; `signed_off_by` is empty until the engineer signs), `tests/test_benchmark_scorer.py` (22 tests, no network or LLM), ADR-023 (Draft).
+**Phase 1 notes:** matching is keyword-based because findings carry no structured location or threat class (ADR-023 decision 5); the seed labels and keywords need the engineer's review; the semantic judge is a hook only, no LLM implementation yet. Not yet done: the other 5+ repos, adversarial/infra/template samples, runner, `make bench`, baseline numbers.
 
 ---
 

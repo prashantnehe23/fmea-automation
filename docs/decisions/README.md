@@ -35,3 +35,4 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-020](ADR-020-severity-aware-prioritisation.md) | Severity-Aware Prioritisation and Catastrophic Guardrails | Draft | 2026-10-24 |
 | [ADR-021](ADR-021-scan-scope-and-secrets.md) | Scan Scope Transparency, Infrastructure Files and Secret Handling | Draft | 2026-10-24 |
 | [ADR-022](ADR-022-agent-roster-after-goal-based-discovery.md) | Agent Roster After Goal-Based Discovery | Draft | 2026-10-24 |
+| [ADR-023](ADR-023-benchmark-methodology.md) | Scan Effectiveness Benchmark Methodology | Draft | 2026-10-24 |
