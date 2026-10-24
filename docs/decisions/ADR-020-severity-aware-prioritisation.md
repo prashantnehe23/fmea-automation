@@ -1,6 +1,6 @@
 # ADR-020: Severity-Aware Prioritisation and Catastrophic Guardrails
 
-**Status:** Draft (awaiting engineer approval)  **Date:** 2026-10-24  **Backlog:** B-034
+**Status:** Accepted (approved by engineer 2026-10-24)  **Date:** 2026-10-24  **Backlog:** B-034
 
 ## Context
 Priority is derived from RPN alone: `Critical` above 400, `High` above 200, otherwise `Medium` (inlined in `agents/actuary.py`, `agents/evaluator.py`, `workflows/fmea_pipeline.py`, plus `core.models.priority_for_rpn`). RPN multiplies Severity, Occurrence and Detection, so a catastrophic failure can score low: Severity 10 with Occurrence 3 and Detection 3 gives RPN 90, which is `Medium`. Two further paths can bury it: the validator may lower any score by up to 2 for unlocked scenarios, and an expert adjustment (Scoring page or chat) can reduce it without any special scrutiny.
@@ -23,3 +23,11 @@ The stated requirement is that no scenario capable of a catastrophic outcome is 
 - More findings appear in High/Critical, which is intended; the benchmark (B-026) measures the share of catastrophic findings placed in High or above and watches precision.
 - Existing scans change band on display (the rule is retroactive); documented in the release notes.
 - Users can still disagree: Severity can be adjusted down with a stated reason.
+
+## Implementation notes (phase 1, 2026-10-24)
+- **Thresholds** are a plain constants table at the top of `core/priority.py` (no JSON or settings file; nobody needs runtime editing yet).
+- **"Confirmed exploit" proxy** until B-028's prove stage exists: the validator judged the finding `is_realistic` and `attack_chain_complete` with `confidence` >= 0.7. B-028 replaces it with a verified flag.
+- **Locked scenarios** never get the Critical-by-confirmed-exploit lift, because the validator is non-deterministic and locked results must be stable on rescan. They do get the severity floor, which depends only on the locked scores. B-028/B-031 can persist a confirmation.
+- **Old stored scans in the browser** get new bands through a small batch endpoint the frontend calls on load (phase 3); the rule is not duplicated in JavaScript.
+- `priority_for_rpn` was removed; `RiskScore` gained `priority_reason` (default empty so old data still loads).
+- The evaluator accepts either the unconfirmed or the confirmed band, because confirmation is only known after the validator runs.

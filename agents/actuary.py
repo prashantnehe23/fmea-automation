@@ -17,6 +17,7 @@ import json
 
 from core.llm import call_llm, extract_json_text
 from core.models import ControlAssessment, FailureMode, RiskScore, SystemContext
+from core.priority import priority_for
 from core.untrusted import as_data_block
 
 _SCORING_DEFINITIONS = """
@@ -124,7 +125,7 @@ def _build_risk_score(
     de_rat = str(raw.get("detection_rationale", ""))[:220]
 
     rpn = severity * occurrence * detection
-    priority = "Critical" if rpn > 400 else "High" if rpn > 200 else "Medium"
+    priority, priority_reason = priority_for(severity, occurrence, detection)
 
     trig = (failure.trigger or "").strip()
     trig_bit = f" ({trig[:60]}…)" if len(trig) > 60 else (f" ({trig})" if trig else "")
@@ -145,6 +146,7 @@ def _build_risk_score(
         detection=detection,
         rpn=rpn,
         priority=priority,
+        priority_reason=priority_reason,
         justification=justification,
         severity_rationale=se_rat,
         occurrence_rationale=oc_rat,
@@ -158,7 +160,7 @@ def _risk_score_from_locked(row: dict, failure: FailureMode) -> RiskScore:
     o = int(row.get("occurrence", 5))
     d = int(row.get("detection", 5))
     rpn = s * o * d
-    priority = "Critical" if rpn > 400 else "High" if rpn > 200 else "Medium"
+    priority, priority_reason = priority_for(s, o, d)
     return RiskScore(
         failure_mode=failure.failure_mode,
         severity=s,
@@ -166,6 +168,7 @@ def _risk_score_from_locked(row: dict, failure: FailureMode) -> RiskScore:
         detection=d,
         rpn=rpn,
         priority=priority,
+        priority_reason=priority_reason,
         justification=f"Locked scenario — scores carried over from first scan (RPN {rpn}).",
         severity_rationale="Carried over from first scan.",
         occurrence_rationale="Carried over from first scan.",

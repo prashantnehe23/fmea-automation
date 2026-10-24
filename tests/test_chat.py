@@ -699,10 +699,10 @@ def test_ac12_manual_adjustments_report_source_and_priority():
     assert client.get("/api/scoring/adjustments/1").json()[0]["source"] == "manual"
 
 
-@pytest.mark.parametrize("rpn, band", [(200, "Medium"), (201, "High"), (400, "High"), (401, "Critical")])
-def test_priority_bands(rpn, band):
-    from core.models import priority_for_rpn
-    assert priority_for_rpn(rpn) == band
+@pytest.mark.parametrize("s, o, d, band", [(5, 8, 5, "Medium"), (5, 8, 6, "High"), (8, 7, 7, "High"), (9, 9, 5, "Critical")])
+def test_priority_bands(s, o, d, band):
+    from core.priority import priority_for
+    assert priority_for(s, o, d).band == band
 
 
 def test_ac13_apply_is_idempotent_and_dismissed_cannot_be_applied(monkeypatch):

@@ -31,7 +31,7 @@ from typing import Callable
 import memory.db as db
 from core.costs import compute_cost
 from core.llm import call_chat, get_model_name, stream_chat
-from core.models import priority_for_rpn
+from core.priority import priority_for
 from core.untrusted import as_data_block
 from core.providers import get_api_key, model_supports_tools, provider_for_model
 
@@ -733,7 +733,7 @@ def apply_proposal(proposal_id: int) -> dict:
                                                p["reason"], source="chat")
             rpn = s * o * d
             result = {"adjustment_id": adjustment_id, "workspace_id": workspace_id, "new_rpn": rpn,
-                      "priority": priority_for_rpn(rpn)}
+                      "priority": priority_for(s, o, d).band}
         else:
             db.delete_scenario(workspace_id, p["failure_mode"])
             result = {"workspace_id": workspace_id, "unlocked": p["failure_mode"]}
