@@ -22,6 +22,23 @@ class WorkspaceIn(BaseModel):
     customer_learning: bool = True
 
 
+class PortfolioIn(BaseModel):
+    name: str
+
+
+class ProjectIn(BaseModel):
+    name: str
+    repo_url: str | None = None
+    business_tier: str = "Tier 1"
+    user_type: str = "external_customers"
+
+
+class ProjectPatch(BaseModel):
+    repo_url: str | None = None
+    business_tier: str | None = None
+    user_type: str | None = None
+
+
 class ScanRequest(BaseModel):
     code: str
     workspace: WorkspaceIn | None = None

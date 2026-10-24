@@ -12,7 +12,14 @@ import {
   PERSONA_PRIMARY,
   PERSONA_DEFAULT_SCOPE,
 } from './data';
-import { normalizeScanResult, getContextSummary } from './api';
+import {
+  normalizeScanResult,
+  getContextSummary,
+  listPortfolios,
+  createPortfolio,
+  createProject,
+  updateProject,
+} from './api';
 
 const PAGES = {
   scan:        ScanPage,
@@ -25,9 +32,10 @@ const PAGES = {
 
 // ── Storage keys (v2 = fresh start; old v1 mock data is ignored) ──────────────
 
-const KEY_HIERARCHY = 'fmea_hierarchy_v2';
-const KEY_HISTORY   = 'fmea_scan_history_v2';
-const KEY_SEL       = 'fmea_sel_v2';
+const KEY_HIERARCHY       = 'fmea_hierarchy_v2';
+const KEY_HISTORY         = 'fmea_scan_history_v2';
+const KEY_SEL             = 'fmea_sel_v2';
+const KEY_MIGRATION_DONE  = 'fmea_migration_v1_done'; // prevents double-run under React StrictMode
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -72,16 +80,38 @@ function loadInitialState() {
   };
 }
 
-// ── ID generator ──────────────────────────────────────────────────────────────
+// ── One-time migration: import old localStorage hierarchy into the API ─────────
 
-function makeId(prefix) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+async function _migrateHierarchy(localHierarchy, localScanHistory) {
+  const newHierarchy = [];
+  const remappedHistory = {};
+  for (const portfolio of localHierarchy) {
+    const created = await createPortfolio(portfolio.name);
+    const newPortfolio = { ...created, projects: [] };
+    for (const project of portfolio.projects) {
+      const newProject = await createProject(
+        created.id,
+        project.name,
+        project.repoUrl || null,
+        project.businessTier || 'Tier 1',
+        project.userType || 'external_customers',
+      );
+      newPortfolio.projects.push(newProject);
+      if (localScanHistory[project.id]) {
+        remappedHistory[newProject.id] = localScanHistory[project.id];
+      }
+    }
+    newHierarchy.push(newPortfolio);
+  }
+  return { newHierarchy, remappedHistory };
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  // All initial state derived from localStorage in a single read
+  // All initial state derived from localStorage in a single read.
+  // After B-007, KEY_HIERARCHY is a read-through cache of the API response;
+  // it seeds the UI immediately so there is no blank flash on load.
   const [init] = useState(loadInitialState);
 
   const [persona, setPersona] = useState('developer');
@@ -99,6 +129,40 @@ export default function App() {
   const scanHistoryRef = useRef(init.scanHistory);
   scanHistoryRef.current = scanHistory;
 
+  // ── Bootstrap: sync hierarchy from API; migrate localStorage on first run ────
+  useEffect(() => {
+    async function bootstrap() {
+      try {
+        const portfolios = await listPortfolios();
+        if (portfolios.length > 0) {
+          // API has data — refresh state and repopulate the localStorage cache
+          setHierarchyState(portfolios);
+          lsSave(KEY_HIERARCHY, portfolios);
+          return;
+        }
+        // API is empty — check if localStorage has data to migrate (Option A).
+        // Guard flag is set synchronously before any await so React StrictMode's
+        // double-invocation of this effect cannot trigger a duplicate migration.
+        if (init.hierarchy.length > 0 && !ls(KEY_MIGRATION_DONE, false)) {
+          lsSave(KEY_MIGRATION_DONE, true);
+          const { newHierarchy, remappedHistory } =
+            await _migrateHierarchy(init.hierarchy, init.scanHistory);
+          setHierarchyState(newHierarchy);
+          setScanHistoryState(remappedHistory);
+          lsSave(KEY_HIERARCHY, newHierarchy);
+          lsSave(KEY_HISTORY, remappedHistory);
+          // Reset selection — old string IDs are no longer valid
+          setSel(EMPTY_SEL);
+          lsSave(KEY_SEL, EMPTY_SEL);
+        }
+        // else: truly fresh start — nothing to do
+      } catch (_) {
+        // API unreachable — localStorage cache already loaded by loadInitialState
+      }
+    }
+    bootstrap();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Persist sel whenever it changes ─────────────────────────────────────────
   useEffect(() => { lsSave(KEY_SEL, sel); }, [sel]);
 
@@ -114,33 +178,36 @@ export default function App() {
     }
   }, [sel.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Hierarchy mutations ───────────────────────────────────────────────────────
+  // ── Hierarchy helpers ─────────────────────────────────────────────────────────
 
-  const updateHierarchy = (newH) => {
+  const _applyHierarchy = (newH) => {
     setHierarchyState(newH);
-    lsSave(KEY_HIERARCHY, newH);
+    lsSave(KEY_HIERARCHY, newH);   // keep localStorage as a read-through cache
   };
 
-  const addPortfolio = (name) => {
-    const id = makeId('p');
-    updateHierarchy([...hierarchy, { id, name, projects: [] }]);
+  // ── Hierarchy mutations (API-first, then update local state + cache) ──────────
+
+  const addPortfolio = async (name) => {
+    const created = await createPortfolio(name);
+    _applyHierarchy([...hierarchy, created]);
   };
 
-  const addProject = (portfolioId, name, repoUrl, businessTier = 'Tier 1', userType = 'external_customers') => {
-    const id = makeId('pr');
-    updateHierarchy(hierarchy.map(p =>
+  const addProject = async (portfolioId, name, repoUrl, businessTier = 'Tier 1', userType = 'external_customers') => {
+    const newProject = await createProject(portfolioId, name, repoUrl, businessTier, userType);
+    _applyHierarchy(hierarchy.map(p =>
       p.id === portfolioId
-        ? { ...p, projects: [...p.projects, { id, name, repoUrl: repoUrl || null, businessTier, userType }] }
+        ? { ...p, projects: [...p.projects, newProject] }
         : p,
     ));
-    setSel({ portfolioId, projectId: id, componentId: null, componentName: null });
+    setSel({ portfolioId, projectId: newProject.id, componentId: null, componentName: null });
     setScope('project');
     setStep('scan');
-    return id;
+    return newProject.id;
   };
 
-  const updateProjectRepo = (projectId, repoUrl) => {
-    updateHierarchy(hierarchy.map(p => ({
+  const updateProjectRepo = async (projectId, repoUrl) => {
+    await updateProject(projectId, { repoUrl });
+    _applyHierarchy(hierarchy.map(p => ({
       ...p,
       projects: p.projects.map(pr =>
         pr.id === projectId ? { ...pr, repoUrl } : pr,
