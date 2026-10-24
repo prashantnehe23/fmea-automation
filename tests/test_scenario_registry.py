@@ -252,24 +252,14 @@ class TestValidatorDoesNotOverrideLocked(unittest.TestCase):
 
     def _run_validator_adjustment_loop(self, failures, risks, validations, locked_rpn):
         """
-        Re-implements the exact validator adjustment loop from fmea_pipeline.py.
-        This keeps the test tightly coupled to the actual production code logic.
+        Mirrors the validator loop in fmea_pipeline.py and calls its apply_validation().
         """
-        from core.models import RiskScore
+        from workflows.fmea_pipeline import apply_validation
         risks = list(risks)
         for i, (risk, validation) in enumerate(zip(risks, validations)):
             if failures[i].failure_mode in locked_rpn:
                 continue  # locked — skip
-            adj_s = max(1, min(10, risk.severity + validation.severity_adjustment))
-            adj_o = max(1, min(10, risk.occurrence + validation.occurrence_adjustment))
-            adj_d = max(1, min(10, risk.detection + validation.detection_adjustment))
-            if adj_s != risk.severity or adj_o != risk.occurrence or adj_d != risk.detection:
-                adj_rpn = adj_s * adj_o * adj_d
-                priority = "Critical" if adj_rpn > 400 else "High" if adj_rpn > 200 else "Medium"
-                risks[i] = risk.model_copy(update={
-                    "severity": adj_s, "occurrence": adj_o, "detection": adj_d,
-                    "rpn": adj_rpn, "priority": priority,
-                })
+            risks[i] = apply_validation(risk, validation)
         return risks
 
     def test_locked_scenario_rpn_unchanged_after_validator_plus2(self):

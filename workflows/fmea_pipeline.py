@@ -10,6 +10,7 @@ from agents.sre_agent import run_sre_agent
 from agents.surveyor import run_surveyor
 from agents.validator import run_validator
 from core.llm import get_call_count, reset_call_count
+from core.priority import exploit_confirmed_from, guarded_severity, priority_for
 from core.telemetry import agent_span, clear_scan_context, get_run_id, set_scan_context
 from memory import eval_store, workspace_store
 import memory.db as _db
@@ -20,6 +21,19 @@ from memory.scenario_registry import (
     register_new_scenarios,
     scenario_count,
 )
+
+def apply_validation(risk, validation):
+    """Apply the validator's score adjustments to an unlocked risk and re-derive its priority."""
+    adj_s = guarded_severity(
+        risk.severity, max(1, min(10, risk.severity + validation.severity_adjustment)), validation)
+    adj_o = max(1, min(10, risk.occurrence + validation.occurrence_adjustment))
+    adj_d = max(1, min(10, risk.detection + validation.detection_adjustment))
+    priority, reason = priority_for(adj_s, adj_o, adj_d, exploit_confirmed_from(validation))
+    return risk.model_copy(update={
+        "severity": adj_s, "occurrence": adj_o, "detection": adj_d,
+        "rpn": adj_s * adj_o * adj_d, "priority": priority, "priority_reason": reason,
+    })
+
 
 # Demo / predictable billing: at most this many failure modes (2 + 2*N API calls).
 DEFAULT_MAX_FAILURE_MODES = 7
@@ -128,23 +142,7 @@ def run_fmea(
     for i, (risk, validation) in enumerate(zip(risks, validations)):
         if failures[i].failure_mode in locked_rpn:
             continue  # score is locked — validator cannot override it
-        adj_s = max(1, min(10, risk.severity + validation.severity_adjustment))
-        adj_o = max(1, min(10, risk.occurrence + validation.occurrence_adjustment))
-        adj_d = max(1, min(10, risk.detection + validation.detection_adjustment))
-        if adj_s != risk.severity or adj_o != risk.occurrence or adj_d != risk.detection:
-            adj_rpn = adj_s * adj_o * adj_d
-            priority = (
-                "Critical" if adj_rpn > 400
-                else "High" if adj_rpn > 200
-                else "Medium"
-            )
-            risks[i] = risk.model_copy(update={
-                "severity": adj_s,
-                "occurrence": adj_o,
-                "detection": adj_d,
-                "rpn": adj_rpn,
-                "priority": priority,
-            })
+        risks[i] = apply_validation(risk, validation)
 
     # ── Semantic deduplication: fix any LLM renames despite constraint ────────
     if locked and workspace_id:
@@ -154,12 +152,16 @@ def run_fmea(
                 if match:
                     canonical = match["failure_mode"]
                     failures[i] = f.model_copy(update={"failure_mode": canonical})
+                    m_s, m_o, m_d = match["severity"], match["occurrence"], match["detection"]
+                    priority, reason = priority_for(m_s, m_o, m_d)
                     risks[i] = r.model_copy(update={
                         "failure_mode": canonical,
-                        "severity": match["severity"],
-                        "occurrence": match["occurrence"],
-                        "detection": match["detection"],
-                        "rpn": match["severity"] * match["occurrence"] * match["detection"],
+                        "severity": m_s,
+                        "occurrence": m_o,
+                        "detection": m_d,
+                        "rpn": m_s * m_o * m_d,
+                        "priority": priority,
+                        "priority_reason": reason,
                     })
 
     # ── Track genuinely new scenarios (after dedup) ────────────────────────────

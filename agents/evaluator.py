@@ -21,6 +21,7 @@ from core.models import (
     SystemContext,
     ValidationResult,
 )
+from core.priority import priority_for
 
 # Rough per-call token estimates (input, output) for each agent type after batching
 _CALL_TOKEN_ESTIMATES: dict[str, tuple[int, int]] = {
@@ -206,11 +207,13 @@ def _eval_actuary(
                 issues.append(f"{label}: {name}={val} out of range 1–10.")
 
         # Priority consistency
-        expected_priority = "Critical" if r.rpn > 400 else "High" if r.rpn > 200 else "Medium"
-        if r.priority != expected_priority:
+        # Either answer is valid: whether an exploit was confirmed is decided later, by the validator.
+        allowed = {priority_for(r.severity, r.occurrence, r.detection, confirmed).band
+                   for confirmed in (False, True)}
+        if r.priority not in allowed:
             issues.append(
-                f"{label}: priority='{r.priority}' inconsistent with RPN {r.rpn} "
-                f"(expected '{expected_priority}')."
+                f"{label}: priority='{r.priority}' inconsistent with S{r.severity}/O{r.occurrence}/"
+                f"D{r.detection} (expected one of {sorted(allowed)})."
             )
 
         # Reasoning quality: rationales must be substantive

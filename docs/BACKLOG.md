@@ -551,9 +551,9 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-034 · Severity-Aware Prioritisation and Catastrophic Guardrails `[ ]` PROPOSED — P0
+### B-034 · Severity-Aware Prioritisation and Catastrophic Guardrails `[~]` IN PROGRESS — P0 (phase 1 of 3 done)
 
-**Decision:** [ADR-020](decisions/ADR-020-severity-aware-prioritisation.md). **Added by the 2026-10-24 backlog review.**
+**Decision:** [ADR-020](decisions/ADR-020-severity-aware-prioritisation.md) (Accepted 2026-10-24). **Added by the 2026-10-24 backlog review.** **Phases:** 1 core function, replace copies, validator guard (done) · 2 expert-adjustment guard and audit flag · 3 watchlist UI, `priority_reason` display, re-evaluation of old stored scans.
 
 **Why:** Priority comes from RPN alone, so a severity-10 failure with occurrence 3 and detection 3 (RPN 90) is `Medium`, and the validator may lower Severity by 2. Finding a catastrophic scenario is useless if it is then ranked as medium. The rule is also copied into four places.
 
@@ -565,14 +565,17 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Priority derived on read so old scans and locked scores follow the rule without a migration
 
 **Acceptance criteria:**
-- [ ] S10 / O2 / D2 is `High` or above, with a stated reason (unit test); S9 / O1 / D1 is `High`
-- [ ] Bands for non-catastrophic scores are unchanged (existing band tests stay green)
-- [ ] Exactly one priority implementation exists in the codebase (a test fails if the old inline expression reappears)
-- [ ] The validator cannot take Severity from ≥ 9 to < 9 for a realistic finding (test with a fake model); an unrealistic finding may be lowered
+- [x] S10 / O2 / D2 is `High` or above, with a stated reason (unit test); S9 / O1 / D1 is `High`
+- [x] Bands for non-catastrophic scores are unchanged (existing band tests stay green)
+- [x] Exactly one priority implementation exists in the codebase (a test fails if the old inline expression reappears)
+- [x] The validator cannot take Severity from ≥ 9 to < 9 for a realistic finding (test with a fake model); an unrealistic finding may be lowered
 - [ ] An expert adjustment lowering Severity below 9 on a watchlist item is rejected without a justification and is flagged in the audit trail (Scoring page and chat Apply)
 - [ ] The watchlist lists all S ≥ 9 findings, including locked ones
 - [ ] Old stored scans show the new bands on display without migration
-- [ ] The benchmark (B-026) reports the share of catastrophic findings placed in High or above
+- [ ] The benchmark (B-026) reports the share of catastrophic findings placed in High or above *(scorer metric exists; reported once the B-026 runner exists)*
+
+**Phase 1 delivered (2026-10-24):** `core/priority.py` (`priority_for` returning band + reason, `exploit_confirmed_from`, `guarded_severity`, thresholds table); replaced the inline copies in `agents/actuary.py` (new and locked paths), `agents/evaluator.py`, `workflows/fmea_pipeline.py` (new `apply_validation`, also used by the registry test instead of its own copy; the locked-scenario dedup path now also re-derives priority), `api/routers/scoring.py` and `core/chat.py`; removed `priority_for_rpn`; `RiskScore.priority_reason`. `tests/test_priority.py` (17 tests incl. a source scan that fails if an inline rule returns); suite 215 passing.
+**Phase 1 notes:** more findings will now show High/Critical (intended). The `priority_reason` is not yet shown in the UI, and the stored-scan, watchlist and expert-adjustment criteria are phases 2 and 3. Locked scenarios get the severity floor but not the confirmed-exploit Critical lift (determinism, see ADR-020 notes).
 
 ---
 
