@@ -168,14 +168,22 @@ def scan_repo(
         data = _get_json(url_api)
 
     tree = data.get("tree", []) if isinstance(data, dict) else []
+    blobs = [item.get("path", "") for item in tree
+             if isinstance(item, dict) and item.get("type") == "blob"]
+    files, readme_path = select_paths(blobs, skip_tests)
+    return ref, files, readme_path
+
+
+def select_paths(paths: list[str], skip_tests: bool = True) -> tuple[list[str], str | None]:
+    """
+    The scan scope rule: which of a repository's file paths are shown to the agents.
+    Returns (sorted paths, root README path or None). Shared with the benchmark runner so
+    benchmark scans see exactly what real scans see.
+    """
     files: list[str] = []
     readme_path: str | None = None
 
-    for item in tree:
-        if not isinstance(item, dict) or item.get("type") != "blob":
-            continue
-        path: str = item.get("path", "")
-
+    for path in paths:
         # Skip noise directories
         if any(nd in path for nd in _NOISE_DIRS):
             continue
@@ -200,7 +208,7 @@ def scan_repo(
         if ext in (_CODE_EXTS | _CONFIG_EXTS | _DOC_EXTS):
             files.append(path)
 
-    return ref, sorted(files), readme_path
+    return sorted(files), readme_path
 
 
 # ── File content fetch ───────────────────────────────────────────────────────────
@@ -213,6 +221,11 @@ def fetch_file_content(owner: str, repo: str, branch: str, path: str) -> str:
 def fetch_readme(ref: RepoRef, readme_path: str) -> str:
     """Fetch and return README plain text."""
     return fetch_file_content(ref.owner, ref.repo, ref.branch, readme_path)
+
+
+def file_block(path: str, content: str) -> str:
+    """One file as it appears in the concatenated code the agents receive."""
+    return f"# ── {path} {'─' * max(0, 60 - len(path))}\n" + content
 
 
 def fetch_selected_files(
@@ -233,8 +246,7 @@ def fetch_selected_files(
     for path in paths:
         try:
             content = fetch_file_content(ref.owner, ref.repo, ref.branch, path)
-            header = f"# ── {path} {'─' * max(0, 60 - len(path))}\n"
-            parts.append(header + content)
+            parts.append(file_block(path, content))
             fetched.append(path)
             total += len(content)
             if total >= max_bytes:

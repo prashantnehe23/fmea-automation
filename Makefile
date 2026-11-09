@@ -8,8 +8,10 @@
 #   make frontend     — start Vite dev server only
 #   make test         — run all Python tests
 #   make build        — production build of React frontend
+#   make bench        — scan the benchmark repositories (spends real money; see benchmarks/run.py)
+#   make bench-report — score stored benchmark runs and print the comparison table
 
-.PHONY: dev api frontend test build
+.PHONY: dev api frontend test build bench bench-report
 
 # Start both API and frontend dev servers (requires two terminals or a process manager)
 dev:
@@ -29,3 +31,10 @@ test:
 
 build:
 	cd frontend && npm run build
+
+# Extra flags go in ARGS, e.g. make bench ARGS="--model mistral-large-4 --label baseline --runs 3"
+bench:
+	python -m benchmarks.run $(ARGS)
+
+bench-report:
+	python -m benchmarks.report $(ARGS)

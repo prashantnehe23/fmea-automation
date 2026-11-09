@@ -200,7 +200,13 @@ def score_scan(
     rc_agree = [t for t in with_rc if findings[assigned[t]]["root_cause"] == by_id[t]["root_cause_domain"]]
     return {
         "repo": truth.get("repo"),
-        "counts": {"truth": len(items), "findings": len(findings), "matched": len(assigned)},
+        "counts": {
+            "truth": len(items), "findings": len(findings), "matched": len(assigned),
+            "matched_findings": len(matched_idx),
+            "catastrophic": len(catastrophic), "caught_catastrophic": len(caught_cat), "placed": len(placed),
+            "with_path": len(with_path), "traced": len(traced),
+            "valid_evidence": sum(evidence_valid(f, files) for f in findings),
+        },
         "recall": _ratio(len(assigned), len(items)),
         "precision": _ratio(len(matched_idx), len(findings)),
         "catastrophic_recall": _ratio(len(caught_cat), len(catastrophic)),

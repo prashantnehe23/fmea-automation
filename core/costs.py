@@ -26,7 +26,8 @@ AVAILABLE_MODELS: list[dict] = [
     {"id": "gpt-4o",                "provider": "openai",  "display": "GPT-4o",         "tier": "Power"},
     {"id": "gpt-4o-mini",           "provider": "openai",  "display": "GPT-4o mini",    "tier": "Fast"},
     {"id": "mistral-large-4",       "provider": "mistral", "display": "Mistral Large 4", "tier": "Power",
-     "reasoning": {"param": "reasoning_effort", "levels": {"off": "none", "high": "high"}}},
+     "reasoning": {"param": "reasoning_effort",
+                   "levels": {"low": "low", "medium": "medium", "high": "high"}}},   # B-037: API rejects "none"
     {"id": "mistral-medium-latest", "provider": "mistral", "display": "Mistral Medium", "tier": "Standard"},
     {"id": "mistral-small-latest",  "provider": "mistral", "display": "Mistral Small",  "tier": "Fast"},
 ]
