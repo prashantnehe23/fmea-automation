@@ -40,3 +40,6 @@ Recall; precision; catastrophic recall; placement (share of caught catastrophic 
 
 ## Addendum 3 (2026-11-09): line accuracy
 Evidence validity only checks that a cited file exists and the line is inside it. `line_accuracy` is stricter and uses the labels: of the matched findings, the share whose evidence cites the labelled lines within +/- 3. A finding that cites no line (for example only a function name) counts as off target. The sign-off of all 17 labels by the engineer is recorded in each `truth.json` (`signed_off_by`).
+
+## Addendum 4 (2026-11-09): the benchmark follows the scan scope
+The runner builds each repository's scan input with `build_scan_input` (ADR-021), so the benchmark always sees what a real scan sees, including the scope manifest and secret redaction. Results from before B-033 are not comparable on the files that were never shown to the agents; compare runs by their recorded commit.

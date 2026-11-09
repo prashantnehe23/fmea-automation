@@ -658,9 +658,9 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **Known limits:** the linkage agent reads only the first 12,000 characters, and the prefixes shorten what fits; models can still cite wrong lines, which this metric now shows; a stricter check that the quoted code actually sits at the cited line arrives with B-028's mechanical evidence verification.
 
 ---
-### B-033 · Scan Scope and Coverage Transparency `[ ]` PROPOSED — P1
+### B-033 · Scan Scope and Coverage Transparency `[~]` IN PROGRESS — P1 (phases 1-2 of 3 built; engineer-approved 2026-11-09)
 
-**Decision:** [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md). **Added by the 2026-10-24 backlog review.**
+**Decision:** [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md) (Accepted 2026-11-09). **Added by the 2026-10-24 backlog review.** **Phases:** 1 scope rule, manifest, budget and wider file types (built) - 2 secret redaction and deterministic reporting (built) - 3 lockfile dependency inventory, persisted per-project patterns, ledger cells (not started).
 
 **Why:** The fetcher decides silently what the agents can see. Dockerfiles, `.env`, Terraform, Makefiles, `.github/workflows`, lockfiles and web templates (`.html`, `.vue`, `.svelte`, `.ejs`, `.j2`) never reach any agent, and beyond 300 KB of text the remaining files are dropped with only a marker inside the code. A coverage ledger (B-028) can only cover what was fetched, so these are invisible holes, in exactly the files where infrastructure and CI catastrophes live.
 
@@ -673,12 +673,15 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Per-project include/exclude patterns, edited through the file-selection panel (B-005)
 
 **Acceptance criteria:**
-- [ ] Every scan stores a scope manifest with an explicit reason for every excluded path
-- [ ] The results show examined / not examined counts and the list of unexamined files
-- [ ] Dockerfile, compose, Terraform, GitHub Actions workflows, `.env*` and web templates are classified as in scope (tests on sample trees)
-- [ ] Secret values never appear in any prompt (test captures prompts for a repo containing a `.env` and an inline key); the key names are kept
-- [ ] A committed `.env` or private key is reported deterministically even if the model is never called (test)
-- [ ] A 600 KB repository produces a prioritised subset plus an explicit unexamined list, never a silent cut (test)
+- [x] Every scan stores a scope manifest with an explicit reason for every excluded path *(in the scan result, so it is stored with the chat snapshot)*
+- [ ] The results show examined / not examined counts and the list of unexamined files *(built in the scan page; not yet exercised in a browser)*
+- [x] Dockerfile, compose, Terraform, GitHub Actions workflows, `.env*` and web templates are classified as in scope (tests on sample trees)
+- [x] Secret values never appear in any prompt (test captures prompts for a repo containing a `.env` and an inline key); the key names are kept
+- [x] A committed `.env` or private key is reported deterministically even if the model is never called (test)
+- [x] A 600 KB repository produces a prioritised subset plus an explicit unexamined list, never a silent cut (test)
+- [ ] Lockfiles parsed into a dependency inventory *(phase 3)*
+- [ ] Per-project include/exclude patterns persisted and edited in the file-selection panel; today the panel's selection is recorded per scan as "not selected by the user" *(phase 3)*
+- [ ] *(added 2026-11-09)* Benchmark re-run after the change: the scope-gap catastrophic items (`infra-001`, `infra-002`, `web-001`) are found, with recall and cost recorded here
 - [ ] Include/exclude patterns persist per project and are honoured by the scan
 - [ ] Lockfiles yield a dependency inventory available to agents; raw lockfile text is not sent
 - [ ] Existing file selection (B-005), scans and chat keep working (regression tests)

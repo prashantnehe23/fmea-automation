@@ -139,9 +139,11 @@ def test_ac4_github_scan_stores_sanitised_readme_capped_at_2000(monkeypatch):
 
     captured = {}
     hostile_long = HOSTILE + (" filler" * 600)
-    monkeypatch.setattr(gh, "scan_repo", lambda url: (NS(owner="o", repo="r", branch="main"), ["a.py"], "README.md"))
+    from core.scan_scope import ScopeEntry
+    tree = [ScopeEntry("a.py", True, "code file", "code", 8), ScopeEntry("README.md", True, "doc file", "doc", 20)]
+    monkeypatch.setattr(gh, "list_repo", lambda url: (NS(owner="o", repo="r", branch="main"), tree, "README.md"))
     monkeypatch.setattr(gh, "fetch_readme", lambda ref, path: hostile_long)
-    monkeypatch.setattr(gh, "fetch_selected_files", lambda ref, paths: ("print(1)", ["a.py"]))
+    monkeypatch.setattr(gh, "fetch_contents", lambda ref, paths: ({"a.py": "print(1)", "README.md": "x"}, {}))
 
     def fake_run(code, **kw):
         captured["ws"] = kw["workspace"]

@@ -24,7 +24,8 @@ from api.sse import sse_event
 from api.store import build_workspace, next_scan_id, scan_store
 from core.chat import persist_scan_for_chat
 from core.untrusted import sanitize_text
-from core.github_fetcher import fetch_readme, fetch_selected_files, scan_repo
+from core.github_fetcher import fetch_contents, fetch_readme, list_repo, scan_repo
+from core.scan_scope import build_scan_input, choose_within_budget, summarise_manifest
 from core.workspace import WorkspaceContext
 from workflows.fmea_pipeline import run_fmea
 
@@ -68,13 +69,16 @@ async def github_scan(req: GithubScanRequest):
         yield sse_event({"stage": "repo_scan", "msg": "Scanning repository tree…"})
 
         try:
-            ref, files, readme_path = await asyncio.to_thread(scan_repo, req.repo_url)
+            ref, entries, readme_path = await asyncio.to_thread(list_repo, req.repo_url)
         except Exception as exc:
             yield sse_event({"stage": "error", "msg": str(exc)}, event="error")
             return
 
+        files = sorted(e.path for e in entries if e.included)
+        not_selected: set[str] = set()
         if req.selected_files is not None:
             allowed = set(req.selected_files)
+            not_selected = {f for f in files if f not in allowed}
             files = [f for f in files if f in allowed]
 
         yield sse_event({
@@ -119,17 +123,26 @@ async def github_scan(req: GithubScanRequest):
         })
 
         try:
-            code, fetched = await asyncio.to_thread(fetch_selected_files, ref, files)
+            # Choose by priority within the byte budget from the tree's sizes, download only those,
+            # and record everything else as not examined (B-033): never a silent cut.
+            wanted = set(files)
+            chosen, _ = choose_within_budget([e for e in entries if e.path in wanted])
+            contents, _errors = await asyncio.to_thread(fetch_contents, ref, [e.path for e in chosen])
         except Exception as exc:
             yield sse_event(
                 {"stage": "error", "msg": f"File download failed: {exc}"},
                 event="error",
             )
             return
+        scan_input = build_scan_input(contents, entries, not_selected=not_selected)
+        code, fetched = scan_input.code, scan_input.examined
+        scope = {"manifest": scan_input.manifest, "summary": summarise_manifest(scan_input.manifest),
+                 "secrets": scan_input.secret_findings}
 
         yield sse_event({
             "stage": "files_ready",
-            "msg": f"Downloaded {len(fetched)} file(s) ({len(code):,} chars) — starting pipeline",
+            "msg": (f"Downloaded {len(fetched)} file(s) ({len(code):,} chars); "
+                    f"{scope['summary']['not_examined']} not examined — starting pipeline"),
             "fetched_count": len(fetched),
             "code_length": len(code),
         })
@@ -149,6 +162,7 @@ async def github_scan(req: GithubScanRequest):
                 force_rerun=req.force_rerun,
                 workspace=ws,
                 on_progress=_on_progress,
+                scope=scope,
             ),
         )
 

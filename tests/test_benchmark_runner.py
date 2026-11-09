@@ -30,10 +30,11 @@ KEYS = {"mistral": "test-key-not-real"}
 def test_select_paths_applies_the_scan_scope_rule():
     paths = ["README.md", "app.py", "src/util.js", "tests/test_app.py", "node_modules/x/index.js",
              ".github/workflows/ci.yml", "Dockerfile", "main.tf", "config.env", "poetry.lock",
-             "templates/page.html", "docs/guide.md", "data.json"]
+             "templates/page.html", "docs/guide.md", "data.json", "logo.png"]
     files, readme = select_paths(paths)
     assert readme == "README.md"
-    assert files == sorted(["README.md", "app.py", "src/util.js", "config.env", "docs/guide.md", "data.json"])
+    assert files == sorted(["README.md", "app.py", "src/util.js", "config.env", "docs/guide.md", "data.json",
+                            ".github/workflows/ci.yml", "Dockerfile", "main.tf", "templates/page.html"])   # B-033
     assert "tests/test_app.py" in select_paths(paths, skip_tests=False)[0]
 
 
@@ -45,11 +46,12 @@ def test_file_block_format_is_the_one_the_fetcher_uses():
 def test_scan_input_shows_a_scan_what_a_real_scan_would_see():
     code, context = run.scan_input(REPOS / "infra-deploy")
     assert "# ── config.env" in code and "# ── main.py" in code
-    for hidden in ("storage.tf", "Dockerfile", "release.yml", "truth.json"):     # B-033 gaps, and never the labels
-        assert hidden not in code
+    for shown in ("storage.tf", "Dockerfile", ".github/workflows/release.yml"):    # B-033: infrastructure and CI now in scope
+        assert f"# ── {shown}" in code
+    assert "truth.json" not in code                                                # the labels are never shown
     assert "Deploy repo" in context
     web, _ = run.scan_input(REPOS / "web-templates")
-    assert "# ── templates/comments.html" not in web and "# ── app.py" in web
+    assert "# ── templates/comments.html" in web and "# ── app.py" in web
 
 
 def test_hostile_readme_comment_is_sanitised_but_hostile_code_comment_is_kept():

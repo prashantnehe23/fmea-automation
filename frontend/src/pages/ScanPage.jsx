@@ -193,6 +193,42 @@ function ProgressPanel({ stages, stageOrder, error }) {
   );
 }
 
+// ── What was and was not examined (B-033) ────────────────────────────────────
+
+function ScopeNote({ scope }) {
+  const [open, setOpen] = useState(false);
+  if (!scope?.summary) return null;
+  const { examined, not_examined: notExamined, by_reason: byReason } = scope.summary;
+  const secrets = scope.secrets ?? [];
+  const secretFiles = [...new Set(secrets.map(s => s.path))];
+  const skipped = (scope.manifest ?? []).filter(m => m.status !== 'examined');
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-green-700">
+        🗂 {examined} file{examined !== 1 ? 's' : ''} examined, {notExamined} not examined
+        {notExamined > 0 && (
+          <button className="ml-2 underline" onClick={() => setOpen(o => !o)}>{open ? 'hide' : 'show'}</button>
+        )}
+      </p>
+      {open && (
+        <div className="text-xs text-gray-600 bg-white/70 border border-green-100 rounded-lg p-3 max-h-48 overflow-auto">
+          {Object.entries(byReason).map(([reason, n]) => (
+            <p key={reason}><strong>{n}</strong> · {reason}</p>
+          ))}
+          <ul className="mt-2 font-mono text-[11px] text-gray-500">
+            {skipped.map(m => <li key={m.path}>{m.path} — {m.reason}</li>)}
+          </ul>
+        </div>
+      )}
+      {secretFiles.length > 0 && (
+        <p className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          ⚠ Possible secrets committed to the repository ({secretFiles.join(', ')}). Values were not sent to the model.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Scan complete banner ──────────────────────────────────────────────────────
 
 function ScanComplete({ result, repo }) {
@@ -245,6 +281,7 @@ function ScanComplete({ result, repo }) {
           {repo.readme_used && ' · README context applied'}
         </p>
       )}
+      <ScopeNote scope={result?.scope} />
 
       <div className="flex flex-wrap gap-4 text-sm text-green-700">
         {critical > 0 && <span>🔴 {critical} Critical</span>}
