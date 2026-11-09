@@ -538,12 +538,12 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 **Revised core-scanning build order (engineer-approved 2026-10-24; supersedes the Order column above for the core items):**
 1. B-026 phase 2 — remaining benchmark repos, **with expected exploit paths in `truth.json` and path accuracy in the scorer**; then phase 3 (runner, baseline)
-2. B-033 — scan scope, wider file types, secret redaction
-3. B-036 — code navigation toolkit
+2. **B-041 — line-numbered code and a line-accuracy metric (engineer-approved 2026-11-09)**; then B-033 — scan scope, wider file types, secret redaction
+3. B-036 — code navigation toolkit (with the code-index spike, B-038/B-039 pending approval)
 4. **Verifier slice (new, B-028 phase B0):** run the exploit verifier over today's saboteur findings, using the exploit goal / path-step schema (ADR-015 addendum 2), before the full inventory exists; measured on the benchmark
 5. B-027 phase 1 — Business Profile
 6. B-028 phase A — inventory, threat registry, coverage ledger
-7. B-028 phase B (hunters, full verifier) with B-035 roster migration; B-029 and B-030 alongside
+7. **B-040 (defensive framing and provider-block handling; P2, engineer-ordered 2026-11-09 to land before phase B)**, then B-028 phase B (hunters, full verifier) with B-035 roster migration; B-029 and B-030 alongside
 8. B-031 — finding identity and locks (before phase D)
 9. B-028 phases C and D — catastrophic pass, chain composer, budgets, parallelism, depth setting; then B-032
 
@@ -579,6 +579,8 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 - [x] *(added 2026-10-24, engineer-approved)* Every truth item has an **anchor** that must appear on its labelled lines, and every catastrophic item has an expected **exploit path** (entry and sink anchors plus match terms), all validated against the repository (tests); the scorer reports **path accuracy**
 - [x] *(added)* Each label states its own description well enough to win against its neighbours and to trace its path (test per repository), so label vocabulary clashes are caught early
+
+**Labels signed off by the engineer on 2026-11-09 (after the baseline below was run; the stored results are re-scored offline with the signed labels).**
 
 **Baseline (provisional, 2026-11-09; pipeline as of `main` after B-034 phase 2; labels unsigned; raw runs in `benchmarks/results/`):**
 
@@ -636,6 +638,26 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
+### B-041 · Line-Numbered Code for the Agents and a Line-Accuracy Metric `[~]` IN PROGRESS — P1
+
+**Priority:** P1 (engineer-approved 2026-11-09). **Found by:** the first baseline (B-026): the code reaches the agents without line numbers, so cited lines are guesses (a SQL injection at lines 31-33 was cited as 25-27; Large 4 cited functions and no lines at all). The old evidence-validity check only tests that the cited file exists and the line is inside it, so it could not see this.
+
+**Scope:**
+- `core/line_numbers.py` (NEW): `number_lines()` prefixes every code line with `N| `, restarting per file header, with a one-line marker telling the model the prefix is not code and to cite `path:line`; blank lines between files are not numbered
+- `workflows/fmea_pipeline.py`: the surveyor, saboteur, linkage and controls agents receive the numbered text; the original text is still what is cached, fingerprinted and stored for the chat, so nothing downstream sees prefixes
+- `agents/saboteur.py`: the `evidence` field now asks for `path:line` references plus a short quote
+- `benchmarks/score.py`: `cited_lines()` and a `line_accuracy` metric (matched findings whose evidence cites the labelled lines within +/- 3); shown in the report
+
+**Acceptance criteria:**
+- [x] Every code line is numbered per file; numbering restarts at each file header; a header-like comment inside code does not restart it (tests)
+- [x] The pipeline sends numbered code to the agents; the input text is untouched and the chat's stored sources are not numbered (tests)
+- [x] Cited lines are parsed in the forms models use (`f.py:32`, `f.py:25-27`, `(lines 25-27)`, `line 9`, `#L40`, en dash, Windows paths) and checked against the labelled lines (tests)
+- [x] Line accuracy of the pre-change baseline recorded: Medium 0.255, Large 4 0.0 (re-scored offline)
+- [ ] Re-run on the benchmark: line accuracy and evidence validity improve, and recall, catastrophic recall and cost stay within an agreed margin of the baseline (result recorded here)
+
+**Known limits:** the linkage agent reads only the first 12,000 characters, and the prefixes shorten what fits; models can still cite wrong lines, which this metric now shows; a stricter check that the quoted code actually sits at the cited line arrives with B-028's mechanical evidence verification.
+
+---
 ### B-033 · Scan Scope and Coverage Transparency `[ ]` PROPOSED — P1
 
 **Decision:** [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md). **Added by the 2026-10-24 backlog review.**
