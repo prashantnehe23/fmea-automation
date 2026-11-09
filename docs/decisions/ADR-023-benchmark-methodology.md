@@ -31,3 +31,9 @@ Recall; precision; catastrophic recall; placement (share of caught catastrophic 
 - Every catastrophic item carries an expected exploit `path`: entry and sink (file plus anchor, both validated against the repository) and match terms for each end. The scorer reports `path_accuracy` (matched findings whose text names both ends) and lists `path_untraced`. This measures the goal-driven exploit tracing of ADR-015 addendum 2 rather than only whether the right vulnerability was named.
 - Threat classes gained `path_traversal`.
 - Precision counts any unlabelled finding as a false positive, so seeded repositories are kept small and otherwise clean; unlabelled genuine weaknesses remain a known limit.
+
+## Addendum 2 (2026-11-09): runner
+- **Scan and score are separate.** The runner stores raw findings; the report scores them offline, so corrected labels never need a repeat of paid scans.
+- **What a scan sees is the real scope rule.** `select_paths` and `file_block` were extracted unchanged from the GitHub fetcher and are shared, so gaps such as Dockerfiles, Terraform, CI workflows and templates not reaching the agents (B-033) show up in the baseline instead of being hidden by a benchmark-only file list.
+- **Fresh environment per scan.** The scenario registry locks the first scan's scores, so reusing one database would make runs 2..N copies of run 1 and make stability meaningless.
+- **Spend is bounded per invocation** (`--max-usd`, default $12) and the result says when it stopped.

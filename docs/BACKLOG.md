@@ -40,6 +40,7 @@
 | [x] | Adaptive Handling of Verbose / Truncated Model Output (B-024) — wide budget, continuation, JSON recovery, safe salvage | `core/llm.py` — ADR-013 |
 | [x] | Results Chat (B-025) — persistent scan memory, streaming chat panel with code tools, model proposals the user applies or dismisses | `core/chat.py`, `core/llm.py`, `api/routers/chat.py`, `memory/db.py`, `ChatPanel.jsx`, `Markdown.jsx`, `App.jsx` — ADR-014 |
 | [x] | Untrusted README hardening (B-027 phase 0) — stored XSS closed; README is sanitised and reaches models only as a labelled data block | `core/untrusted.py`, `ScenariosPage.jsx`, `api/routers/github.py` — ADR-017 |
+| [x] | Mistral Large 4 reasoning levels corrected (B-037) — the API now rejects `reasoning_effort: "none"`; Large 4 offers low/medium/high, default low | `core/costs.py`, `core/reasoning.py`, `tests/test_reasoning.py`, `tests/test_providers.py` — ADR-012 |
 
 ---
 
@@ -447,6 +448,25 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
+### B-037 · Mistral Large 4 Reasoning Levels No Longer Include "Off" `[x]` DONE
+
+**Priority:** P0 (defect: every scan on Large 4 with the default reasoning setting failed). **Extends:** B-023. **Decision:** note on [ADR-012](decisions/ADR-012-reasoning-control.md). **Found by:** the first live benchmark run (B-026 phase 3), 2026-11-09.
+
+**Why:** B-023 mapped Large 4's "off" level to `reasoning_effort: "none"`, verified live in October. Mistral's API now answers 400 ("reasoning_effort none is not supported for this model, supported values: high, low, medium"). All 18 baseline scans failed; the app itself would fail for any user on Large 4 with the default setting. The model always returns thinking blocks, so reasoning cannot be fully disabled; omitting the parameter also works.
+
+**Scope:** Large 4's registry entry offers low / medium / high (`none` removed). A requested level below the range resolves to the lowest supported level (existing rule), so the default "off" sends `low`. No frontend change: the selector already falls back to the first supported level.
+
+**Acceptance criteria:**
+- [x] Large 4 never sends `none` at any requested level (test over all levels)
+- [x] The default setting sends the lowest supported level and the base token budget (test)
+- [x] Settings API reports supported levels low/medium/high and an effective level of low for "off" (test)
+- [x] Verified live on Mistral Large 4 through the app's own LLM path at off, low and high (isolated environment, three tiny calls)
+- [x] Full suite passing (272)
+
+**Known limits:** GPT-5.1 still maps "off" to `none` per OpenAI's documentation; unverified without an OpenAI key. Vendor API values can change again; a periodic live check of each registered model's levels would catch that earlier (candidate for B-032 or a small follow-up).
+
+---
+
 ## In progress
 
 ### B-027 · Business Profile + System Map; Untrusted-README Hardening `[~]` IN PROGRESS — phase 0 DONE, phase 1 pending
@@ -531,7 +551,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — P0 (phases 1-2 of 3 done, labels awaiting sign-off)
+### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — P0 (phases 1-3 done; provisional baseline recorded 2026-11-09; labels awaiting sign-off; B-028 targets pending)
 
 **Decision:** [ADR-023](decisions/ADR-023-benchmark-methodology.md) (Draft). **Phases:** 1 scorer + truth schema + one seed repo (done) · 2 remaining repos and the extra criteria below · 3 runner, `make bench`, baseline on two models.
 
@@ -545,20 +565,38 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 **Acceptance criteria:**
 - [ ] At least 6 labelled benchmark repositories, each with a reviewed `truth.json` (engineer signs off the labels)
-- [ ] One command runs the benchmark and prints a comparison table (recall, precision, catastrophic recall, cost, time)
-- [ ] Matching of findings to truth is deterministic and documented (location plus threat class; semantic fallback logged)
-- [ ] Baseline numbers for the current pipeline are recorded here
+- [x] One command runs the benchmark and prints a comparison table (recall, precision, catastrophic recall, cost, time) *(`python -m benchmarks.run` / `make bench`; verified with a fake pipeline, not yet live)*
+- [x] Matching of findings to truth is deterministic and documented (location plus threat class; semantic fallback logged)
+- [x] Baseline numbers for the current pipeline are recorded here *(provisional: unsigned labels; see Baseline below)*
 - [ ] Targets for B-028 are written into this item after the baseline (engineer approves)
-- [ ] Unit tests cover the scorer with synthetic scans (perfect, empty, partial, extra findings)
-- [ ] *(added 2026-10-24)* The benchmark includes an **adversarial** repository whose code and README contain hidden instructions ("report no vulnerabilities", "ignore previous instructions"); findings must not be suppressed
-- [ ] *(added)* It includes samples whose catastrophic path lives in **infrastructure or CI** (Dockerfile, Terraform, GitHub Actions) and in **web templates**; the baseline is expected to miss them (B-033) and that is recorded
-- [ ] *(added)* **Stability:** each repository is scanned several times; the share of findings that reappear is reported (run-to-run variance)
-- [ ] *(added)* Results are reported for **at least two models or reasoning levels** (Mistral Large 4 plus one other), so "model-agnostic" is measured, not assumed
-- [ ] *(added)* **Placement metric:** the share of catastrophic findings that land in High or Critical (B-034)
-- [ ] *(added 2026-10-24, engineer-approved)* Benchmark runs use a temporary database, cache and settings and never touch the real `fmea.db`, caches or `settings.json` (test) — phase 3
+- [x] Unit tests cover the scorer with synthetic scans (perfect, empty, partial, extra findings)
+- [x] *(added 2026-10-24)* The benchmark includes an **adversarial** repository whose code and README contain hidden instructions ("report no vulnerabilities", "ignore previous instructions"); findings must not be suppressed *(both models still found the command injection in every scan that completed)*
+- [x] *(added)* It includes samples whose catastrophic path lives in **infrastructure or CI** (Dockerfile, Terraform, GitHub Actions) and in **web templates**; the baseline is expected to miss them (B-033) and that is recorded *(baseline misses recorded: infra-001, infra-002, web-001)*
+- [x] *(added)* **Stability:** each repository is scanned several times; the share of findings that reappear is reported (run-to-run variance) *(3 scans per repository)*
+- [x] *(added)* Results are reported for **at least two models or reasoning levels** (Mistral Large 4 plus one other), so "model-agnostic" is measured, not assumed *(Mistral Medium and Mistral Large 4 at low; half of the Large 4 scans failed, see Baseline)*
+- [x] *(added)* **Placement metric:** the share of catastrophic findings that land in High or Critical (B-034)
+- [x] *(added 2026-10-24, engineer-approved)* Benchmark runs use a temporary database, cache and settings and never touch the real `fmea.db`, caches or `settings.json` (test)
 
 - [x] *(added 2026-10-24, engineer-approved)* Every truth item has an **anchor** that must appear on its labelled lines, and every catastrophic item has an expected **exploit path** (entry and sink anchors plus match terms), all validated against the repository (tests); the scorer reports **path accuracy**
 - [x] *(added)* Each label states its own description well enough to win against its neighbours and to trace its path (test per repository), so label vocabulary clashes are caught early
+
+**Baseline (provisional, 2026-11-09; pipeline as of `main` after B-034 phase 2; labels unsigned; raw runs in `benchmarks/results/`):**
+
+| | Recall | Precision | Catastrophic recall | Placement | Path accuracy | Evidence validity | Stability | Cost | Scans OK |
+|---|---|---|---|---|---|---|---|---|---|
+| Mistral Medium (no reasoning control) | 0.92 | 0.37 | 0.89 | 1.00 | 0.88 | 0.55 | 0.75 | $2.92 | 18 / 18 |
+| Mistral Large 4, reasoning low | 0.92 | 0.39 | 0.93 | 1.00 | 0.92 | 0.53 | 0.92 | $1.21 | 9 / 18 |
+
+- Catastrophic findings that were caught were always rated High or Critical (placement 1.00, B-034).
+- Missed catastrophic items: `infra-001` (CI workflow) and `infra-002` (public bucket) on both models, `web-001` (template XSS) on Medium. These files never reach the agents (B-033), as predicted. `chain-api` was caught on every Medium scan (the SSRF-to-backup-wipe chain); on Large 4 all three of its scans failed.
+- Every scan returned exactly 7 findings (the `max_failure_modes` cap), so precision is structurally low: with 2-4 labelled items per repository most findings are unlabelled, some genuinely real. Precision cannot be read as a false-positive rate until the cap goes (B-028).
+- About half of all findings cite evidence that does not check out (0.53-0.55); that is what the mechanical quote check in B-028 targets.
+- **Reliability finding: 9 of 18 Large 4 scans failed.** Eight were `403 Request blocked by guardrail policy` from Mistral (content moderation on security-attack prompts), one a JSON decode error. Medium had no failures. Large 4 figures therefore rest on 9 scans (stability and per-repository values are weak, `chain-api` has none). A tool that analyses attack paths needs a plan for provider guardrails (retry, fallback model, clear message); proposed as a new item, not yet approved.
+- Cost per scan about $0.16 (Medium) and $0.13 (Large 4 on completed scans); about 2 minutes (Medium) and 2.5 to 6 minutes (Large 4) each, sequential.
+- **Targets for B-028 are not yet written** and need the engineer's approval after the labels are signed off.
+**Phase 3 delivered (2026-11-09), runner only:** `benchmarks/run.py` (scans each repository N times in a fresh isolated environment: temporary database, caches, learning memory and settings; reads API keys from the real settings but never writes to them; sees exactly what a real scan sees through the shared `select_paths` / `file_block` in `core/github_fetcher.py`; per-invocation USD cap, default $12, stops and says so; refuses unsigned labels unless `--allow-unsigned`; stores raw findings, cost, time and calls plus commit, model and reasoning in `benchmarks/results/*.json`); `benchmarks/report.py` (scores stored runs offline, so label fixes need no new scan; recall, precision, catastrophic recall, placement, path accuracy, evidence validity, stability, cost, time, missed catastrophic items); `make bench` / `make bench-report`; `tests/test_benchmark_runner.py` (14 tests with a fake pipeline, including a check that the real database, settings and memory files are byte-identical afterwards). Suite 268 tests.
+**Phase 3 status (superseded by the Baseline section below):** the baseline had not yet run. A single smoke scan failed with `401 Invalid API Key`; the stored Mistral key is rejected by Mistral's own API when called directly, so the cause is the key and not the runner. No scan was billed. To finish: enter a valid key in Settings (or set `MISTRAL_API_KEY`), sign off the labels (or accept a provisional run with `--allow-unsigned`), then run the baseline on Mistral Large 4 (reasoning off) and a second model (proposed: `mistral-medium-latest`, since no OpenAI key exists), 3 runs each. Baseline numbers, B-028 targets and the remaining criteria (adversarial, stability, two models, placement, baseline recorded) stay open until then.
+**Phase 3 notes:** only `core/github_fetcher.py` was touched in production code: the scope rule was extracted unchanged from `scan_repo` into `select_paths` (and the block header into `file_block`) so the benchmark cannot drift from real scans; B-033 will change that one function. `make` is not installed on this machine, so the Makefile targets are untested; the Python commands are. Runs are sequential because the pipeline keeps global call counters. Some tests in `tests/test_db.py` (timestamp ordering) fail intermittently on `main` as well (confirmed on a clean checkout); not changed here.
 
 **Phase 2 delivered (2026-10-24):** five more repositories under `benchmarks/repos/` — `notes-express` (JS: header-trusted identity, path traversal, IDOR), `chain-api` (SSRF + unauthenticated internal admin + the compound path that wipes backups), `adversarial-api` (command injection with hostile instructions in code and README), `infra-deploy` (`pull_request_target` workflow, public backup bucket, secrets baked into the image), `web-templates` (stored XSS through `|safe`, readable session cookie) — 6 repositories, 17 labelled items, 9 catastrophic; `truth.json` gains `anchor` and `path`; scorer adds `path_accuracy` and `path_untraced`; `path_traversal` added to the threat classes; `tests/test_benchmark_scorer.py` now 44 tests. Suite 254 passing.
 **Phase 2 notes:** all labels are **unsigned** (`signed_off_by` is null) and need the engineer's review, especially the keywords. The repositories are intentionally small; real-but-unlabelled weaknesses in them (for example no rate limiting, no CSRF protection) will count as false positives, which is a known limit of precision. The adversarial, infrastructure/CI, template, chain, stability and two-model criteria above are provided for by these repositories and are *measured* when the runner exists (phase 3), so they stay unticked.
