@@ -1,0 +1,132 @@
+{
+  "language": "python",
+  "entry_points": [
+    {
+      "id": "e1",
+      "file": "app/routes.py",
+      "kind": "http",
+      "symbol": "search_orders",
+      "line": 11,
+      "route": "GET /orders/search"
+    },
+    {
+      "id": "e2",
+      "file": "app/routes.py",
+      "kind": "http",
+      "symbol": "export_order",
+      "line": 16,
+      "route": "POST /orders/{order_id}/export"
+    },
+    {
+      "id": "e3",
+      "file": "jobs.py",
+      "kind": "main",
+      "symbol": "__main__",
+      "line": 9
+    }
+  ],
+  "sinks": [
+    {
+      "id": "s1",
+      "file": "app/repository.py",
+      "kind": "sql",
+      "line": 9
+    },
+    {
+      "id": "s2",
+      "file": "app/repository.py",
+      "kind": "sql",
+      "line": 12
+    },
+    {
+      "id": "s3",
+      "file": "app/repository.py",
+      "kind": "sql",
+      "line": 15
+    },
+    {
+      "id": "s4",
+      "file": "app/service.py",
+      "kind": "file",
+      "line": 20
+    },
+    {
+      "id": "s5",
+      "file": "app/service.py",
+      "kind": "command",
+      "line": 26
+    }
+  ],
+  "calls": [
+    {
+      "callee": {
+        "file": "app/repository.py",
+        "symbol": "find"
+      },
+      "caller": {
+        "file": "app/service.py",
+        "symbol": "search"
+      }
+    },
+    {
+      "callee": {
+        "file": "app/service.py",
+        "symbol": "search"
+      },
+      "caller": {
+        "file": "app/routes.py",
+        "symbol": "search_orders"
+      }
+    },
+    {
+      "callee": {
+        "file": "app/repository.py",
+        "symbol": "get"
+      },
+      "caller": {
+        "file": "app/service.py",
+        "symbol": "export"
+      }
+    },
+    {
+      "callee": {
+        "file": "app/service.py",
+        "symbol": "export"
+      },
+      "caller": {
+        "file": "app/routes.py",
+        "symbol": "export_order"
+      }
+    },
+    {
+      "callee": {
+        "file": "app/repository.py",
+        "symbol": "delete_older_than"
+      },
+      "caller": {
+        "file": "app/service.py",
+        "symbol": "purge_old"
+      }
+    },
+    {
+      "callee": {
+        "file": "app/service.py",
+        "symbol": "purge_old"
+      },
+      "caller": {
+        "file": "jobs.py",
+        "symbol": "nightly_cleanup"
+      }
+    },
+    {
+      "callee": {
+        "file": "app/service.py",
+        "symbol": "archive"
+      },
+      "caller": {
+        "file": "jobs.py",
+        "symbol": "nightly_cleanup"
+      }
+    }
+  ]
+}

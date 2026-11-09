@@ -1,0 +1,132 @@
+{
+  "language": "csharp",
+  "entry_points": [
+    {
+      "id": "e1",
+      "file": "OrdersController.cs",
+      "kind": "http",
+      "symbol": "SearchOrders",
+      "line": 12,
+      "route": "GET /orders/search"
+    },
+    {
+      "id": "e2",
+      "file": "OrdersController.cs",
+      "kind": "http",
+      "symbol": "ExportOrder",
+      "line": 18,
+      "route": "POST /orders/{orderId}/export"
+    },
+    {
+      "id": "e3",
+      "file": "CleanupJob.cs",
+      "kind": "main",
+      "symbol": "Main",
+      "line": 5
+    }
+  ],
+  "sinks": [
+    {
+      "id": "s1",
+      "file": "OrderRepository.cs",
+      "kind": "sql",
+      "line": 12
+    },
+    {
+      "id": "s2",
+      "file": "OrderRepository.cs",
+      "kind": "sql",
+      "line": 19
+    },
+    {
+      "id": "s3",
+      "file": "OrderRepository.cs",
+      "kind": "sql",
+      "line": 26
+    },
+    {
+      "id": "s4",
+      "file": "ExportService.cs",
+      "kind": "file",
+      "line": 11
+    },
+    {
+      "id": "s5",
+      "file": "ExportService.cs",
+      "kind": "command",
+      "line": 17
+    }
+  ],
+  "calls": [
+    {
+      "callee": {
+        "file": "OrderRepository.cs",
+        "symbol": "Find"
+      },
+      "caller": {
+        "file": "OrderService.cs",
+        "symbol": "Search"
+      }
+    },
+    {
+      "callee": {
+        "file": "OrderService.cs",
+        "symbol": "Search"
+      },
+      "caller": {
+        "file": "OrdersController.cs",
+        "symbol": "SearchOrders"
+      }
+    },
+    {
+      "callee": {
+        "file": "OrderRepository.cs",
+        "symbol": "Get"
+      },
+      "caller": {
+        "file": "ExportService.cs",
+        "symbol": "Export"
+      }
+    },
+    {
+      "callee": {
+        "file": "ExportService.cs",
+        "symbol": "Export"
+      },
+      "caller": {
+        "file": "OrdersController.cs",
+        "symbol": "ExportOrder"
+      }
+    },
+    {
+      "callee": {
+        "file": "OrderRepository.cs",
+        "symbol": "DeleteOlderThan"
+      },
+      "caller": {
+        "file": "OrderService.cs",
+        "symbol": "PurgeOlder"
+      }
+    },
+    {
+      "callee": {
+        "file": "OrderService.cs",
+        "symbol": "PurgeOlder"
+      },
+      "caller": {
+        "file": "CleanupJob.cs",
+        "symbol": "Main"
+      }
+    },
+    {
+      "callee": {
+        "file": "ExportService.cs",
+        "symbol": "Archive"
+      },
+      "caller": {
+        "file": "CleanupJob.cs",
+        "symbol": "Main"
+      }
+    }
+  ]
+}

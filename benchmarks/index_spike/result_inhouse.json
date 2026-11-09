@@ -1,0 +1,50 @@
+{
+  "cs-orders": {
+    "call_recall": 1.0,
+    "call_precision": 1.0,
+    "symbol_recall": 1.0,
+    "calls_found": 7,
+    "calls_total": 7,
+    "entry_recall": 1.0,
+    "entry_precision": 1.0,
+    "sink_recall": 1.0,
+    "sink_precision": 1.0,
+    "seconds": 0.02
+  },
+  "java-orders": {
+    "call_recall": 1.0,
+    "call_precision": 1.0,
+    "symbol_recall": 1.0,
+    "calls_found": 7,
+    "calls_total": 7,
+    "entry_recall": 1.0,
+    "entry_precision": 1.0,
+    "sink_recall": 1.0,
+    "sink_precision": 1.0,
+    "seconds": 0.01
+  },
+  "py-orders": {
+    "call_recall": 1.0,
+    "call_precision": 0.875,
+    "symbol_recall": 1.0,
+    "calls_found": 7,
+    "calls_total": 7,
+    "entry_recall": 1.0,
+    "entry_precision": 1.0,
+    "sink_recall": 1.0,
+    "sink_precision": 1.0,
+    "seconds": 0.0
+  },
+  "ts-orders": {
+    "call_recall": 1.0,
+    "call_precision": 0.778,
+    "symbol_recall": 1.0,
+    "calls_found": 7,
+    "calls_total": 7,
+    "entry_recall": 1.0,
+    "entry_precision": 1.0,
+    "sink_recall": 1.0,
+    "sink_precision": 1.0,
+    "seconds": 0.0
+  }
+}

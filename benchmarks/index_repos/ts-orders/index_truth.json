@@ -1,0 +1,132 @@
+{
+  "language": "typescript",
+  "entry_points": [
+    {
+      "id": "e1",
+      "file": "src/routes.ts",
+      "kind": "http",
+      "symbol": "searchOrders",
+      "line": 8,
+      "route": "GET /orders/search"
+    },
+    {
+      "id": "e2",
+      "file": "src/routes.ts",
+      "kind": "http",
+      "symbol": "exportOrder",
+      "line": 12,
+      "route": "POST /orders/:orderId/export"
+    },
+    {
+      "id": "e3",
+      "file": "src/jobs.ts",
+      "kind": "main",
+      "symbol": "<main>",
+      "line": 8
+    }
+  ],
+  "sinks": [
+    {
+      "id": "s1",
+      "file": "src/repository.ts",
+      "kind": "sql",
+      "line": 7
+    },
+    {
+      "id": "s2",
+      "file": "src/repository.ts",
+      "kind": "sql",
+      "line": 11
+    },
+    {
+      "id": "s3",
+      "file": "src/repository.ts",
+      "kind": "sql",
+      "line": 15
+    },
+    {
+      "id": "s4",
+      "file": "src/service.ts",
+      "kind": "file",
+      "line": 20
+    },
+    {
+      "id": "s5",
+      "file": "src/service.ts",
+      "kind": "command",
+      "line": 26
+    }
+  ],
+  "calls": [
+    {
+      "callee": {
+        "file": "src/repository.ts",
+        "symbol": "find"
+      },
+      "caller": {
+        "file": "src/service.ts",
+        "symbol": "search"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/service.ts",
+        "symbol": "search"
+      },
+      "caller": {
+        "file": "src/routes.ts",
+        "symbol": "searchOrders"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/repository.ts",
+        "symbol": "get"
+      },
+      "caller": {
+        "file": "src/service.ts",
+        "symbol": "exportOrder"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/service.ts",
+        "symbol": "exportOrder"
+      },
+      "caller": {
+        "file": "src/routes.ts",
+        "symbol": "exportOrder"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/repository.ts",
+        "symbol": "deleteOlderThan"
+      },
+      "caller": {
+        "file": "src/service.ts",
+        "symbol": "purgeOlder"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/service.ts",
+        "symbol": "purgeOlder"
+      },
+      "caller": {
+        "file": "src/jobs.ts",
+        "symbol": "nightlyCleanup"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/service.ts",
+        "symbol": "archive"
+      },
+      "caller": {
+        "file": "src/jobs.ts",
+        "symbol": "nightlyCleanup"
+      }
+    }
+  ]
+}

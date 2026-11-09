@@ -728,9 +728,9 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-036 · Code Navigation Toolkit for Agents `[ ]` PROPOSED — P1 (prerequisite of B-028 phase B)
+### B-036 · Code Navigation Toolkit for Agents `[~]` IN PROGRESS — P1 (phase 0 spike done; prerequisite of B-028 phase B)
 
-**Decision:** Addendum to [ADR-015](decisions/ADR-015-goal-based-discovery.md). **Added by the 2026-10-24 backlog review.**
+**Decision:** Addendum to [ADR-015](decisions/ADR-015-goal-based-discovery.md); build-versus-adopt decided in [ADR-025](decisions/ADR-025-code-index-build-vs-adopt.md) (Accepted 2026-11-09). **Added by the 2026-10-24 backlog review.** **Phases:** 0 spike (done) · 1 Python index with receiver-aware call resolution · 2 Java, C#, TypeScript and the missing framework idioms · 3 tools registered with the chat and the verifier.
 
 **Why:** The verifier must trace entry point → data flow → sink, but the only code tools are `read_file` and `search_code`. Without find-callers, find-definition, entry-point and sink lists, tracing is guesswork over text search and unreliable on large repositories. The same toolkit improves the chat (B-025) and underpins B-008 and B-013.
 
@@ -741,12 +741,20 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Registered with the chat (B-025) and the verifier (B-028B); the index is built lazily per snapshot and cached
 
 **Acceptance criteria:**
+- [x] *(spike, engineer-approved 2026-11-09)* Build-versus-adopt compared on labelled Python, Java, C# and TypeScript repositories with a scored table (ADR-025)
+- [x] *(spike)* Graphify and CodeGraph evaluated offline in isolated environments, not embedded; the in-house prototype reaches call recall 1.00 on all four languages, but call precision only 0.78-0.88 on Python/TypeScript until receiver-aware resolution lands
+- [ ] *(added)* Call precision 1.00 on the four spike repositories without losing recall (receiver-aware resolution)
+- [ ] *(added)* The eight-idiom entry-point probe passes (Django `urlpatterns`, ASP.NET minimal API, JAX-RS, route prefixes still missing)
+- [ ] *(added)* tree-sitter and the language wheels pinned in `requirements.txt`; no grammar or other download at run time
 - [ ] On test repositories the index finds FastAPI and Flask routes, callers across files, and sinks (unit tests)
 - [ ] Unsupported languages fall back to text search with `confidence: low` and a notice
 - [ ] Tool outputs are bounded in size and cannot reach paths outside the snapshot (allowlist test, as in B-025)
 - [ ] Index build time for a 300 KB repository is recorded and stays within the agreed bound
 - [ ] The chat can answer "who calls this function?" using the tools
 - [ ] With the toolkit the verifier's recall on the benchmark is measured against runs without it (B-026), and the difference is recorded here
+**Phase 0 delivered (2026-11-09):** `benchmarks/index_repos/` (four small labelled repositories: Python/FastAPI, Java/Spring, C#/ASP.NET, TypeScript/Express, each with 7 call edges, 3 entry points and 5 sinks; truth generated from anchors), `benchmarks/index_spike/` (scorer, in-house tree-sitter prototype, Graphify and CodeGraph adapters, runner, idiom probe, stored results), `tests/test_index_scorer.py` and `tests/test_index_inhouse.py` (skips when tree-sitter is not installed), ADR-025.
+**Spike findings:** neither candidate provides sinks and their entry-point coverage is thin (CodeGraph routes only; Graphify none); both resolve callees to definitions better than a name-based index (precision 1.00), which is the main work for phase 1; Graphify's cross-file method edges are heuristic (tagged INFERRED); the in-house fixtures were written alongside its rules, so its 1.00 entry and sink scores show the rules fit the fixtures, and the idiom probe (5 of 8) is the better generalisation check. Index time on a 300 KB repository is still unmeasured.
+
 
 ---
 
