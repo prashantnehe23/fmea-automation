@@ -46,3 +46,9 @@ Honest limits of these numbers: the fixtures are tiny and were written by the sa
 - New runtime dependencies (tree-sitter and four or five grammar wheels) arrive with phase 1; they are small, MIT-licensed and have prebuilt Windows wheels.
 - If receiver-aware resolution proves harder than expected for Java or C# (type inference through generics and dependency injection), importing a candidate's resolved edges as an optional source stays open.
 - The spike repositories can be extended with vulnerability labels for the language-coverage work (B-039) without further authoring.
+
+## Implementation notes (phase 1, 2026-11-09)
+- The prototype became `core/code_index.py`; it works on `{path: text}` only (no file system), so it indexes a stored scan snapshot exactly as the chat sees it.
+- Receiver-aware resolution lifted call precision on the spike repositories from 0.78-0.88 to 1.00 with recall unchanged. The key rule is that a receiver whose type is not defined in the scanned code (a framework, driver or `express()` result) creates no edge, which removes `@router.get(...)` and `db.prepare(...).get(x)` being read as calls to a repo method named `get`.
+- Index build time: 0.25 s for 307 KB in 630 files across the four languages.
+- `tree-sitter-javascript` is not pinned: plain JavaScript is parsed with the TypeScript grammar.
