@@ -195,12 +195,12 @@ def _fake_client(monkeypatch, replies):
     return calls
 
 
-def test_mistral_large_4_sends_reasoning_off(monkeypatch):
+def test_mistral_large_4_sends_its_lowest_reasoning_level_by_default(monkeypatch):
     calls = _fake_client(monkeypatch, [("ok", "stop")])
     providers.set_api_key("mistral", "k")
     settings.set_setting("active_model", "mistral-large-4")
     llm.call_llm("hi")
-    assert calls[0]["reasoning_effort"] == "none"
+    assert calls[0]["reasoning_effort"] == "low"      # B-037: the API rejects "none" for this model
 
 
 def test_models_without_extra_params_send_none(monkeypatch):

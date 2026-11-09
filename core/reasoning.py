@@ -3,7 +3,7 @@ core/reasoning.py — user-selectable reasoning level for B-023.
 
 A model opts in via a "reasoning" entry in core/costs.py AVAILABLE_MODELS:
 
-    "reasoning": {"param": "reasoning_effort", "levels": {"off": "none", "high": "high"}}
+    "reasoning": {"param": "reasoning_effort", "levels": {"low": "low", "high": "high"}}
 
 `levels` maps the generic level names (LEVELS) to the provider's API value, so each model
 exposes only what it supports. Models without the entry have no control (hidden in the UI).

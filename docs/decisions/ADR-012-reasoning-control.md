@@ -20,3 +20,6 @@ Reasoning models bill thinking tokens against the output limit. At the agents' f
 - A model with reasoning only works with this control once its registry entry is added; unverified models (Astra, Sol, Luna) have none and run with provider defaults.
 - Multipliers are estimates; actual thinking length varies. Cost per run is still tracked by B-021 telemetry.
 - Higher levels are slower (Large 4 High measured ~2x time, ~2.5x tokens on a sample prompt) and cost more.
+
+## Implementation note (2026-11-09, B-037)
+Mistral's API now rejects `reasoning_effort: "none"` for Large 4 (HTTP 400; accepted values are low, medium, high, or omitting the parameter). The registry therefore offers Large 4 only low/medium/high, and the existing resolution rule (nearest level at or below, else the lowest supported) makes the default "off" send `low`. The decision itself (generic levels mapped per model through the registry) is unchanged; this shows the benefit of keeping the mapping in data.

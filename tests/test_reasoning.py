@@ -50,15 +50,16 @@ def _fake(monkeypatch, replies=(("ok", "stop"),)):
 
 
 def test_supported_levels_per_model():
-    assert reasoning.supported_levels("mistral-large-4") == ["off", "high"]
+    assert reasoning.supported_levels("mistral-large-4") == ["low", "medium", "high"]   # B-037: no "off"
     assert reasoning.supported_levels("gpt-5.1") == ["off", "low", "medium", "high"]
     assert reasoning.supported_levels("gpt-4o-mini") == []
     assert reasoning.supported_levels("unknown-model") == []
 
 
 def test_resolve_level_nearest_at_or_below():
-    assert reasoning.resolve_level("mistral-large-4", "medium") == "off"
+    assert reasoning.resolve_level("mistral-large-4", "medium") == "medium"
     assert reasoning.resolve_level("mistral-large-4", "high") == "high"
+    assert reasoning.resolve_level("mistral-large-4", "off") == "low"       # lowest supported when below the range
     assert reasoning.resolve_level("gpt-5.1", "low") == "low"
     assert reasoning.resolve_level("gpt-4o", "high") is None
 
@@ -72,11 +73,18 @@ def test_high_sends_param_and_scales_tokens(monkeypatch):
     assert calls[0]["max_tokens"] == 24000  # 6000 x 4
 
 
-def test_off_sends_none_with_base_budget(monkeypatch):
+def test_default_level_sends_the_lowest_supported_value_not_none(monkeypatch):
+    """B-037: Mistral Large 4 rejects reasoning_effort "none" (400), so the default must not send it."""
     calls = _fake(monkeypatch)
     settings.set_setting("active_model", "mistral-large-4")
     llm.call_llm("hi", max_tokens=2000)
-    assert calls[0]["reasoning_effort"] == "none" and calls[0]["max_tokens"] == llm.FIRST_ATTEMPT_FLOOR
+    assert calls[0]["reasoning_effort"] == "low" and calls[0]["max_tokens"] == llm.FIRST_ATTEMPT_FLOOR
+
+
+@pytest.mark.parametrize("level", reasoning.LEVELS)
+def test_large_4_never_sends_none_at_any_level(level):
+    params, _, _ = reasoning.request_params("mistral-large-4", level)
+    assert params["reasoning_effort"] in {"low", "medium", "high"}
 
 
 def test_openai_reasoning_uses_its_token_param(monkeypatch):
@@ -128,15 +136,15 @@ def test_api_reads_and_sets_level(client):
 
 def test_api_effective_level_follows_model_support(client):
     settings.set_setting("active_model", "mistral-large-4")
-    r = client.patch("/api/settings/reasoning", json={"level": "medium"}).json()
-    assert r["level"] == "medium" and r["effective"] == "off" and r["supported"] == ["off", "high"]
+    r = client.patch("/api/settings/reasoning", json={"level": "off"}).json()
+    assert r["level"] == "off" and r["effective"] == "low" and r["supported"] == ["low", "medium", "high"]
     settings.set_setting("active_model", "gpt-4o")
     assert client.get("/api/settings/reasoning").json()["effective"] is None
 
 
 def test_models_list_exposes_levels(client):
     models = {m["id"]: m for m in client.get("/api/settings/models").json()}
-    assert [x["level"] for x in models["mistral-large-4"]["reasoning_levels"]] == ["off", "high"]
+    assert [x["level"] for x in models["mistral-large-4"]["reasoning_levels"]] == ["low", "medium", "high"]
     assert models["gpt-4o-mini"]["reasoning_levels"] == []
 
 
