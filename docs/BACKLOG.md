@@ -593,7 +593,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Missed catastrophic items: `infra-001` (CI workflow) and `infra-002` (public bucket) on both models, `web-001` (template XSS) on Medium. These files never reach the agents (B-033), as predicted. `chain-api` was caught on every Medium scan (the SSRF-to-backup-wipe chain); on Large 4 all three of its scans failed.
 - Every scan returned exactly 7 findings (the `max_failure_modes` cap), so precision is structurally low: with 2-4 labelled items per repository most findings are unlabelled, some genuinely real. Precision cannot be read as a false-positive rate until the cap goes (B-028).
 - About half of all findings cite evidence that does not check out (0.53-0.55); that is what the mechanical quote check in B-028 targets.
-- **Reliability finding: 9 of 18 Large 4 scans failed.** Eight were `403 Request blocked by guardrail policy` from Mistral (content moderation on security-attack prompts), one a JSON decode error. Medium had no failures. Large 4 figures therefore rest on 9 scans (stability and per-repository values are weak, `chain-api` has none). A tool that analyses attack paths needs a plan for provider guardrails (retry, fallback model, clear message); proposed as a new item, not yet approved.
+- **Reliability finding: 9 of 18 Large 4 scans failed.** Eight were `403 Request blocked by guardrail policy` from Mistral (content moderation on security-attack prompts), one a JSON decode error. Medium had no failures. Large 4 figures therefore rest on 9 scans (stability and per-repository values are weak, `chain-api` has none). A tool that analyses attack paths needs a plan for provider guardrails: B-040 (P2, ADR-024 Draft).
 - Cost per scan about $0.16 (Medium) and $0.13 (Large 4 on completed scans); about 2 minutes (Medium) and 2.5 to 6 minutes (Large 4) each, sequential.
 - **Targets for B-028 are not yet written** and need the engineer's approval after the labels are signed off.
 **Progress on Mistral Medium (3 runs per repository, same labels signed off 2026-11-09, raw runs in `benchmarks/results/`):**
@@ -643,6 +643,34 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **Phase 2 delivered (2026-10-24):** `adjustments.flagged` column (idempotent migration; old rows read as unflagged); `db.get_current_severity` (latest adjustment, else registry score); `db.save_adjustment` sets the flag for every path, so manual and chat Apply are both covered; `POST /api/scoring/adjustment` returns 422 when a Severity >= 9 scenario is lowered below 9 with fewer than 15 characters of justification (the chat proposal tool already required 15); `flagged` in the adjustment API; Scoring page shows an amber notice, holds the button until the reason is long enough, and marks flagged audit entries. `tests/test_expert_guard.py` (15 tests) plus 2 in `tests/test_chat.py`; suite 232 passing; frontend builds.
 **Phase 2 notes:** the guard needs a known current severity, so a scenario that is not in the registry (nothing to compare with) is not blocked. The 15-character minimum is mirrored in the UI as a hint; the server is authoritative. Not verified in the browser pane (needs a seeded project with a Severity 9+ scan).
 **Phase 1 notes:** more findings will now show High/Critical (intended). The `priority_reason` is not yet shown in the UI, and the stored-scan, watchlist and expert-adjustment criteria are phases 2 and 3. Locked scenarios get the severity floor but not the confirmed-exploit Critical lift (determinism, see ADR-020 notes).
+
+---
+
+### B-040 · Defensive-Purpose Framing Across Models and Provider-Block Handling `[ ]` PROPOSED — P2
+
+**Decision:** [ADR-024](decisions/ADR-024-defensive-framing-and-provider-blocks.md) (Draft). **Priority:** P2 (engineer-set 2026-11-09). **Ordering (engineer-approved 2026-11-09):** before B-028 phase B, so the new hunters and verifiers are written with the preamble from the start. **Found by:** the first live benchmark run (B-026): 8 of 18 Mistral Large 4 scans were blocked.
+
+**Why:** Providers such as Mistral block prompts that read as offensive but allow defensive use. This product is defensive (analysis of code the user owns or is authorised to assess, to rank risk and plan fixes), yet the saboteur prompt casts the model as "an elite red team operative ... who reasons like an attacker", the verifier is designed to construct exploits, and the chat explains how things are exploited. When a provider blocks a scan the user currently gets a generic failure and no way forward.
+
+**Scope:**
+- `core/prompt_context.py` (NEW): one shared, honest defensive-context preamble used by every agent that calls a model (surveyor, saboteur, controls, actuary, SRE, validator, judge, remediator, chat), identical for every provider
+- Reword the saboteur persona and any attacker role-play to an analyst/defender role; "exploit path" expressed as conditions and evidence (ADR-015 addendum 2); no request for working exploit code, payloads or weaponisation (remediator excluded)
+- Classify provider policy blocks (Mistral 403 `guardrail_violation`, OpenAI content-filter/refusal shapes) as `provider_blocked` with provider, model and stage; never retry the same prompt; count them in telemetry
+- UI: a blocked scan or chat turn shows a plain message naming the stage and lets the user pick another model and re-run; the result records the model that produced it; no silent switch
+- Benchmark: block rate per model in the report
+- Document each provider's official defensive-use route (engineer to supply or confirm from the provider's documentation; not assumed)
+
+**Acceptance criteria:**
+- [ ] Every prompt builder includes the preamble (test over all agents and the chat, as in the untrusted-data tests)
+- [ ] No prompt template contains attacker role-play wording or asks for working exploit code or payloads (test on the templates)
+- [ ] A fake Mistral 403 guardrail error and a fake OpenAI content-filter/refusal response are both classified `provider_blocked`; other errors are not (tests)
+- [ ] A blocked prompt is not retried with the same wording (test)
+- [ ] The scan UI and chat show a clear message and a model chooser after a block; the re-run result states its model (UI check)
+- [ ] Benchmark report shows block rate per model; Large 4 block rate after the change is measured against the 8 of 18 baseline and the target is agreed with the engineer
+- [ ] Recall and catastrophic recall after the change stay within an agreed margin of the pre-change baseline (rerun on the benchmark)
+- [ ] Each provider's official defensive-use route is documented, or noted as none
+
+**Open questions for the engineer:** (1) whether to ask the user to confirm they are authorised to assess a repository before a scan (the preamble claims it) - **deferred by the engineer on 2026-11-10; stays open in the backlog and is not part of the first implementation**; (2) whether an optional automatic fallback model is wanted later (not in scope now).
 
 ---
 
