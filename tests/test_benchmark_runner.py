@@ -30,10 +30,11 @@ KEYS = {"mistral": "test-key-not-real"}
 def test_select_paths_applies_the_scan_scope_rule():
     paths = ["README.md", "app.py", "src/util.js", "tests/test_app.py", "node_modules/x/index.js",
              ".github/workflows/ci.yml", "Dockerfile", "main.tf", "config.env", "poetry.lock",
-             "templates/page.html", "docs/guide.md", "data.json"]
+             "templates/page.html", "docs/guide.md", "data.json", "logo.png"]
     files, readme = select_paths(paths)
     assert readme == "README.md"
-    assert files == sorted(["README.md", "app.py", "src/util.js", "config.env", "docs/guide.md", "data.json"])
+    assert files == sorted(["README.md", "app.py", "src/util.js", "config.env", "docs/guide.md", "data.json",
+                            ".github/workflows/ci.yml", "Dockerfile", "main.tf", "templates/page.html"])   # B-033
     assert "tests/test_app.py" in select_paths(paths, skip_tests=False)[0]
 
 
@@ -45,11 +46,12 @@ def test_file_block_format_is_the_one_the_fetcher_uses():
 def test_scan_input_shows_a_scan_what_a_real_scan_would_see():
     code, context = run.scan_input(REPOS / "infra-deploy")
     assert "# ── config.env" in code and "# ── main.py" in code
-    for hidden in ("storage.tf", "Dockerfile", "release.yml", "truth.json"):     # B-033 gaps, and never the labels
-        assert hidden not in code
+    for shown in ("storage.tf", "Dockerfile", ".github/workflows/release.yml"):    # B-033: infrastructure and CI now in scope
+        assert f"# ── {shown}" in code
+    assert "truth.json" not in code                                                # the labels are never shown
     assert "Deploy repo" in context
     web, _ = run.scan_input(REPOS / "web-templates")
-    assert "# ── templates/comments.html" not in web and "# ── app.py" in web
+    assert "# ── templates/comments.html" in web and "# ── app.py" in web
 
 
 def test_hostile_readme_comment_is_sanitised_but_hostile_code_comment_is_kept():
@@ -152,11 +154,20 @@ def test_findings_and_a_failed_scan_are_recorded_not_raised():
 
 # ── AC-R4 ─────────────────────────────────────────────────────────────────────
 
-def test_unsigned_labels_are_refused_unless_allowed():
+def test_unsigned_labels_are_refused_unless_allowed(tmp_path):
+    import json
+    import shutil
+    unsigned = tmp_path / "shop-api"
+    shutil.copytree(REPOS / "shop-api", unsigned)
+    truth = json.loads((unsigned / "truth.json").read_text())
+    truth["signed_off_by"] = None
+    (unsigned / "truth.json").write_text(json.dumps(truth))
     with pytest.raises(ValueError, match="not signed off"):
-        run.run_benchmark("m", "off", 1, [REPOS / "shop-api"], "t", 5.0, False, KEYS, fake_pipeline())
-    out = run.run_benchmark("m", "off", 1, [REPOS / "shop-api"], "t", 5.0, True, KEYS, fake_pipeline())
+        run.run_benchmark("m", "off", 1, [unsigned], "t", 5.0, False, KEYS, fake_pipeline())
+    out = run.run_benchmark("m", "off", 1, [unsigned], "t", 5.0, True, KEYS, fake_pipeline())
     assert out["meta"]["signed_off"] == {"shop-api": None}
+    signed = run.run_benchmark("m", "off", 1, [REPOS / "shop-api"], "t", 5.0, False, KEYS, fake_pipeline())
+    assert signed["meta"]["signed_off"]["shop-api"]                      # the shipped labels run without the flag
 
 
 def test_the_budget_stops_the_run_and_says_so():
@@ -214,5 +225,5 @@ def test_table_warns_about_unsigned_labels_and_budget_stops():
     data = stored({"shop-api": [run_record([SQLI])]})
     data["meta"]["stopped"] = "budget $1.00 reached"
     text = report.format_table([report.summarise(data)])
-    assert "labels NOT signed off" in text and "STOPPED" in text and "OVERALL" in text
+    assert "labels were not signed off when this ran" in text and "STOPPED" in text and "OVERALL" in text
     assert "missed catastrophic: shop-api: shop-002" in text

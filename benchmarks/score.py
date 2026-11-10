@@ -95,6 +95,26 @@ def _path_errors(tid: str, item: dict, files: dict[str, str]) -> list[str]:
     return errors
 
 
+# ── Cited lines (B-041) ──
+
+_LINE_RANGE = r"(\d+)(?:\s*[-–—]\s*(\d+))?"
+LINE_TOLERANCE = 3
+
+
+def cited_lines(evidence: str, path: str) -> list[tuple[int, int]]:
+    """Line ranges the evidence cites for `path`: app.py:32, app.py:25-27, app.py (lines 25-27), app.py line 9."""
+    text = str(evidence or "").replace("\\", "/")
+    pattern = re.compile(
+        re.escape(Path(path).name) + r"\s*(?::|\(\s*(?:lines?\s+)?|#L|,?\s*lines?\s+|\s+L)\s*" + _LINE_RANGE, re.IGNORECASE)
+    return [(int(a), int(b or a)) for a, b in pattern.findall(text)]
+
+
+def cites_labelled_lines(finding: dict, item: dict) -> bool:
+    """True when the finding's evidence cites the labelled lines (within LINE_TOLERANCE)."""
+    lo, hi = item["lines"][0] - LINE_TOLERANCE, item["lines"][1] + LINE_TOLERANCE
+    return any(a <= hi and b >= lo for a, b in cited_lines(finding.get("evidence"), item["file"]))
+
+
 # ── Matching ──────────────────────────────────────────────────────────────────
 
 def _finding_text(finding: dict) -> str:
@@ -194,6 +214,7 @@ def score_scan(
     catastrophic = [it["id"] for it in items if it["catastrophic"]]
     caught_cat = [t for t in catastrophic if t in assigned]
     placed = [t for t in caught_cat if findings[assigned[t]].get("priority") in HIGH_BANDS]
+    on_target = [t for t in assigned if cites_labelled_lines(findings[assigned[t]], by_id[t])]
     with_path = [t for t in assigned if by_id[t].get("path")]
     traced = [t for t in with_path if traces_path(findings[assigned[t]], by_id[t])]
     with_rc = [t for t in assigned if findings[assigned[t]].get("root_cause")]
@@ -206,6 +227,7 @@ def score_scan(
             "catastrophic": len(catastrophic), "caught_catastrophic": len(caught_cat), "placed": len(placed),
             "with_path": len(with_path), "traced": len(traced),
             "valid_evidence": sum(evidence_valid(f, files) for f in findings),
+            "line_on_target": len(on_target),
         },
         "recall": _ratio(len(assigned), len(items)),
         "precision": _ratio(len(matched_idx), len(findings)),
@@ -213,6 +235,7 @@ def score_scan(
         "placement": _ratio(len(placed), len(caught_cat)),
         "evidence_validity": _ratio(sum(evidence_valid(f, files) for f in findings), len(findings)),
         "root_cause_agreement": _ratio(len(rc_agree), len(with_rc)),
+        "line_accuracy": _ratio(len(on_target), len(assigned)),
         "path_accuracy": _ratio(len(traced), len(with_path)),
         "path_untraced": sorted(set(with_path) - set(traced)),
         "found": sorted(assigned),

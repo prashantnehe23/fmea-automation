@@ -37,3 +37,4 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-022](ADR-022-agent-roster-after-goal-based-discovery.md) | Agent Roster After Goal-Based Discovery | Draft | 2026-10-24 |
 | [ADR-023](ADR-023-benchmark-methodology.md) | Scan Effectiveness Benchmark Methodology | Draft | 2026-10-24 |
 | [ADR-024](ADR-024-defensive-framing-and-provider-blocks.md) | Defensive-Purpose Framing Across Providers, and Handling of Provider Blocks | Draft | 2026-11-09 |
+| [ADR-025](ADR-025-code-index-build-vs-adopt.md) | Code Index: Build a Thin Tree-sitter Index, Do Not Embed Graphify or CodeGraph | Accepted | 2026-11-09 |

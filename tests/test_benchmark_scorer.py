@@ -48,9 +48,10 @@ def test_seed_truth_loads_and_has_catastrophic_items(truth):
     assert sum(i["catastrophic"] for i in truth["items"]) == 2
 
 
-def test_unsigned_truth_is_refused_when_signoff_required():
+def test_unsigned_truth_is_refused_when_signoff_required(tmp_path):
+    assert load_truth(REPO, require_signed_off=True)["signed_off_by"]          # the shipped labels are signed off
     with pytest.raises(ValueError, match="not signed off"):
-        load_truth(REPO, require_signed_off=True)
+        load_truth(_broken_repo(tmp_path, lambda d: d.update(signed_off_by=None)), require_signed_off=True)
 
 
 def _broken_repo(tmp_path, mutate):

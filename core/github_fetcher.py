@@ -19,6 +19,8 @@ import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
+from core.scan_scope import ScopeEntry, classify_tree, readme_path
+
 # ── File classification ────────────────────────────────────────────────────────
 
 _CODE_EXTS = frozenset({
@@ -32,25 +34,6 @@ _CONFIG_EXTS = frozenset({
     ".properties", ".conf", ".xml", ".env",
 })
 _DOC_EXTS = frozenset({".md", ".rst", ".txt", ".adoc"})
-
-# Directories and suffixes to always skip
-_NOISE_DIRS = (
-    "node_modules/", ".git/", ".github/", "vendor/", "dist/", "build/",
-    "__pycache__/", ".venv/", "venv/", ".tox/", ".eggs/",
-    ".coverage", "coverage/", ".nyc_output/", "site-packages/",
-)
-_NOISE_SUFFIXES = (
-    ".pyc", ".pyo", ".class", ".min.js", ".min.css",
-    ".DS_Store", ".lock",
-)
-_NOISE_NAMES = (
-    "package-lock.json", "yarn.lock", "poetry.lock",
-    "Pipfile.lock", "Gemfile.lock",
-)
-_TEST_PATTERNS = (
-    "test_", "_test.", "/tests/", "/test/",
-    "/spec/", ".spec.", ".test.", "__tests__/",
-)
 
 _MAX_BYTES = 300_000   # soft byte cap for concatenated output
 
@@ -141,17 +124,14 @@ def _try_branches(owner: str, repo: str) -> tuple[str, object]:
 
 # ── Repo scanning ─────────────────────────────────────────────────────────────────
 
-def scan_repo(
+def list_repo(
     url: str,
     skip_tests: bool = True,
-) -> tuple[RepoRef, list[str], str | None]:
+) -> tuple[RepoRef, list[ScopeEntry], str | None]:
     """
-    Scan a public GitHub repo and return:
-      (ref, file_paths, readme_path_or_None)
+    List a public GitHub repo's tree and classify every path against the scan scope (B-033).
 
-    file_paths: all non-binary, non-noise paths (code + config + docs).
-    readme_path: path to the root README (any extension) if present, else None.
-
+    Returns (ref, entries, readme_path_or_None); each entry says whether the path is in scope and why.
     Does NOT download any file content — only fetches the tree JSON.
     Falls back from 'main' to 'master' automatically.
     """
@@ -168,47 +148,33 @@ def scan_repo(
         data = _get_json(url_api)
 
     tree = data.get("tree", []) if isinstance(data, dict) else []
-    blobs = [item.get("path", "") for item in tree
+    items = [(item.get("path", ""), item.get("size")) for item in tree
              if isinstance(item, dict) and item.get("type") == "blob"]
-    files, readme_path = select_paths(blobs, skip_tests)
-    return ref, files, readme_path
+    entries = classify_tree(items, skip_tests)
+    return ref, entries, readme_path([e.path for e in entries])
+
+
+def scan_repo(
+    url: str,
+    skip_tests: bool = True,
+) -> tuple[RepoRef, list[str], str | None]:
+    """
+    Scan a public GitHub repo and return:
+      (ref, file_paths, readme_path_or_None)
+
+    file_paths: the paths in scan scope (see core/scan_scope.py).
+    readme_path: path to the root README (any extension) if present, else None.
+    """
+    ref, entries, readme = list_repo(url, skip_tests)
+    return ref, sorted(e.path for e in entries if e.included), readme
 
 
 def select_paths(paths: list[str], skip_tests: bool = True) -> tuple[list[str], str | None]:
     """
-    The scan scope rule: which of a repository's file paths are shown to the agents.
-    Returns (sorted paths, root README path or None). Shared with the benchmark runner so
-    benchmark scans see exactly what real scans see.
+    The scan scope rule applied to bare paths: (sorted in-scope paths, root README path or None).
     """
-    files: list[str] = []
-    readme_path: str | None = None
-
-    for path in paths:
-        # Skip noise directories
-        if any(nd in path for nd in _NOISE_DIRS):
-            continue
-
-        # Skip noise file suffixes / exact names
-        name = Path(path).name
-        if any(path.endswith(s) for s in _NOISE_SUFFIXES):
-            continue
-        if name in _NOISE_NAMES:
-            continue
-
-        # Skip test files if requested
-        if skip_tests and any(pat in path for pat in _TEST_PATTERNS):
-            continue
-
-        # Detect root README (any extension)
-        if re.match(r"^README(\.\w+)?$", name, re.IGNORECASE) and "/" not in path:
-            readme_path = path
-
-        # Include if it's a known text-based extension
-        ext = Path(path).suffix.lower()
-        if ext in (_CODE_EXTS | _CONFIG_EXTS | _DOC_EXTS):
-            files.append(path)
-
-    return sorted(files), readme_path
+    entries = classify_tree([(p, None) for p in paths], skip_tests)
+    return sorted(e.path for e in entries if e.included), readme_path(paths)
 
 
 # ── File content fetch ───────────────────────────────────────────────────────────
@@ -226,6 +192,18 @@ def fetch_readme(ref: RepoRef, readme_path: str) -> str:
 def file_block(path: str, content: str) -> str:
     """One file as it appears in the concatenated code the agents receive."""
     return f"# ── {path} {'─' * max(0, 60 - len(path))}\n" + content
+
+
+def fetch_contents(ref: RepoRef, paths: list[str]) -> tuple[dict[str, str], dict[str, str]]:
+    """Download the given paths. Returns ({path: text}, {path: error}); a failed file never aborts the rest."""
+    contents: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    for path in paths:
+        try:
+            contents[path] = fetch_file_content(ref.owner, ref.repo, ref.branch, path)
+        except Exception as exc:
+            errors[path] = str(exc)
+    return contents, errors
 
 
 def fetch_selected_files(

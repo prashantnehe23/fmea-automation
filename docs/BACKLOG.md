@@ -538,12 +538,12 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 **Revised core-scanning build order (engineer-approved 2026-10-24; supersedes the Order column above for the core items):**
 1. B-026 phase 2 — remaining benchmark repos, **with expected exploit paths in `truth.json` and path accuracy in the scorer**; then phase 3 (runner, baseline)
-2. B-033 — scan scope, wider file types, secret redaction
-3. B-036 — code navigation toolkit
+2. **B-041 — line-numbered code and a line-accuracy metric (engineer-approved 2026-11-09)**; then B-033 — scan scope, wider file types, secret redaction
+3. B-036 — code navigation toolkit (with the code-index spike, B-038/B-039 pending approval)
 4. **Verifier slice (new, B-028 phase B0):** run the exploit verifier over today's saboteur findings, using the exploit goal / path-step schema (ADR-015 addendum 2), before the full inventory exists; measured on the benchmark
 5. B-027 phase 1 — Business Profile
 6. B-028 phase A — inventory, threat registry, coverage ledger
-7. B-028 phase B (hunters, full verifier) with B-035 roster migration; B-029 and B-030 alongside
+7. **B-040 (defensive framing and provider-block handling; P2, engineer-ordered 2026-11-09 to land before phase B)**, then B-028 phase B (hunters, full verifier) with B-035 roster migration; B-029 and B-030 alongside
 8. B-031 — finding identity and locks (before phase D)
 9. B-028 phases C and D — catastrophic pass, chain composer, budgets, parallelism, depth setting; then B-032
 
@@ -580,6 +580,8 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - [x] *(added 2026-10-24, engineer-approved)* Every truth item has an **anchor** that must appear on its labelled lines, and every catastrophic item has an expected **exploit path** (entry and sink anchors plus match terms), all validated against the repository (tests); the scorer reports **path accuracy**
 - [x] *(added)* Each label states its own description well enough to win against its neighbours and to trace its path (test per repository), so label vocabulary clashes are caught early
 
+**Labels signed off by the engineer on 2026-11-09 (after the baseline below was run; the stored results are re-scored offline with the signed labels).**
+
 **Baseline (provisional, 2026-11-09; pipeline as of `main` after B-034 phase 2; labels unsigned; raw runs in `benchmarks/results/`):**
 
 | | Recall | Precision | Catastrophic recall | Placement | Path accuracy | Evidence validity | Stability | Cost | Scans OK |
@@ -594,6 +596,14 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - **Reliability finding: 9 of 18 Large 4 scans failed.** Eight were `403 Request blocked by guardrail policy` from Mistral (content moderation on security-attack prompts), one a JSON decode error. Medium had no failures. Large 4 figures therefore rest on 9 scans (stability and per-repository values are weak, `chain-api` has none). A tool that analyses attack paths needs a plan for provider guardrails: B-040 (P2, ADR-024 Draft).
 - Cost per scan about $0.16 (Medium) and $0.13 (Large 4 on completed scans); about 2 minutes (Medium) and 2.5 to 6 minutes (Large 4) each, sequential.
 - **Targets for B-028 are not yet written** and need the engineer's approval after the labels are signed off.
+**Progress on Mistral Medium (3 runs per repository, same labels signed off 2026-11-09, raw runs in `benchmarks/results/`):**
+
+| | Recall | Precision | Catastrophic recall | Placement | Path accuracy | Evidence valid | Line accuracy | Stability | Cost |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline (before B-041 and B-033) | 0.92 | 0.37 | 0.89 | 1.00 | 0.88 | 0.55 | 0.26 | 0.75 | $2.92 |
+| + B-041 (line numbers) | 0.90 | 0.36 | 0.81 | 1.00 | 0.82 | 0.98 | 0.78 | 0.83 | $2.96 |
+| + B-033 (scope, secrets) | 0.96 | 0.39 | 1.00 | 0.96 | 1.00 | 1.00 | 0.92 | 0.89 | $3.06 |
+
 **Phase 3 delivered (2026-11-09), runner only:** `benchmarks/run.py` (scans each repository N times in a fresh isolated environment: temporary database, caches, learning memory and settings; reads API keys from the real settings but never writes to them; sees exactly what a real scan sees through the shared `select_paths` / `file_block` in `core/github_fetcher.py`; per-invocation USD cap, default $12, stops and says so; refuses unsigned labels unless `--allow-unsigned`; stores raw findings, cost, time and calls plus commit, model and reasoning in `benchmarks/results/*.json`); `benchmarks/report.py` (scores stored runs offline, so label fixes need no new scan; recall, precision, catastrophic recall, placement, path accuracy, evidence validity, stability, cost, time, missed catastrophic items); `make bench` / `make bench-report`; `tests/test_benchmark_runner.py` (14 tests with a fake pipeline, including a check that the real database, settings and memory files are byte-identical afterwards). Suite 268 tests.
 **Phase 3 status (superseded by the Baseline section below):** the baseline had not yet run. A single smoke scan failed with `401 Invalid API Key`; the stored Mistral key is rejected by Mistral's own API when called directly, so the cause is the key and not the runner. No scan was billed. To finish: enter a valid key in Settings (or set `MISTRAL_API_KEY`), sign off the labels (or accept a provisional run with `--allow-unsigned`), then run the baseline on Mistral Large 4 (reasoning off) and a second model (proposed: `mistral-medium-latest`, since no OpenAI key exists), 3 runs each. Baseline numbers, B-028 targets and the remaining criteria (adversarial, stability, two models, placement, baseline recorded) stay open until then.
 **Phase 3 notes:** only `core/github_fetcher.py` was touched in production code: the scope rule was extracted unchanged from `scan_repo` into `select_paths` (and the block header into `file_block`) so the benchmark cannot drift from real scans; B-033 will change that one function. `make` is not installed on this machine, so the Makefile targets are untested; the Python commands are. Runs are sequential because the pipeline keeps global call counters. Some tests in `tests/test_db.py` (timestamp ordering) fail intermittently on `main` as well (confirmed on a clean checkout); not changed here.
@@ -638,7 +648,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ### B-040 · Defensive-Purpose Framing Across Models and Provider-Block Handling `[ ]` PROPOSED — P2
 
-**Decision:** [ADR-024](decisions/ADR-024-defensive-framing-and-provider-blocks.md) (Draft). **Priority:** P2 (engineer-set 2026-11-09). **Ordering note:** do it before B-028 phase B so the new hunters and verifiers are written with the preamble from the start. **Found by:** the first live benchmark run (B-026): 8 of 18 Mistral Large 4 scans were blocked.
+**Decision:** [ADR-024](decisions/ADR-024-defensive-framing-and-provider-blocks.md) (Draft). **Priority:** P2 (engineer-set 2026-11-09). **Ordering (engineer-approved 2026-11-09):** before B-028 phase B, so the new hunters and verifiers are written with the preamble from the start. **Found by:** the first live benchmark run (B-026): 8 of 18 Mistral Large 4 scans were blocked.
 
 **Why:** Providers such as Mistral block prompts that read as offensive but allow defensive use. This product is defensive (analysis of code the user owns or is authorised to assess, to rank risk and plan fixes), yet the saboteur prompt casts the model as "an elite red team operative ... who reasons like an attacker", the verifier is designed to construct exploits, and the chat explains how things are exploited. When a provider blocks a scan the user currently gets a generic failure and no way forward.
 
@@ -660,12 +670,33 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - [ ] Recall and catastrophic recall after the change stay within an agreed margin of the pre-change baseline (rerun on the benchmark)
 - [ ] Each provider's official defensive-use route is documented, or noted as none
 
-**Open questions for the engineer:** whether to ask the user to confirm they are authorised to assess a repository before a scan (the preamble claims it); whether an optional automatic fallback model is wanted later (not in scope now).
+**Open questions for the engineer:** (1) whether to ask the user to confirm they are authorised to assess a repository before a scan (the preamble claims it) - **deferred by the engineer on 2026-11-10; stays open in the backlog and is not part of the first implementation**; (2) whether an optional automatic fallback model is wanted later (not in scope now).
 
 ---
-### B-033 · Scan Scope and Coverage Transparency `[ ]` PROPOSED — P1
 
-**Decision:** [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md). **Added by the 2026-10-24 backlog review.**
+### B-041 · Line-Numbered Code for the Agents and a Line-Accuracy Metric `[x]` DONE — P1
+
+**Priority:** P1 (engineer-approved 2026-11-09). **Found by:** the first baseline (B-026): the code reaches the agents without line numbers, so cited lines are guesses (a SQL injection at lines 31-33 was cited as 25-27; Large 4 cited functions and no lines at all). The old evidence-validity check only tests that the cited file exists and the line is inside it, so it could not see this.
+
+**Scope:**
+- `core/line_numbers.py` (NEW): `number_lines()` prefixes every code line with `N| `, restarting per file header, with a one-line marker telling the model the prefix is not code and to cite `path:line`; blank lines between files are not numbered
+- `workflows/fmea_pipeline.py`: the surveyor, saboteur, linkage and controls agents receive the numbered text; the original text is still what is cached, fingerprinted and stored for the chat, so nothing downstream sees prefixes
+- `agents/saboteur.py`: the `evidence` field now asks for `path:line` references plus a short quote
+- `benchmarks/score.py`: `cited_lines()` and a `line_accuracy` metric (matched findings whose evidence cites the labelled lines within +/- 3); shown in the report
+
+**Acceptance criteria:**
+- [x] Every code line is numbered per file; numbering restarts at each file header; a header-like comment inside code does not restart it (tests)
+- [x] The pipeline sends numbered code to the agents; the input text is untouched and the chat's stored sources are not numbered (tests)
+- [x] Cited lines are parsed in the forms models use (`f.py:32`, `f.py:25-27`, `(lines 25-27)`, `line 9`, `#L40`, en dash, Windows paths) and checked against the labelled lines (tests)
+- [x] Line accuracy of the pre-change baseline recorded: Medium 0.255, Large 4 0.0 (re-scored offline)
+- [x] Re-run on the benchmark (Mistral Medium, 3 runs per repository, 2026-11-09): line accuracy 0.255 -> 0.78 and evidence validity 0.55 -> 0.98 at the same cost ($2.92 -> $2.96); recall 0.92 -> 0.90, precision 0.37 -> 0.36 and path accuracy 0.88 -> 0.82 moved by amounts within the noise of 3 runs; catastrophic recall 0.89 -> 0.81, entirely on `infra-deploy`, whose two catastrophic items sit in files the agents could not see until B-033, so those matches were keyword coincidences. No margin was formally agreed; the regression is explained by the scope gap and disappears in the next run. Raw runs in `benchmarks/results/`
+
+**Known limits:** the linkage agent reads only the first 12,000 characters, and the prefixes shorten what fits; models can still cite wrong lines, which this metric now shows; a stricter check that the quoted code actually sits at the cited line arrives with B-028's mechanical evidence verification.
+
+---
+### B-033 · Scan Scope and Coverage Transparency `[~]` IN PROGRESS — P1 (phases 1-2 of 3 built; engineer-approved 2026-11-09)
+
+**Decision:** [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md) (Accepted 2026-11-09). **Added by the 2026-10-24 backlog review.** **Phases:** 1 scope rule, manifest, budget and wider file types (built) - 2 secret redaction and deterministic reporting (built) - 3 lockfile dependency inventory, persisted per-project patterns, ledger cells (not started).
 
 **Why:** The fetcher decides silently what the agents can see. Dockerfiles, `.env`, Terraform, Makefiles, `.github/workflows`, lockfiles and web templates (`.html`, `.vue`, `.svelte`, `.ejs`, `.j2`) never reach any agent, and beyond 300 KB of text the remaining files are dropped with only a marker inside the code. A coverage ledger (B-028) can only cover what was fetched, so these are invisible holes, in exactly the files where infrastructure and CI catastrophes live.
 
@@ -678,12 +709,15 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Per-project include/exclude patterns, edited through the file-selection panel (B-005)
 
 **Acceptance criteria:**
-- [ ] Every scan stores a scope manifest with an explicit reason for every excluded path
-- [ ] The results show examined / not examined counts and the list of unexamined files
-- [ ] Dockerfile, compose, Terraform, GitHub Actions workflows, `.env*` and web templates are classified as in scope (tests on sample trees)
-- [ ] Secret values never appear in any prompt (test captures prompts for a repo containing a `.env` and an inline key); the key names are kept
-- [ ] A committed `.env` or private key is reported deterministically even if the model is never called (test)
-- [ ] A 600 KB repository produces a prioritised subset plus an explicit unexamined list, never a silent cut (test)
+- [x] Every scan stores a scope manifest with an explicit reason for every excluded path *(in the scan result, so it is stored with the chat snapshot)*
+- [ ] The results show examined / not examined counts and the list of unexamined files *(built in the scan page; not yet exercised in a browser)*
+- [x] Dockerfile, compose, Terraform, GitHub Actions workflows, `.env*` and web templates are classified as in scope (tests on sample trees)
+- [x] Secret values never appear in any prompt (test captures prompts for a repo containing a `.env` and an inline key); the key names are kept
+- [x] A committed `.env` or private key is reported deterministically even if the model is never called (test)
+- [x] A 600 KB repository produces a prioritised subset plus an explicit unexamined list, never a silent cut (test)
+- [ ] Lockfiles parsed into a dependency inventory *(phase 3)*
+- [ ] Per-project include/exclude patterns persisted and edited in the file-selection panel; today the panel's selection is recorded per scan as "not selected by the user" *(phase 3)*
+- [x] *(added 2026-11-09)* Benchmark re-run after the change (Mistral Medium, 3 runs per repository, with B-041, 2026-11-09): all three scope-gap catastrophic items (`infra-001`, `infra-002`, `web-001`) are now found, catastrophic recall 0.81 -> **1.00**, recall 0.90 -> 0.96, path accuracy 0.82 -> 1.00, evidence validity 0.98 -> 1.00, line accuracy 0.78 -> 0.92, stability 0.83 -> 0.89; cost $2.96 -> $3.06 (+3%); precision 0.36 -> 0.39 (still capped by the 7-finding limit). Placement 0.96: one `web-templates` XSS finding was rated below High (severity under 9, so the B-034 floor does not apply). Raw runs in `benchmarks/results/`
 - [ ] Include/exclude patterns persist per project and are honoured by the scan
 - [ ] Lockfiles yield a dependency inventory available to agents; raw lockfile text is not sent
 - [ ] Existing file selection (B-005), scans and chat keep working (regression tests)
@@ -730,9 +764,9 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-036 · Code Navigation Toolkit for Agents `[ ]` PROPOSED — P1 (prerequisite of B-028 phase B)
+### B-036 · Code Navigation Toolkit for Agents `[~]` IN PROGRESS — P1 (phases 0-1 done, tools in the chat; prerequisite of B-028 phase B)
 
-**Decision:** Addendum to [ADR-015](decisions/ADR-015-goal-based-discovery.md). **Added by the 2026-10-24 backlog review.**
+**Decision:** Addendum to [ADR-015](decisions/ADR-015-goal-based-discovery.md); build-versus-adopt decided in [ADR-025](decisions/ADR-025-code-index-build-vs-adopt.md) (Accepted 2026-11-09). **Added by the 2026-10-24 backlog review.** **Phases:** 0 spike (done) · 1 Python index with receiver-aware call resolution · 2 Java, C#, TypeScript and the missing framework idioms · 3 tools registered with the chat and the verifier.
 
 **Why:** The verifier must trace entry point → data flow → sink, but the only code tools are `read_file` and `search_code`. Without find-callers, find-definition, entry-point and sink lists, tracing is guesswork over text search and unreliable on large repositories. The same toolkit improves the chat (B-025) and underpins B-008 and B-013.
 
@@ -743,12 +777,23 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Registered with the chat (B-025) and the verifier (B-028B); the index is built lazily per snapshot and cached
 
 **Acceptance criteria:**
-- [ ] On test repositories the index finds FastAPI and Flask routes, callers across files, and sinks (unit tests)
-- [ ] Unsupported languages fall back to text search with `confidence: low` and a notice
-- [ ] Tool outputs are bounded in size and cannot reach paths outside the snapshot (allowlist test, as in B-025)
-- [ ] Index build time for a 300 KB repository is recorded and stays within the agreed bound
+- [x] *(spike, engineer-approved 2026-11-09)* Build-versus-adopt compared on labelled Python, Java, C# and TypeScript repositories with a scored table (ADR-025)
+- [x] *(spike)* Graphify and CodeGraph evaluated offline in isolated environments, not embedded; the in-house prototype reaches call recall 1.00 on all four languages, but call precision only 0.78-0.88 on Python/TypeScript until receiver-aware resolution lands
+- [x] *(added)* Call precision 1.00 on the four spike repositories without losing recall (receiver-aware resolution)
+- [ ] *(added)* The eight-idiom entry-point probe passes (Django `urlpatterns`, ASP.NET minimal API, JAX-RS, route prefixes still missing)
+- [x] *(added)* tree-sitter and the language wheels pinned in `requirements.txt`; no grammar or other download at run time
+- [x] On test repositories the index finds FastAPI and Flask routes, callers across files, and sinks (unit tests)
+- [x] Unsupported languages fall back to text search with `confidence: low` and a notice *(a notice naming the unparsed files and pointing to `search_code`; no per-result confidence flag yet)*
+- [x] Tool outputs are bounded in size and cannot reach paths outside the snapshot (allowlist test, as in B-025)
+- [x] Index build time for a 300 KB repository is recorded and stays within the agreed bound *(0.25 s for 307 KB in 630 files across the four languages; no bound was agreed)*
 - [ ] The chat can answer "who calls this function?" using the tools
 - [ ] With the toolkit the verifier's recall on the benchmark is measured against runs without it (B-026), and the difference is recorded here
+**Phase 1 delivered (2026-11-09):** `core/code_index.py` (tree-sitter index over `{path: text}` for Python, Java, C# and TypeScript/JavaScript: symbols, call edges with receiver-aware resolution, HTTP and main entry points, sql/file/command sinks, `find_definition`/`find_callers`/`find_callees`/`list_entry_points`/`list_sinks`); the five tools registered in the results chat with bounded output (40 results) and a notice for unparsed languages; tree-sitter and four grammar wheels pinned in `requirements.txt`; the spike adapter now wraps `core/code_index.py`. Resolution rules: a typed receiver resolves to its class's method; a receiver of a type that is not in the scanned code (framework or driver object, `express()`, `sqlite3.connect()`) makes no edge; a bare identifier of unknown type resolves by name only if the name is defined once; everything else stays unresolved. Spike repositories now score 1.00 on call recall and precision, entry points and sinks for all four languages (was 0.78-0.88 precision on Python/TypeScript with name-based edges). `tests/test_code_index.py` (held-out shapes the fixtures do not contain), `tests/test_code_index_tools.py`; suite 415+ passing.
+**Phase 1 notes:** the held-out resolution tests passed on the first run and the fixtures were used to tune the rules, so treat 1.00 as 'covers these shapes'; the entry-point idiom probe is still 5 of 8. Known gaps: inheritance and interfaces (a call through a base type is unresolved), dependency-injected fields without a visible initialiser or type, generics, dynamic dispatch, lambdas assigned to variables, route prefixes. The chat prompt now mentions the tools; a live model run that uses them to answer 'who calls this function?' has not been done yet. Phase 2 adds the missing idioms (Django `urlpatterns`, ASP.NET minimal APIs, JAX-RS) and further languages.
+
+**Phase 0 delivered (2026-11-09):** `benchmarks/index_repos/` (four small labelled repositories: Python/FastAPI, Java/Spring, C#/ASP.NET, TypeScript/Express, each with 7 call edges, 3 entry points and 5 sinks; truth generated from anchors), `benchmarks/index_spike/` (scorer, in-house tree-sitter prototype, Graphify and CodeGraph adapters, runner, idiom probe, stored results), `tests/test_index_scorer.py` and `tests/test_index_inhouse.py` (skips when tree-sitter is not installed), ADR-025.
+**Spike findings:** neither candidate provides sinks and their entry-point coverage is thin (CodeGraph routes only; Graphify none); both resolve callees to definitions better than a name-based index (precision 1.00), which is the main work for phase 1; Graphify's cross-file method edges are heuristic (tagged INFERRED); the in-house fixtures were written alongside its rules, so its 1.00 entry and sink scores show the rules fit the fixtures, and the idiom probe (5 of 8) is the better generalisation check. Index time on a 300 KB repository is still unmeasured.
+
 
 ---
 

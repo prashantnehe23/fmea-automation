@@ -33,7 +33,7 @@ def summarise(result: dict, repos_dir: Path = REPOS_DIR) -> dict:
         scores = [score_scan(r["findings"], truth, files) for r in ok]
         agg = {k: sum(s["counts"][k] for s in scores) for k in
                ("truth", "findings", "matched", "matched_findings", "catastrophic", "caught_catastrophic",
-                "placed", "with_path", "traced", "valid_evidence")}
+                "placed", "with_path", "traced", "valid_evidence", "line_on_target")}
         for k, v in agg.items():
             totals[k] = totals.get(k, 0) + v
         stab = stability(scores) if len(scores) > 1 else None
@@ -65,11 +65,12 @@ def _metrics(c: dict) -> dict:
         "placement": _ratio(c["placed"], c["caught_catastrophic"]),
         "path_accuracy": _ratio(c["traced"], c["with_path"]),
         "evidence_validity": _ratio(c["valid_evidence"], c["findings"]),
+        "line_accuracy": _ratio(c["line_on_target"], c["matched"]),
     }
 
 
 COLUMNS = (("recall", "recall"), ("precision", "prec"), ("catastrophic_recall", "cat.rec"), ("placement", "place"),
-           ("path_accuracy", "path"), ("evidence_validity", "evid"), ("stability", "stab"))
+           ("path_accuracy", "path"), ("evidence_validity", "evid"), ("line_accuracy", "line"), ("stability", "stab"))
 
 
 def _cell(v) -> str:
@@ -82,7 +83,7 @@ def format_table(summaries: list[dict]) -> str:
         m = s["meta"]
         head = f"{m['label']} · {m['model']} · reasoning {m['reasoning']} · {m['runs']} runs · {m['created']}"
         if not all(m["signed_off"].values()):
-            head += "  [labels NOT signed off]"
+            head += "  [labels were not signed off when this ran]"
         if m.get("stopped"):
             head += f"  [STOPPED: {m['stopped']}]"
         lines += [head, f"{'repository':<18}" + "".join(f"{h:>9}" for _, h in COLUMNS) + f"{'$':>9}{'sec':>8}"]

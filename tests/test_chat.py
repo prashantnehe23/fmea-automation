@@ -201,9 +201,10 @@ def test_ac6_valid_and_suffix_paths_work():
 
 def test_ac8_code_tools_are_read_only_and_injected_text_changes_nothing(monkeypatch):
     names = {t["function"]["name"] for t in chat.TOOLS}
-    assert {"read_file", "search_code", "get_scenario_detail"} <= names
-    assert names - {"read_file", "search_code", "get_scenario_detail"} == {
-        "propose_score_adjustment", "propose_unlock_scenario"}      # the only write-ish tools only propose
+    read_only = {"read_file", "search_code", "get_scenario_detail", "find_definition", "find_callers", "find_callees",
+                 "list_entry_points", "list_sinks"}                 # B-036 index tools only read
+    assert read_only <= names
+    assert names - read_only == {"propose_score_adjustment", "propose_unlock_scenario"}      # the only write-ish tools only propose
     seed()
     fake_llm(monkeypatch, [
         ("", [tool_call("read_file", {"path": "src/pay.py"})], "tool_calls"),
