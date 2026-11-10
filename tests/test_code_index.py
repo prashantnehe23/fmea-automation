@@ -32,9 +32,9 @@ def test_spike_repositories_are_indexed_perfectly(repo):
         assert s[key] == 1.0, (key, s)
 
 
-def test_the_idiom_probe_still_documents_the_missing_detectors():
+def test_the_idiom_probe_detects_every_idiom_with_its_route():
     from benchmarks.index_spike.idiom_probe import probe
-    assert [f for f, ok in probe().items() if not ok] == ["django_urls.py", "aspnet_minimal.cs", "Jaxrs.java"]
+    assert [f for f, ok in probe().items() if not ok] == []
 
 
 # ── receiver-aware resolution (Python) ────────────────────────────────────────

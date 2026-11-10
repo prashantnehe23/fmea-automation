@@ -9,7 +9,7 @@
     "entry_precision": 1.0,
     "sink_recall": 1.0,
     "sink_precision": 1.0,
-    "seconds": 0.01
+    "seconds": 0.06
   },
   "java-orders": {
     "call_recall": 1.0,
@@ -21,7 +21,7 @@
     "entry_precision": 1.0,
     "sink_recall": 1.0,
     "sink_precision": 1.0,
-    "seconds": 0.01
+    "seconds": 0.02
   },
   "py-orders": {
     "call_recall": 1.0,
@@ -33,7 +33,7 @@
     "entry_precision": 1.0,
     "sink_recall": 1.0,
     "sink_precision": 1.0,
-    "seconds": 0.0
+    "seconds": 0.02
   },
   "ts-orders": {
     "call_recall": 1.0,
@@ -45,6 +45,6 @@
     "entry_precision": 1.0,
     "sink_recall": 1.0,
     "sink_precision": 1.0,
-    "seconds": 0.01
+    "seconds": 0.03
   }
 }
