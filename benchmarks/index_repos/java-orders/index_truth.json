@@ -1,0 +1,132 @@
+{
+  "language": "java",
+  "entry_points": [
+    {
+      "id": "e1",
+      "file": "src/main/java/com/example/orders/OrderController.java",
+      "kind": "http",
+      "symbol": "searchOrders",
+      "line": 11,
+      "route": "GET /orders/search"
+    },
+    {
+      "id": "e2",
+      "file": "src/main/java/com/example/orders/OrderController.java",
+      "kind": "http",
+      "symbol": "exportOrder",
+      "line": 16,
+      "route": "POST /orders/{orderId}/export"
+    },
+    {
+      "id": "e3",
+      "file": "src/main/java/com/example/orders/CleanupJob.java",
+      "kind": "main",
+      "symbol": "main",
+      "line": 4
+    }
+  ],
+  "sinks": [
+    {
+      "id": "s1",
+      "file": "src/main/java/com/example/orders/OrderRepository.java",
+      "kind": "sql",
+      "line": 15
+    },
+    {
+      "id": "s2",
+      "file": "src/main/java/com/example/orders/OrderRepository.java",
+      "kind": "sql",
+      "line": 24
+    },
+    {
+      "id": "s3",
+      "file": "src/main/java/com/example/orders/OrderRepository.java",
+      "kind": "sql",
+      "line": 33
+    },
+    {
+      "id": "s4",
+      "file": "src/main/java/com/example/orders/ExportService.java",
+      "kind": "file",
+      "line": 9
+    },
+    {
+      "id": "s5",
+      "file": "src/main/java/com/example/orders/ExportService.java",
+      "kind": "command",
+      "line": 18
+    }
+  ],
+  "calls": [
+    {
+      "callee": {
+        "file": "src/main/java/com/example/orders/OrderRepository.java",
+        "symbol": "find"
+      },
+      "caller": {
+        "file": "src/main/java/com/example/orders/OrderService.java",
+        "symbol": "search"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/main/java/com/example/orders/OrderService.java",
+        "symbol": "search"
+      },
+      "caller": {
+        "file": "src/main/java/com/example/orders/OrderController.java",
+        "symbol": "searchOrders"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/main/java/com/example/orders/OrderRepository.java",
+        "symbol": "get"
+      },
+      "caller": {
+        "file": "src/main/java/com/example/orders/ExportService.java",
+        "symbol": "export"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/main/java/com/example/orders/ExportService.java",
+        "symbol": "export"
+      },
+      "caller": {
+        "file": "src/main/java/com/example/orders/OrderController.java",
+        "symbol": "exportOrder"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/main/java/com/example/orders/OrderRepository.java",
+        "symbol": "deleteOlderThan"
+      },
+      "caller": {
+        "file": "src/main/java/com/example/orders/OrderService.java",
+        "symbol": "purgeOlder"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/main/java/com/example/orders/OrderService.java",
+        "symbol": "purgeOlder"
+      },
+      "caller": {
+        "file": "src/main/java/com/example/orders/CleanupJob.java",
+        "symbol": "main"
+      }
+    },
+    {
+      "callee": {
+        "file": "src/main/java/com/example/orders/ExportService.java",
+        "symbol": "archive"
+      },
+      "caller": {
+        "file": "src/main/java/com/example/orders/CleanupJob.java",
+        "symbol": "main"
+      }
+    }
+  ]
+}

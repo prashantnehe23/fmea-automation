@@ -5,3 +5,9 @@ uvicorn[standard]>=0.22.0
 streamlit>=1.28.0
 plotly>=5.18.0
 pandas>=2.0.0
+# Code index (B-036, ADR-025): official per-language grammars, pinned; static, nothing is downloaded at run time
+tree-sitter==0.26.1
+tree-sitter-python==0.25.0
+tree-sitter-java==0.23.5
+tree-sitter-c-sharp==0.23.5
+tree-sitter-typescript==0.23.2
