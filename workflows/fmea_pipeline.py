@@ -9,6 +9,7 @@ from agents.scenario_linkage import run_scenario_linkage
 from agents.sre_agent import run_sre_agent
 from agents.surveyor import run_surveyor
 from agents.validator import run_validator
+from core.line_numbers import number_lines
 from core.llm import get_call_count, reset_call_count
 from core.priority import exploit_confirmed_from, guarded_severity, priority_for
 from core.telemetry import agent_span, clear_scan_context, get_run_id, set_scan_context
@@ -97,14 +98,17 @@ def run_fmea(
     set_scan_context(scan_id=None, workspace_id=workspace_id)
 
     # ── Core pipeline ──────────────────────────────────────────────────────────
+    # Agents see numbered lines so the line numbers they cite are real (B-041); the original
+    # text is what is cached, fingerprinted and stored.
+    prompt_code = number_lines(code)
     if on_progress: on_progress("surveyor")
     with agent_span("surveyor"):
-        context = run_surveyor(code, business_context=biz_ctx)
+        context = run_surveyor(prompt_code, business_context=biz_ctx)
 
     if on_progress: on_progress("saboteur")
     with agent_span("saboteur"):
         failures = run_saboteur(
-            code, context,
+            prompt_code, context,
             max_scenarios=max_failure_modes,
             learning_context=learning_ctx,
             locked_names=locked_names if locked_names else None,
@@ -113,8 +117,8 @@ def run_fmea(
 
     if on_progress: on_progress("controls")
     with agent_span("controls"):
-        scenario_linkage = run_scenario_linkage(failures, code)
-        controls = run_controls_assessor(failures, code)
+        scenario_linkage = run_scenario_linkage(failures, prompt_code)
+        controls = run_controls_assessor(failures, prompt_code)
 
     # Single batched actuary call — locked scenarios short-circuit (no LLM call)
     if on_progress: on_progress("actuary")

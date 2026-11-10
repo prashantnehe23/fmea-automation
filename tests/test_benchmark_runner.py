@@ -152,11 +152,20 @@ def test_findings_and_a_failed_scan_are_recorded_not_raised():
 
 # ── AC-R4 ─────────────────────────────────────────────────────────────────────
 
-def test_unsigned_labels_are_refused_unless_allowed():
+def test_unsigned_labels_are_refused_unless_allowed(tmp_path):
+    import json
+    import shutil
+    unsigned = tmp_path / "shop-api"
+    shutil.copytree(REPOS / "shop-api", unsigned)
+    truth = json.loads((unsigned / "truth.json").read_text())
+    truth["signed_off_by"] = None
+    (unsigned / "truth.json").write_text(json.dumps(truth))
     with pytest.raises(ValueError, match="not signed off"):
-        run.run_benchmark("m", "off", 1, [REPOS / "shop-api"], "t", 5.0, False, KEYS, fake_pipeline())
-    out = run.run_benchmark("m", "off", 1, [REPOS / "shop-api"], "t", 5.0, True, KEYS, fake_pipeline())
+        run.run_benchmark("m", "off", 1, [unsigned], "t", 5.0, False, KEYS, fake_pipeline())
+    out = run.run_benchmark("m", "off", 1, [unsigned], "t", 5.0, True, KEYS, fake_pipeline())
     assert out["meta"]["signed_off"] == {"shop-api": None}
+    signed = run.run_benchmark("m", "off", 1, [REPOS / "shop-api"], "t", 5.0, False, KEYS, fake_pipeline())
+    assert signed["meta"]["signed_off"]["shop-api"]                      # the shipped labels run without the flag
 
 
 def test_the_budget_stops_the_run_and_says_so():
@@ -214,5 +223,5 @@ def test_table_warns_about_unsigned_labels_and_budget_stops():
     data = stored({"shop-api": [run_record([SQLI])]})
     data["meta"]["stopped"] = "budget $1.00 reached"
     text = report.format_table([report.summarise(data)])
-    assert "labels NOT signed off" in text and "STOPPED" in text and "OVERALL" in text
+    assert "labels were not signed off when this ran" in text and "STOPPED" in text and "OVERALL" in text
     assert "missed catastrophic: shop-api: shop-002" in text

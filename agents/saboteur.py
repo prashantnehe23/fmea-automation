@@ -81,7 +81,7 @@ Each object must have these fields:
   "business_impact" : string  — business operations affected and who is harmed
   "blast_radius"    : string  — scope and propagation of damage
   "trigger"         : string  — specific condition or action that fires this scenario
-  "evidence"        : string  — code references or observable indicators (optional, can be "")
+  "evidence"        : string  — path:line references from the numbered code plus a short quote of the code (""  only if no code supports it)
 """
 
     response = call_llm(prompt, max_tokens=8192)

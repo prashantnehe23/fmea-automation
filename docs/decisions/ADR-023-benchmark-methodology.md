@@ -37,3 +37,6 @@ Recall; precision; catastrophic recall; placement (share of caught catastrophic 
 - **What a scan sees is the real scope rule.** `select_paths` and `file_block` were extracted unchanged from the GitHub fetcher and are shared, so gaps such as Dockerfiles, Terraform, CI workflows and templates not reaching the agents (B-033) show up in the baseline instead of being hidden by a benchmark-only file list.
 - **Fresh environment per scan.** The scenario registry locks the first scan's scores, so reusing one database would make runs 2..N copies of run 1 and make stability meaningless.
 - **Spend is bounded per invocation** (`--max-usd`, default $12) and the result says when it stopped.
+
+## Addendum 3 (2026-11-09): line accuracy
+Evidence validity only checks that a cited file exists and the line is inside it. `line_accuracy` is stricter and uses the labels: of the matched findings, the share whose evidence cites the labelled lines within +/- 3. A finding that cites no line (for example only a function name) counts as off target. The sign-off of all 17 labels by the engineer is recorded in each `truth.json` (`signed_off_by`).
