@@ -47,6 +47,7 @@ def run_fmea(
     force_rerun: bool = False,
     workspace=None,
     on_progress=None,
+    scope: dict | None = None,
 ) -> dict:
     """
     Run the full FMEA pipeline with caching, learning, validation, and evaluation.
@@ -73,6 +74,7 @@ def run_fmea(
         cached = get_cached_result(code, workspace)
         if cached is not None:
             cached["memory_stats"] = get_memory_stats(workspace)
+            cached["scope"] = scope
             return cached
 
     # ── Reset call counter for this run ───────────────────────────────────────
@@ -247,6 +249,7 @@ def run_fmea(
         "from_cache": False,
         "registry_locked": bool(locked),
         "new_scenarios": new_scenario_names,
+        "scope": scope,                    # B-033: what was examined and what was not
     }
 
     # Cache for next run (JSON file cache for fast repeated loads)

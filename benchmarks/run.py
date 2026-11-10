@@ -34,13 +34,12 @@ DEFAULT_MAX_USD = 12.0
 
 def scan_input(repo_dir: Path) -> tuple[str, str]:
     """(code, business_context) exactly as the GitHub scan flow would build them for this tree."""
-    from core.github_fetcher import file_block, select_paths
+    from core.scan_scope import build_scan_input
     from core.untrusted import sanitize_text
 
     files = load_repo_files(repo_dir)                       # truth.json is never shown to a scan
-    paths, readme = select_paths(list(files))
-    code = "\n\n".join(file_block(p, files[p]) for p in paths)
-    return code, sanitize_text(files[readme], 2000) if readme else ""
+    scan = build_scan_input(files)
+    return scan.code, sanitize_text(scan.readme_text, 2000)
 
 
 # ── Isolation ─────────────────────────────────────────────────────────────────
