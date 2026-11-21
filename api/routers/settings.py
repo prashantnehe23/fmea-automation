@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException
 from api.schemas import ApiKeyBody, ModelPatch, ReasoningPatch
 from core.costs import AVAILABLE_MODELS, FALLBACK_RATES, get_rates, refresh_pricing
 from core import providers
+from core.secrets import decrypt
 from core.providers import (
     PROVIDERS, clear_api_key, get_api_key, key_status, mask_key, provider_for_model, set_api_key,
     set_key_status,
@@ -109,7 +110,7 @@ async def list_providers():
             "display":  cfg["display"],
             "key_set":  bool(get_api_key(pid)),
             "key_hint": mask_key(get_api_key(pid)),
-            "source":   "settings" if stored.get(pid) else ("env" if get_api_key(pid) else None),
+            "source":   "settings" if (stored.get(pid) and decrypt(stored[pid])) else ("env" if get_api_key(pid) else None),
             "status":   key_status(pid),
         }
         for pid, cfg in PROVIDERS.items()

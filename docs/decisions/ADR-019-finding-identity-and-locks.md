@@ -1,6 +1,6 @@
 # ADR-019: Finding Identity, Lifecycle and Lock Semantics
 
-**Status:** Draft (awaiting engineer approval)  **Date:** 2026-10-19  **Backlog:** B-031 (revises parts of ADR-003 and B-001)
+**Status:** Accepted (engineer, 2026-11-21)  **Date:** 2026-10-19  **Backlog:** B-031 (revises parts of ADR-003 and B-001)
 
 ## Context
 The scenario registry (ADR-003) locks scenario *names* and S/O/D scores so a rescan of similar code gives stable results; scenarios are matched by name and, failing that, by embedding similarity. This design fits one-shot generation capped at N scenarios. With goal-based discovery (ADR-015):

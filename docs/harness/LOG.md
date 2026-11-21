@@ -12,3 +12,6 @@ State for the feature-delivery harness. The feature list is `docs/BACKLOG.md` (t
 | 2026-11-21 | B-028 phase 0, B-012, B-045, B-011, B-016 | Select | Blocked by dependencies (B-031, B-015, B-043) |
 | 2026-11-21 | B-046, B-048 phase 1, B-049 | Select | Blocked by dependencies (B-028 phase 0, B-015, B-043) |
 | 2026-11-21 | B-047 | Select | Eligible; not started (live verification needs a valid key and a local endpoint) |
+| 2026-11-21 | ADR-019, 024, 026, 027 | Design | Accepted by the engineer |
+| 2026-11-21 | B-042 | Plan / Build / Verify / Review | Implemented; independent review: no critical, important findings fixed; container run unverified |
+| 2026-11-21 | B-042 | Close | PR opened and merged; stays in progress for the container run and licence |

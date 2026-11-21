@@ -12,7 +12,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_MEMORY_ROOT = Path(__file__).resolve().parents[1] / "memory"
+from core.paths import data_dir
+
+_MEMORY_ROOT = data_dir(Path(__file__).resolve().parents[1] / "memory")
 
 
 def _slugify(text: str) -> str:

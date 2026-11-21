@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+
+from core.paths import data_dir
 from typing import Any
 
-_MEMORY_ROOT = Path(__file__).resolve().parent
+_MEMORY_ROOT = data_dir(Path(__file__).resolve().parent)
 _CORE_DIR = _MEMORY_ROOT / "core"
 
 

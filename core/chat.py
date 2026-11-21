@@ -34,6 +34,7 @@ from core.llm import call_chat, get_model_name, stream_chat
 from core.priority import priority_for
 from core.untrusted import as_data_block
 from core.providers import get_api_key, model_supports_tools, provider_for_model
+from core.retention import retention_days
 
 _log = logging.getLogger(__name__)
 
@@ -93,13 +94,20 @@ def persist_scan_for_chat(serialized: dict, code: str, known_paths: list[str] | 
         workspace_id = serialized.get("workspace_id")
         if not workspace_id:
             return None
-        return db.save_scan_snapshot(
+        days = retention_days()
+        snapshot_id = db.save_scan_snapshot(
             workspace_id,
             serialized.get("db_scan_id"),
             serialized.get("fingerprint") or "",
             serialized,
-            split_code_blob(code, known_paths),
+            split_code_blob(code, known_paths) if days > 0 else {},
         )
+        if days > 0:                       # with 0 nothing was stored; do not touch other projects
+            try:
+                db.purge_expired_sources(days)
+            except Exception:
+                _log.warning("source purge failed", exc_info=True)
+        return snapshot_id
     except Exception:
         _log.warning("could not persist scan snapshot for chat", exc_info=True)
         return None

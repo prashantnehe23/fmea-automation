@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+
+from core.paths import data_dir
 from typing import Any
 
-LEARNING_PATH = Path(__file__).parent / "learning_memory.json"
+LEARNING_PATH = data_dir(Path(__file__).parent) / "learning_memory.json"
 
 # Aggression levels and their descriptions injected into the saboteur prompt
 _AGGRESSION_DESCRIPTIONS = {

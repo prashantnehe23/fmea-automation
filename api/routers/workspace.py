@@ -70,6 +70,14 @@ async def upsert_ws(ws_in: WorkspaceIn):
     return _ws_to_dict(ws, workspace_id)
 
 
+@router.delete("/api/workspace/{workspace_id}/sources")
+async def delete_stored_sources(workspace_id: int):
+    """Delete the scanned source code stored for a project. Findings and scores are kept (B-042)."""
+    if not db.workspace_exists(workspace_id):
+        raise HTTPException(status_code=404, detail="Unknown project")
+    return {"files_deleted": db.delete_sources_for_workspace(workspace_id)}
+
+
 @router.get("/api/workspace/{workspace_id}/scans")
 async def get_workspace_scans(workspace_id: int):
     """Return scan history rows (no full result JSON) for a workspace."""
