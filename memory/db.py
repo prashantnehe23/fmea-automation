@@ -352,7 +352,7 @@ def get_latest_scan(workspace_id: int, fingerprint: str) -> dict | None:
             """
             SELECT result_json FROM scans
             WHERE workspace_id=? AND fingerprint=?
-            ORDER BY timestamp DESC LIMIT 1
+            ORDER BY timestamp DESC, id DESC LIMIT 1
             """,
             (workspace_id, fingerprint),
         ).fetchone()
@@ -371,7 +371,7 @@ def get_all_scans(workspace_id: int) -> list[dict]:
             """
             SELECT id, fingerprint, timestamp, llm_calls, cost_usd
             FROM scans WHERE workspace_id=?
-            ORDER BY timestamp DESC
+            ORDER BY timestamp DESC, id DESC
             """,
             (workspace_id,),
         ).fetchall()
@@ -636,7 +636,7 @@ def get_eval_history(workspace_id: int, n: int = 20) -> list[dict]:
             SELECT id, scan_id, timestamp, overall_passed, overall_score,
                    agent_scores_json, llm_calls
             FROM eval_history WHERE workspace_id=?
-            ORDER BY timestamp DESC LIMIT ?
+            ORDER BY timestamp DESC, id DESC LIMIT ?
             """,
             (workspace_id, n),
         ).fetchall()
@@ -1324,7 +1324,7 @@ def get_telemetry_summary(workspace_id: int, n_scans: int = 20) -> dict:
             """
             SELECT timestamp, overall_score, overall_passed
             FROM eval_history WHERE workspace_id=?
-            ORDER BY timestamp DESC LIMIT 20
+            ORDER BY timestamp DESC, id DESC LIMIT 20
             """,
             (workspace_id,),
         ).fetchall()
