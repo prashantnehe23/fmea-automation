@@ -33,7 +33,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 |---|---|---|---|---|
 | 6 | B-031 — **done 2026-11-21** | Finding identity, lifecycle and lock semantics (moved up) | ADR-019 accepted | none |
 | 7 | B-028 phase 0 — **implemented 2026-11-21, benchmark re-run open** | Remove the 7-finding cap; prioritised handling of large repositories (pulled forward) | no | B-031 |
-| 8 | B-012 — **implemented 2026-11-21, real-repository run open** | Pull-request check (moved from P3) | ADR-029 (Draft) | B-015, B-031, B-043 |
+| 8 | B-012 — **implemented 2026-11-21, real-repository run open** | Pull-request check (moved from P3) | ADR-029 (Accepted) | B-015, B-031, B-043 |
 | 9 | B-040 | Defensive framing and provider-block handling (P2 to P1: before any pilot) | ADR-024 to accept | none |
 | 10 | B-047 | More model providers: Azure OpenAI, AWS Bedrock, Anthropic, local endpoint | no (extends ADR-011) | none |
 | 11 | B-045 | SARIF import and export; CWE on every finding | **yes** (ADR-028) | B-031 |
@@ -224,7 +224,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-012 · Pull-Request Check `[~]` IMPLEMENTED 2026-11-21, real-repository run open — P1, order 8 (moved from P3 on 2026-11-21) — *design: ADR-029 (Draft, CI-invoked instead of a GitHub App)*
+### B-012 · Pull-Request Check `[~]` IMPLEMENTED 2026-11-21, real-repository run open — P1, order 8 (moved from P3 on 2026-11-21) — *design: ADR-029 (Accepted 2026-11-21, CI-invoked instead of a GitHub App)*
 
 **Why:** Risk is only seen when someone opens the app. Teams need it on the pull request, before merge.
 
