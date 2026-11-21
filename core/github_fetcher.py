@@ -257,6 +257,19 @@ def select_paths(paths: list[str], skip_tests: bool = True) -> tuple[list[str], 
 
 # ── File content fetch ───────────────────────────────────────────────────────────
 
+def fetch_pr_files(owner: str, repo: str, number: int) -> list[str]:
+    """Paths a pull request adds or changes (up to 300), so a check can examine them first (B-012)."""
+    paths: list[str] = []
+    for page in (1, 2, 3):
+        data = _get_json(f"https://api.github.com/repos/{owner}/{repo}/pulls/{int(number)}/files?per_page=100&page={page}",
+                         owner, repo)
+        rows = data if isinstance(data, list) else []
+        paths += [f["filename"] for f in rows if isinstance(f, dict) and f.get("status") != "removed" and f.get("filename")]
+        if len(rows) < 100:
+            break
+    return paths
+
+
 def fetch_file_content(owner: str, repo: str, branch: str, path: str) -> str:
     if token_for(owner):      # private repositories are not served by raw.githubusercontent.com to every token type
         url = (f"https://api.github.com/repos/{owner}/{repo}/contents/{urllib.parse.quote(path, safe='/')}"

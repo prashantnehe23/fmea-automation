@@ -21,6 +21,8 @@ import threading
 
 import openai
 
+from core import budget
+
 _MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.1")
 _clients: dict[str, tuple[str, openai.OpenAI]] = {}
 
@@ -65,6 +67,8 @@ def _add_usage(calls: int = 0, prompt: int = 0, completion: int = 0) -> None:
         usage.calls += calls
         usage.prompt += prompt
         usage.completion += completion
+    if prompt or completion:
+        budget.record(get_model_name(), prompt, completion)       # raises BudgetReached inside a spend limit (B-012)
 
 
 class MissingApiKeyError(RuntimeError):
@@ -74,6 +78,7 @@ class MissingApiKeyError(RuntimeError):
 def _get_client(provider_id: str) -> openai.OpenAI:
     """Return a client for the provider using its current key (rebuilt if the key changes)."""
     from core.providers import get_api_key, get_provider
+    budget.check_before_call()
     api_key = get_api_key(provider_id)
     if not api_key:
         cfg = get_provider(provider_id)

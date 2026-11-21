@@ -23,3 +23,5 @@ State for the feature-delivery harness. The feature list is `docs/BACKLOG.md` (t
 | 2026-11-21 | B-031 | Close | PR opened and merged |
 | 2026-11-21 | B-028 phase 0 | Plan / Build / Verify / Review | Implemented; review findings fixed; benchmark re-run (recall, precision, Quick cost) not done |
 | 2026-11-21 | B-028 phase 0 | Close | PR opened and merged; item stays open for the benchmark |
+| 2026-11-21 | B-012 | Plan / Build / Verify / Review | Implemented; review findings fixed; real-repository run not done |
+| 2026-11-21 | B-012 | Close | PR opened and merged; item stays open for the real run |

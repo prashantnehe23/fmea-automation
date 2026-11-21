@@ -80,7 +80,7 @@ Set `FMEA_SECRET_KEY` and `OPENAI_API_KEY` and/or `MISTRAL_API_KEY` in the envir
 ### Tests
 
 ```bash
-python -m pytest tests/ -v            # 617 passing on 2026-11-21
+python -m pytest tests/ -v            # 652 passing on 2026-11-21
 ```
 
 `make test`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
@@ -115,7 +115,8 @@ Read these before a pilot.
 - **The container is untested on a clean machine**, and there is no licence file yet.
 - **Not yet measured on real code.** The benchmark is six small repositories with in-house labels. The false-positive rate is unknown.
 - **Provider guardrails can block scans.** In testing, about half of Mistral Large 4 scans were refused by the provider ([ADR-024](docs/decisions/ADR-024-defensive-framing-and-provider-blocks.md), Draft).
-- **No pull-request check, ticketing, SARIF or report export.** Fixes are never opened as pull requests.
+- **Pull-request check (new, not yet run against a real repository):** a GitHub Actions workflow (`docs/ci/fmea-pr-check.yml`) asks the install for a verdict on each pull request; it fails on a new or regressed finding at or above the project's severity (default 9), within a USD budget per check. The project must have been scanned once on its default branch. API only for tokens and settings.
+- **No ticketing, SARIF or report export.** Fixes are never opened as pull requests.
 - **No compliance mapping.** The platform produces code-level evidence. It does not map findings to any compliance framework, and it does not replace a formal risk register or a penetration test.
 
 The prioritised plan, with acceptance criteria for each item, is in [docs/BACKLOG.md](docs/BACKLOG.md). The review behind the current order is in [docs/DISCOVERY-2026-11.md](docs/DISCOVERY-2026-11.md).

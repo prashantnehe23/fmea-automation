@@ -1,0 +1,66 @@
+# FMEA pull-request check (B-012, ADR-029). Copy this file to .github/workflows/ in the repository to protect.
+#
+# Needs two repository secrets:
+#   FMEA_URL    base URL of your FMEA install, reachable from the runner (use a self-hosted runner inside
+#               your network if the install is not exposed), for example https://fmea.example.com
+#   FMEA_TOKEN  an API token created by an administrator (POST /api/tokens). It can run this check and nothing else.
+#
+# In the FMEA app the repository must belong to a project that has been scanned once on the default branch
+# (that scan is the baseline: findings it already contains are not reported again). Make the job a required
+# status check in the branch protection rules (or enforce it with a required workflow or ruleset: a pull request
+# that edits this file could otherwise skip the check) so that a failed verdict blocks the merge.
+# Fork pull requests have no access to secrets, so the check fails for them; run it on a trusted branch instead.
+# The job fails closed: if the install cannot be reached, the check fails.
+name: FMEA check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write        # to post the comment
+
+concurrency:
+  group: fmea-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true       # a new push supersedes the running check, so pushes do not multiply the spend
+
+jobs:
+  fmea:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Ask the FMEA platform for a verdict
+        id: check
+        env:
+          FMEA_URL: ${{ secrets.FMEA_URL }}
+          FMEA_TOKEN: ${{ secrets.FMEA_TOKEN }}
+        run: |
+          set -uo pipefail
+          status=$(curl --silent --show-error --max-time 900 -o verdict.json -w '%{http_code}' \
+            -X POST "$FMEA_URL/api/pr-check" \
+            -H "Authorization: Bearer $FMEA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"repo\": \"${{ github.repository }}\", \"head_sha\": \"${{ github.event.pull_request.head.sha }}\", \"pr_number\": ${{ github.event.pull_request.number }}}")
+          if [ "$status" != "200" ]; then
+            echo "The FMEA platform answered HTTP $status:"; cat verdict.json || true; rm -f verdict.json
+            exit 1                                    # no verdict, no comment, and the check does not pass silently
+          fi
+          echo "verdict=$(jq -r .verdict verdict.json)" >> "$GITHUB_OUTPUT"
+          jq -r .summary verdict.json
+
+      - name: Comment on the pull request
+        if: always() && steps.check.outputs.verdict != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Nothing to say when there are no new or regressed findings: the comment text is then empty
+          jq -r '.comment_markdown // empty' verdict.json > comment.md
+          if [ -s comment.md ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file comment.md
+          fi
+
+      - name: Fail on a failed verdict
+        if: steps.check.outputs.verdict == 'fail'
+        run: |
+          echo "The FMEA check found new or regressed findings at or above the failure severity."
+          exit 1

@@ -46,7 +46,7 @@ def current_embed_model() -> str:
 
 def embed_text(text: str) -> np.ndarray:
     """Return a float32 unit-normalised embedding for text."""
-    from core.llm import _get_client
+    from core.llm import _get_client            # also refuses to start a call once a spend limit is reached
     resp = _get_client(_active_provider()).embeddings.create(
         model=current_embed_model(), input=text[:2000]
     )

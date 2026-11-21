@@ -97,11 +97,14 @@ def run_fmea(
     on_progress=None,
     scope: dict | None = None,
     batches: list[str] | None = None,
+    persist: bool = True,
 ) -> dict:
     """
     Run the full FMEA pipeline with caching, learning, validation, and evaluation.
 
     max_failure_modes: None = report everything the agents find (B-028 phase 0); a number keeps the old cap.
+    persist: False runs the scan without touching any record (registry, lifecycle history, scan log, caches, learning
+             memory): used by the pull-request check, whose branch must not change what the default branch knows (B-012).
     batches: the code split into passes for a large repository; each is scanned on its own and the findings merged.
     workspace: optional WorkspaceContext — scopes cache, learning, and eval history
                per customer/project.  Pass None to use global (legacy) paths.
@@ -121,7 +124,7 @@ def run_fmea(
     )
 
     # ── Cache check ────────────────────────────────────────────────────────────
-    if not force_rerun:
+    if persist and not force_rerun:
         cached = get_cached_result(code, workspace)
         if cached is not None:
             cached["memory_stats"] = get_memory_stats(workspace)
@@ -292,11 +295,14 @@ def run_fmea(
             [validations[k] for k in sorted(top)], [remediations[k] for k in sorted(top)]))
 
     # ── Eval persistence + drift detection ────────────────────────────────────
-    eval_store.append_eval(evaluation, workspace)
-    drift_alerts = eval_store.detect_drift(workspace)
+    drift_alerts = []
+    if persist:
+        eval_store.append_eval(evaluation, workspace)
+        drift_alerts = eval_store.detect_drift(workspace)
 
     # ── Learning memory update ─────────────────────────────────────────────────
-    update_from_run(failures, risks, workspace)
+    if persist:
+        update_from_run(failures, risks, workspace)
 
     # ── Fingerprint ────────────────────────────────────────────────────────────
     from memory.workspace_store import _fingerprint
@@ -306,7 +312,7 @@ def run_fmea(
     db_scan_id: int | None = None
     lifecycle_changes: dict = {}
     pending_fixes: list[dict] = []
-    if workspace_id:
+    if workspace_id and persist:
         if on_progress: on_progress("registry")
         register_new_scenarios(workspace_id, fingerprint, failures, risks, locked)
         import json as _json
@@ -366,7 +372,8 @@ def run_fmea(
     }
 
     # Cache for next run (JSON file cache for fast repeated loads)
-    cache_result(code, result, workspace)
+    if persist:
+        cache_result(code, result, workspace)
 
     result["memory_stats"] = get_memory_stats(workspace)
     clear_scan_context()
