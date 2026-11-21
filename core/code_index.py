@@ -15,7 +15,7 @@ is defined exactly once. Everything else stays unresolved. Languages with no gra
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import PurePosixPath
 
 import tree_sitter as ts
@@ -128,6 +128,11 @@ CALL_NODES = {"python": {"call"}, "java": {"method_invocation", "object_creation
 HTTP_VERBS = {"get", "post", "put", "delete", "patch", "head", "options", "route", "api_route", "all"}
 JAVA_MAPPINGS = {"GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping", "RequestMapping"}
 CS_MAPPINGS = {"HttpGet", "HttpPost", "HttpPut", "HttpDelete", "HttpPatch", "Route"}
+JAXRS_VERBS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+CS_MINIMAL = {"MapGet", "MapPost", "MapPut", "MapDelete", "MapPatch", "MapMethods"}
+DJANGO_ROUTES = {"path", "re_path", "url"}
+ROUTER_FACTORIES = {"APIRouter", "Router", "Blueprint"}
+MOUNT_CALLS = {"include_router", "register_blueprint"}
 SQL_NAMES = {"execute", "executemany", "executescript", "executeQuery", "executeUpdate", "ExecuteReader",
              "ExecuteNonQuery", "ExecuteScalar", "query"}
 FILE_NAMES = {"write_text", "write_bytes", "writeFileSync", "writeFile", "appendFileSync", "appendFile", "readFileSync",
@@ -153,9 +158,42 @@ def _first_string(node) -> str:
     while stack:
         n = stack.pop(0)
         if "string" in n.type and n.type not in ("string_content", "interpolated_string_expression"):
-            return _text(n).strip("\"'`@$")
+            return _text(n).lstrip("rRbBuUfF@$").strip("\"'`")           # drop string prefixes (r"", @"") and quotes
         stack = list(n.children) + stack
     return ""
+
+
+def join_route(prefix: str, route: str) -> str:
+    """Join a mount or class prefix and a route with exactly one slash between them."""
+    if not prefix:
+        return route
+    if not route.strip("/"):
+        return prefix                                   # "/" under a prefix is the prefix itself
+    return prefix.rstrip("/") + "/" + route.lstrip("/")
+
+
+def _kwarg_string(call, names: tuple[str, ...]) -> str:
+    """The string value of a keyword argument such as prefix="/v1" (Python)."""
+    args = call.child_by_field_name("arguments")
+    for arg in (args.children if args is not None else []):
+        if arg.type == "keyword_argument" and _text(arg.child_by_field_name("name")) in names:
+            return _first_string(arg.child_by_field_name("value"))
+    return ""
+
+
+def _handler_name(node) -> str:
+    """A route handler argument: `view`, `views.view`, `ViewClass.as_view()`, or an inline function."""
+    if node is None:
+        return "<anonymous>"
+    if node.type == "identifier":
+        return _text(node)
+    if node.type in ("attribute", "member_expression", "member_access_expression"):
+        return _text(node).split(".")[-1]
+    if node.type in ("call", "call_expression", "invocation_expression"):
+        fn = node.child_by_field_name("function")
+        text = _text(fn)
+        return text.split(".")[-2] if text.endswith(".as_view") and "." in text else _text(fn).split(".")[-1]
+    return "<anonymous>"
 
 
 def _walk(node):
@@ -334,6 +372,22 @@ class _Resolver:
         self.calls: list[Call] = []
         self.entries: list[EntryPoint] = []
         self.sinks: list[Sink] = []
+        self._owners: list[str] = []                    # router/group variable of each entry, for prefixes
+        self.prefixes: dict[str, str] = {}              # router/group variable -> its own prefix
+        self.mounts: list[tuple[str, str, str]] = []    # (router variable, prefix, variable it is mounted on)
+        self.class_routes: list[str] = []
+
+    def finish(self) -> None:
+        """Apply router prefixes and mounts to the entry routes (they can be declared after the routes)."""
+        def full(var: str, seen: tuple[str, ...] = ()) -> str:
+            own = self.prefixes.get(var, "")
+            mount = next(((m, parent) for child, m, parent in self.mounts if child == var and parent not in seen + (var,)), None)
+            if mount is None:
+                return own
+            return join_route(full(mount[1], seen + (var,)), join_route(mount[0], own))     # first mount wins
+
+        self.entries = [replace(e, route=join_route(full(owner), e.route)) if owner else e
+                        for e, owner in zip(self.entries, self._owners)]
 
     # type of a receiver expression -> (category, class name)
     def receiver_type(self, node) -> tuple[str, str]:
@@ -415,17 +469,87 @@ class _Resolver:
         return Call(**base, line=0, resolution="unresolved")
 
     # entry points ----------------------------------------------------------------
-    def _entry(self, kind: str, symbol: str, route: str, line: int) -> None:
+    def _entry(self, kind: str, symbol: str, route: str, line: int, owner: str = "") -> None:
         self.entries.append(EntryPoint(self.rel, kind, symbol, route, line))
+        self._owners.append(owner)
 
-    def _annotated(self, node, names: set[str]) -> None:
-        name = _text(node.child_by_field_name("name"))
+    @staticmethod
+    def _annotations(node) -> dict[str, object]:
+        """label -> annotation/attribute node for the modifiers or attribute lists of a class or method."""
+        found: dict[str, object] = {}
         for group in (c for c in node.children if c.type in ("modifiers", "attribute_list")):
             for a in _walk(group):
                 if a.type in ("annotation", "marker_annotation", "attribute"):
-                    if _text(a.child_by_field_name("name")).split(".")[-1] in names:
-                        self._entry("http", name, _first_string(a), node.start_point[0] + 1)
-                        return
+                    found.setdefault(_text(a.child_by_field_name("name")).split(".")[-1], a)
+        return found
+
+    def _class_route(self, node) -> str:
+        """Class-level route prefix: Spring @RequestMapping, JAX-RS @Path, ASP.NET [Route] with [controller]."""
+        annotations = self._annotations(node)
+        label = next((l for l in ("RequestMapping", "Path", "Route") if l in annotations), "")
+        if not label:
+            return ""
+        route = _first_string(annotations[label])
+        if self.lang == "csharp":
+            name = _text(node.child_by_field_name("name"))
+            route = route.replace("[controller]", name[:-len("Controller")] if name.endswith("Controller") else name)
+        return route
+
+    def _method_entry(self, node) -> None:
+        """HTTP entry from method annotations (Spring, JAX-RS) or attributes (ASP.NET), with the class prefix."""
+        annotations = self._annotations(node)
+        name, line = _text(node.child_by_field_name("name")), node.start_point[0] + 1
+        prefix = self.class_routes[-1] if self.class_routes else ""
+        if self.lang == "java":
+            spring = next((a for l, a in annotations.items() if l in JAVA_MAPPINGS), None)
+            if spring is not None:
+                self._entry("http", name, join_route(prefix, _first_string(spring)), line)
+            elif JAXRS_VERBS & set(annotations):
+                own = _first_string(annotations["Path"]) if "Path" in annotations else ""
+                self._entry("http", name, join_route(prefix, own), line)
+        else:
+            attr = next((a for l, a in annotations.items() if l in CS_MAPPINGS), None)
+            if attr is not None:
+                route = _first_string(attr)
+                self._entry("http", name, route if route.startswith("/") else join_route(prefix, route), line)
+
+    def _csharp_minimal(self, node, name: str, receiver) -> None:
+        """app.MapGet("/x", handler) and routes on a MapGroup variable."""
+        args = node.child_by_field_name("arguments")
+        named = [a.children[0] if a.type == "argument" and a.children else a for a in (args.children if args is not None else []) if a.is_named]
+        if not named:
+            return
+        owner = _text(receiver) if receiver is not None and receiver.type == "identifier" else ""
+        self._entry("http", _handler_name(named[-1]) if len(named) > 1 else "<anonymous>", _first_string(named[0]),
+                    node.start_point[0] + 1, owner)
+
+    def _csharp_group(self, node) -> None:
+        """var api = app.MapGroup("/api"): remember the prefix of `api`."""
+        inv = next((c for c in node.children if c.type == "invocation_expression"), None)
+        if inv is None:
+            return
+        name, receiver, _ = call_info("csharp", inv)
+        if name == "MapGroup":
+            parent = self.prefixes.get(_text(receiver), "") if receiver is not None else ""
+            self.prefixes[_text(node.child_by_field_name("name"))] = join_route(parent, _first_string(inv))
+
+    def _python_assign(self, node) -> None:
+        left, right = node.child_by_field_name("left"), node.child_by_field_name("right")
+        if left is None or right is None or left.type != "identifier" or right.type not in ("list", "call"):
+            return
+        var = _text(left)
+        if right.type == "call":
+            fn = _text(right.child_by_field_name("function")).split(".")[-1]
+            if fn in ROUTER_FACTORIES:
+                self.prefixes[var] = _kwarg_string(right, ("prefix", "url_prefix"))
+        elif var == "urlpatterns":
+            for call in (n for n in _walk(right) if n.type == "call"):
+                fn = _text(call.child_by_field_name("function"))
+                args = call.child_by_field_name("arguments")
+                named = [a for a in (args.children if args is not None else []) if a.is_named and a.type != "keyword_argument"]
+                if fn in DJANGO_ROUTES and len(named) >= 2 and "string" in named[0].type:
+                    if _handler_name(named[1]) != "include":
+                        self._entry("http", _handler_name(named[1]), _first_string(named[0]), call.start_point[0] + 1)
 
     def _python_decorators(self, node) -> None:
         definition = node.child_by_field_name("definition")
@@ -435,7 +559,9 @@ class _Resolver:
             if expr is not None and expr.type == "call":
                 fn = expr.child_by_field_name("function")
                 if fn is not None and fn.type == "attribute" and _text(fn.child_by_field_name("attribute")) in HTTP_VERBS:
-                    self._entry("http", name, _first_string(expr.child_by_field_name("arguments")), node.start_point[0] + 1)
+                    obj = fn.child_by_field_name("object")
+                    self._entry("http", name, _first_string(expr.child_by_field_name("arguments")), node.start_point[0] + 1,
+                                _text(obj) if obj is not None and obj.type == "identifier" else "")
 
     def _main(self, node) -> None:
         t, line = node.type, node.start_point[0] + 1
@@ -450,15 +576,20 @@ class _Resolver:
             if _text(node.child_by_field_name("name")) in ("main", "Main") and "static" in _text(node)[:80]:
                 self._entry("main", _text(node.child_by_field_name("name")), "", line)
 
-    def _ts_route(self, node, name: str) -> None:
-        if name not in HTTP_VERBS - {"route", "api_route", "head", "options"}:
-            return
+    def _ts_route(self, node, name: str, receiver=None) -> None:
         args = node.child_by_field_name("arguments")
         named = [c for c in args.children if c.is_named] if args is not None else []
+        if name == "use" and len(named) >= 2 and named[0].type in ("string", "template_string") and named[-1].type == "identifier":
+            parent = _text(receiver) if receiver is not None and receiver.type == "identifier" else ""
+            self.mounts.append((_text(named[-1]), _text(named[0]).strip("\"'`"), parent))     # app.use("/api", router)
+            return
+        if name not in HTTP_VERBS - {"route", "api_route", "head", "options"}:
+            return
         if len(named) >= 2 and named[0].type in ("string", "template_string") and _text(named[0]).strip("\"'`").startswith("/"):
             handler = named[-1]
+            owner = _text(receiver) if receiver is not None and receiver.type == "identifier" else ""
             self._entry("http", _text(handler) if handler.type == "identifier" else "<anonymous>",
-                        _text(named[0]).strip("\"'`"), node.start_point[0] + 1)
+                        _text(named[0]).strip("\"'`"), node.start_point[0] + 1, owner)
 
     # traversal -------------------------------------------------------------------
     def visit(self, node) -> None:
@@ -466,15 +597,19 @@ class _Resolver:
         self._main(node)
         if lang == "python" and t == "decorated_definition":
             self._python_decorators(node)
-        if lang == "java" and t == "method_declaration":
-            self._annotated(node, JAVA_MAPPINGS)
-        if lang == "csharp" and t == "method_declaration":
-            self._annotated(node, CS_MAPPINGS)
+        if lang == "python" and t == "assignment":
+            self._python_assign(node)
+        if lang in ("java", "csharp") and t == "method_declaration":
+            self._method_entry(node)
+        if lang == "csharp" and t == "variable_declarator":
+            self._csharp_group(node)
 
         if t in CLASS_NODES[lang]:
             self.classes.append(_text(node.child_by_field_name("name")))
+            self.class_routes.append(self._class_route(node) if lang in ("java", "csharp") else "")
             for child in node.children:
                 self.visit(child)
+            self.class_routes.pop()
             self.classes.pop()
             return
         if t in FUNCTION_NODES[lang]:
@@ -496,9 +631,24 @@ class _Resolver:
             if sink:
                 self.sinks.append(Sink(self.rel, sink, line, name))
             if lang == "typescript" and t == "call_expression":
-                self._ts_route(node, name)
+                self._ts_route(node, name, receiver)
+            if lang == "csharp" and name in CS_MINIMAL:
+                self._csharp_minimal(node, name, receiver)
+            if lang == "python" and name in MOUNT_CALLS:
+                self._python_mount(node, receiver)
         for child in node.children:
             self.visit(child)
+
+    def _python_mount(self, node, receiver) -> None:
+        """app.include_router(router, prefix="/x") / app.register_blueprint(bp, url_prefix="/x")."""
+        args = node.child_by_field_name("arguments")
+        first = next((a for a in (args.children if args is not None else []) if a.is_named and a.type != "keyword_argument"), None)
+        if first is not None and first.type == "identifier":
+            parent = _text(receiver) if receiver is not None and receiver.type == "identifier" else ""
+            prefix = _kwarg_string(node, ("prefix", "url_prefix"))
+            if prefix and _text(node.child_by_field_name("function")).endswith("register_blueprint"):
+                self.prefixes[_text(first)] = ""                # Flask: the registration prefix replaces the blueprint's own
+            self.mounts.append((_text(first), prefix, parent))
 
     def _instantiation(self, name: str) -> Call:
         caller = self.scope[-1] if self.scope else "<module>"
@@ -560,6 +710,7 @@ def build_index(files: dict[str, str]) -> CodeIndex:
     for lang, path, root in parsed:
         resolver = _Resolver(lang, path, project)
         resolver.visit(root)
+        resolver.finish()
         index.calls.extend(resolver.calls)
         index.entry_points.extend(resolver.entries)
         index.sinks.extend(resolver.sinks)

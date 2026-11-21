@@ -19,6 +19,6 @@ def index_repo(repo: Path) -> dict:
         "symbols": [{"file": s.file, "name": s.name, "line": s.line} for s in index.symbols if s.kind != "class"],
         "calls": [{"caller_file": c.caller_file, "caller": c.caller, "callee": c.callee, "callee_file": c.callee_file or None}
                   for c in index.edges()],
-        "entry_points": [{"file": e.file, "kind": e.kind, "symbol": e.symbol} for e in index.entry_points],
+        "entry_points": [{"file": e.file, "kind": e.kind, "symbol": e.symbol, "route": e.route} for e in index.entry_points],
         "sinks": [{"file": s.file, "kind": s.kind, "line": s.line} for s in index.sinks],
     }
