@@ -32,7 +32,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 | Order | Item | Title | ADR first | Depends on |
 |---|---|---|---|---|
 | 6 | B-031 — **done 2026-11-21** | Finding identity, lifecycle and lock semantics (moved up) | ADR-019 accepted | none |
-| 7 | B-028 phase 0 | Remove the 7-finding cap; prioritised handling of large repositories (pulled forward) | no | B-031 |
+| 7 | B-028 phase 0 — **implemented 2026-11-21, benchmark re-run open** | Remove the 7-finding cap; prioritised handling of large repositories (pulled forward) | no | B-031 |
 | 8 | B-012 | Pull-request check (moved from P3) | no | B-015, B-031, B-043 |
 | 9 | B-040 | Defensive framing and provider-block handling (P2 to P1: before any pilot) | ADR-024 to accept | none |
 | 10 | B-047 | More model providers: Azure OpenAI, AWS Bedrock, Anthropic, local endpoint | no (extends ADR-011) | none |
@@ -1081,7 +1081,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[ ]` PROPOSED — phase 0 P1 (order 7); phases B0, A-D P2 (paused 2026-11-21)
+### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[~]` PHASE 0 IMPLEMENTED 2026-11-21 (benchmark re-run open); phases B0, A-D P2 (paused 2026-11-21)
 
 **Decision:** [ADR-015](decisions/ADR-015-goal-based-discovery.md). **Depends on:** B-026 (measure), B-027 (profile and system map), B-031 (identity and locks before phase D).
 
@@ -1089,6 +1089,8 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 **Phases (each shippable and re-measured on B-026):**
 - **0. Cap and scale (pulled forward 2026-11-21, P1):** `max_failure_modes` no longer limits what is reported (locked findings never take a new finding's place, with B-031); repositories above the scope budget are processed in prioritised batches (entry points, auth, data access, infrastructure first) instead of sampled, with unprocessed files listed; cost estimate shown before a scan whose estimate exceeds today's single pass. Acceptance: 7 locked findings plus a new vulnerability reports all 8 (test); a 1 MB benchmark repository is fully processed or lists what was not (test); Quick depth keeps today's cost on the existing benchmark (re-run recorded); recall and precision on B-026 not worse than the last recorded run.
+
+  **Phase 0 status (2026-11-21, plan and report in `docs/harness/B-028/`):** [x] 7 locked plus a new vulnerability reports all 8 (`tests/test_discovery_phase0.py`, real `run_fmea` with scripted agents, no cap) · [x] a 1 MB repository is fully processed in batches, or the files not processed are listed (tests at scope, route and manifest level, including failed downloads and secret redaction in every batch) · [x] a single-batch scan makes the same model calls as before (call-count test) · [x] the estimate (typical and upper) is shown before a multi-pass scan (browser check on the real `anthropic-sdk-python` repository: 5 passes, about 58 calls, roughly $2.90 and up to a higher figure, against $0.63 for one pass; cancelled before spending) · [ ] **Quick depth keeps today's cost on the existing benchmark (re-run recorded)** and [ ] **recall and precision on B-026 not worse than the last recorded run**: both need real model runs (`make bench`, which spends provider credit; the Mistral key is expired), so they are **unverified**, and the saboteur prompt changed in B-031 as well. Do not treat phase 0 as proven until they are recorded. **Built:** `plan_batches`, batch-aware `build_scan_input` (`core/scan_scope.py`), `core/batch_merge.py`, `core/estimate.py`, multi-batch `run_fmea` with chunked shared agents and a 30-plan remediation limit, no-cap API defaults, preview estimate and confirmation dialog. **Open:** depth setting and USD budget guard (phase D); the estimate assumes seven findings per batch and rough token sizes; cached re-scans still show the estimate; every scan makes one extra tree listing (preview), which counts against GitHub's unauthenticated rate limit; findings found only by combining batches (cross-batch links) are not related; scans of chosen files stay one pass without an estimate; the UI cannot lower `max_batches`.
 - **B0. Verifier slice (added 2026-10-24):** the exploit verifier and the exploit goal / path-step schema (ADR-015 addendum 2) applied to the existing saboteur findings, with attempt log and mechanical evidence check; no inventory yet; re-measured on B-026
 - **A. Inventory, threat registry, coverage ledger:** structured attack-surface inventory (two independent passes, unioned), threat-class registry with variant playbooks (data file), coverage ledger persisted per scan; no change to scoring yet
 - **B. Hunters and exploit verifier:** per-cell hypothesis generation over relevant code via the read-only code tools; verifier tries every playbook variant before refuting; attempt log; mechanical evidence verification; verdict confirmed / refuted / unresolved

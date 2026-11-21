@@ -80,7 +80,7 @@ Set `FMEA_SECRET_KEY` and `OPENAI_API_KEY` and/or `MISTRAL_API_KEY` in the envir
 ### Tests
 
 ```bash
-python -m pytest tests/ -v            # 585 passing on 2026-11-21
+python -m pytest tests/ -v            # 617 passing on 2026-11-21
 ```
 
 `make test`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
@@ -111,7 +111,7 @@ Read these before a pilot.
 - **Sign-in is new and has had one independent review only.** Every API route needs a session (password sign-in, or OpenID Connect single sign-on when configured) and a role: admin, security engineer, risk manager, developer, viewer. The user-management screen does not exist yet (use `GET/POST/PATCH /api/users`). Serve it over HTTPS (the session cookie is `Secure` by default; set `FMEA_COOKIE_SECURE=0` only for plain-http local development on a browser that needs it). Set `FMEA_SETUP_TOKEN` so that only someone holding it can create the first administrator on a new install. All users of an install see all projects; there is no per-project membership.
 - **Results come from the server for the latest scan of a project.** The browser keeps a cache; older scan history stays per browser.
 - **Keys are encrypted at rest only when `FMEA_SECRET_KEY` is set** (always in the container); otherwise they are plain text in `core/settings.json`. Scanned code is stored in SQLite until the retention period ends, and a copy of each finished scan is kept in the API process's memory until restart.
-- **At most seven findings per scan**, and repositories above about 300 KB of code are sampled rather than read in full.
+- **Large repositories take several passes** (up to five by default, 300 KB each, highest-risk files first); files beyond that are listed as not examined. Findings are no longer capped, but remediation plans stop at 30 per scan. The scan page shows a cost estimate before a multi-pass scan. Recall, precision and cost on the benchmark have not been re-measured since this change.
 - **The container is untested on a clean machine**, and there is no licence file yet.
 - **Not yet measured on real code.** The benchmark is six small repositories with in-house labels. The false-positive rate is unknown.
 - **Provider guardrails can block scans.** In testing, about half of Mistral Large 4 scans were refused by the provider ([ADR-024](docs/decisions/ADR-024-defensive-framing-and-provider-blocks.md), Draft).

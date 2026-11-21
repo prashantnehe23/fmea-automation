@@ -57,3 +57,11 @@ The decision above says agents keep a goal, a plan and a progress check, but onl
 6. **Measured.** B-026 truth items carry the expected entry and sink; the scorer reports path accuracy, i.e. how often a matched finding traces the labelled path.
 
 **Consequence:** more structure and a stored per-step trail for every finding; verdicts are only as strong as their oracles, so languages without a reliable code index (B-036 text extractors, `confidence: low`) yield more model-only steps and fewer `confirmed` verdicts.
+
+## Phase 0 as built (2026-11-21, B-028)
+ADR-015 itself is still Draft; this records only what phase 0 decided.
+- **No cap:** the app's scan routes pass `max_failure_modes=None` (nothing limits what is reported). Programmatic callers that still pass a number keep the old cap, plus room for locked findings (ADR-019).
+- **Batches:** included files are grouped by priority into batches of at most 300 KB, up to `max_batches` (default 5, request range 1 to 10). Each batch gets its own surveyor, saboteur, controls and linkage pass; findings are merged by exact name (never by quote, so two weaknesses on one line stay two findings); shared agents then work on the merged list. Files beyond the limit are listed as not examined. A repository that fits one batch makes exactly the model calls it made before.
+- **Spend guards, since findings are unbounded:** shared agents (controls, linkage, actuary, validator) take at most ten findings per call so none are lost to output limits; the judge rates the run from the ten highest-risk findings; remediation plans (one call each) stop at 30 per scan, highest risk first, and the rest get a visible placeholder.
+- **Estimate:** the preview returns a typical and an upper cost before any model call; the scan page asks for confirmation when more than one pass is needed. Scans of user-selected files stay a single pass and show no estimate.
+- **Not done in phase 0:** a depth setting and a USD budget guard (phase D), cross-batch linkage, and the benchmark re-run that proves recall, precision and unchanged Quick cost.

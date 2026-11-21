@@ -91,9 +91,10 @@ export async function previewGithubRepo(repoUrl) {
 export async function* streamGithubScan(
   repoUrl,
   workspace = null,
-  maxFailureModes = 7,
+  maxFailureModes = null,      // null = report everything found (B-028 phase 0)
   forceRerun = false,
   selectedFiles = null,
+  maxBatches = undefined,      // passes over a large repository; omitted = the server default
 ) {
   const res = await apiFetch(`${BASE}/api/github/scan`, {
     method: 'POST',
@@ -104,6 +105,7 @@ export async function* streamGithubScan(
       max_failure_modes: maxFailureModes,
       force_rerun: forceRerun,
       selected_files: selectedFiles,
+      max_batches: maxBatches,
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);

@@ -16,7 +16,8 @@ from pathlib import PurePosixPath
 
 from core.secret_scan import SecretFinding, finding_dicts, redact
 
-MAX_BYTES = 300_000      # soft byte budget for the concatenated code the agents receive
+MAX_BYTES = 300_000      # soft byte budget for the code the agents receive in one pass (one batch)
+DEFAULT_MAX_BATCHES = 5  # B-028 phase 0: passes over a large repository before the rest is listed as not examined
 
 CODE_EXTS = frozenset({
     ".py", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx",
@@ -161,6 +162,33 @@ def choose_within_budget(entries: list[ScopeEntry], budget: int = MAX_BYTES) -> 
     return sorted(chosen, key=lambda e: e.path), sorted(over, key=lambda e: e.path)
 
 
+def plan_batches(entries: list[ScopeEntry], budget: int = MAX_BYTES,
+                 max_batches: int = DEFAULT_MAX_BATCHES) -> tuple[list[list[ScopeEntry]], list[ScopeEntry]]:
+    """
+    Split the included entries into batches of at most `budget` bytes, highest priority first (B-028 phase 0).
+
+    Files go into the first batch with room; a new batch is opened while fewer than `max_batches` exist; a file
+    bigger than the budget gets a batch of its own. Whatever does not fit is returned as `over` and is listed as
+    not examined. Unknown sizes count as 0.
+    """
+    batches: list[list[ScopeEntry]] = []
+    used: list[int] = []
+    over: list[ScopeEntry] = []
+    for e in sorted((e for e in entries if e.included), key=priority):
+        size = e.size or 0
+        slot = next((i for i, u in enumerate(used) if u + size <= budget), None)
+        if slot is None and len(batches) < max_batches:
+            batches.append([])
+            used.append(0)
+            slot = len(batches) - 1
+        if slot is None:
+            over.append(e)
+            continue
+        batches[slot].append(e)
+        used[slot] += size
+    return [sorted(b, key=lambda e: e.path) for b in batches], sorted(over, key=lambda e: e.path)
+
+
 # ── Manifest ──────────────────────────────────────────────────────────────────
 
 def make_manifest(entries: list[ScopeEntry], unexamined: set[str] = frozenset(),
@@ -201,17 +229,19 @@ class ScanInput:
     manifest: list[dict]       # scope manifest, see make_manifest
     examined: list[str]        # paths whose content is in `code`
     secret_findings: list[dict]  # deterministic secret findings (names and lines, never values)
+    batch_codes: list[str] | None = None   # `code` split into the batches the agents see one at a time (B-028 phase 0)
 
 
 def build_scan_input(contents: dict[str, str], entries: list[ScopeEntry] | None = None,
                      skip_tests: bool = True, budget: int = MAX_BYTES,
-                     not_selected: set[str] = frozenset()) -> ScanInput:
+                     not_selected: set[str] = frozenset(), max_batches: int = 1) -> ScanInput:
     """
     Turn fetched file contents into the code the agents see plus a scope manifest.
 
     `entries` is the classified repository tree (including excluded paths); when None it is
     derived from `contents` alone (pasted code, benchmark repositories). Included files are
-    taken in priority order until the byte budget is reached; the rest are listed as unexamined.
+    taken in priority order into batches of the byte budget, up to `max_batches` of them (1 = a single pass, as
+    before); the rest are listed as unexamined.
     """
     from core.github_fetcher import file_block
 
@@ -223,9 +253,10 @@ def build_scan_input(contents: dict[str, str], entries: list[ScopeEntry] | None 
                               len(contents[e.path].encode("utf-8")) if e.path in contents else e.size)
                    for e in entries]
     candidates = [e for e in entries if e.included and e.path not in not_selected]
-    chosen, over = choose_within_budget(candidates, budget)
+    planned, over = plan_batches(candidates, budget, max_batches)
+    chosen = [e for b in planned for e in b]
     missing = {e.path for e in chosen if e.path not in contents}
-    examined = [e.path for e in chosen if e.path not in missing]
+    examined = sorted(e.path for e in chosen if e.path not in missing)
     unexamined = {e.path for e in over} | missing
     manifest = make_manifest(entries, unexamined, not_selected)
     for m in manifest:
@@ -237,11 +268,12 @@ def build_scan_input(contents: dict[str, str], entries: list[ScopeEntry] | None 
     for p in examined:
         safe[p], found = redact(p, contents[p])
         secrets.extend(found)
-    code = "\n\n".join(file_block(p, safe[p]) for p in examined)
+    batch_codes = [c for c in ("\n\n".join(file_block(e.path, safe[e.path]) for e in b if e.path in safe) for b in planned) if c]
+    code = "\n\n".join(file_block(p, safe[p]) for p in examined)       # path order, whatever the batching (stable cache key)
     readme = readme_path([e.path for e in entries])
     readme_text = redact(readme, contents[readme])[0] if readme in contents else ""
     findings = finding_dicts(secrets) + _secret_file_findings([e.path for e in entries])
-    return ScanInput(code, readme_text, manifest, examined, findings)
+    return ScanInput(code, readme_text, manifest, examined, findings, batch_codes or [code])
 
 
 _SECRET_FILE = re.compile(r"(?:^|/)(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)$|\.(?:pem|p12|pfx|key|jks|keystore)$",

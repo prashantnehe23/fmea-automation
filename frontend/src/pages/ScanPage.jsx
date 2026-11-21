@@ -15,7 +15,7 @@
  * is kept.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import ScopeHeader from '../components/ScopeHeader';
 import KeyStatus from '../components/KeyStatus';
 import FindingChanges from '../components/FindingChanges';
@@ -446,7 +446,26 @@ export default function ScanPage({
 
   // ── GitHub scan runner ──────────────────────────────────────────────────────
 
+  // B-028 phase 0: a large repository takes several passes. Show the estimate and ask before spending it.
+  const [pendingEstimate, setPendingEstimate] = useState(null);   // { repoUrl, forceRerun, estimate }
+  const starting = useRef(false);        // a second click while the estimate is being fetched must not start a second scan
   const runGithubScan = async (repoUrl, forceRerun = false, files = null) => {
+    if (starting.current) return;
+    starting.current = true;
+    try {
+      if (files) return await runGithubScanNow(repoUrl, forceRerun, files);   // chosen files: one pass, as before
+      try {
+        const { estimate } = await previewGithubRepo(repoUrl);
+        if (estimate?.exceeds_single_pass) { setPendingEstimate({ repoUrl, forceRerun, estimate }); return; }
+      } catch { /* the scan itself reports a repository problem in plain words */ }
+      return await runGithubScanNow(repoUrl, forceRerun, files);
+    } finally {
+      starting.current = false;
+    }
+  };
+
+  const runGithubScanNow = async (repoUrl, forceRerun = false, files = null) => {
+    setPendingEstimate(null);
     setScan(true);
     setScanError('');
     setScanErrorAction(null);
@@ -461,7 +480,7 @@ export default function ScanPage({
       : null;
 
     try {
-      for await (const event of streamGithubScan(repoUrl, ws, 7, forceRerun, files)) {
+      for await (const event of streamGithubScan(repoUrl, ws, null, forceRerun, files, files ? 1 : undefined)) {
         if (event.stage === 'complete') {
           setStages(prev => prev.map(s => ({ ...s, status: 'done' })));
           setResult(event.result);
@@ -611,6 +630,21 @@ export default function ScanPage({
         />
         {scenario === 'has-scan' && (
           <FindingChanges workspaceId={lastScan?.workspace_id} refreshKey={result?.db_scan_id ?? lastScan?.scanId} canDecide={canDecideFindings} />
+        )}
+        {pendingEstimate && (
+          <div role="alertdialog" aria-label="Scan estimate" className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-900">
+            <p className="font-bold mb-1">This repository needs {pendingEstimate.estimate.batches} passes</p>
+            <p>
+              About {pendingEstimate.estimate.calls} model calls, roughly ${pendingEstimate.estimate.usd.toFixed(2)} with {pendingEstimate.estimate.model}{' '}
+              (up to about ${pendingEstimate.estimate.usd_max.toFixed(2)} if it finds many issues; one pass would be about ${pendingEstimate.estimate.single_pass_usd.toFixed(2)}).
+              An estimate, not a quote{pendingEstimate.estimate.rates_known ? '' : '; the price of this model is assumed'}.
+              {pendingEstimate.estimate.files_unexamined > 0 && ` ${pendingEstimate.estimate.files_unexamined} files will not be examined and are listed after the scan.`}
+            </p>
+            <div className="mt-2 flex gap-3">
+              <button onClick={() => runGithubScanNow(pendingEstimate.repoUrl, pendingEstimate.forceRerun)} className="font-semibold text-blue-700 hover:underline">Scan</button>
+              <button onClick={() => setPendingEstimate(null)} className="font-semibold text-gray-600 hover:underline">Cancel</button>
+            </div>
+          </div>
         )}
         {scenario !== 'no-selection' && (
           <KeyStatus refreshKey={`${settingsOpen}-${scanError}`} onOpenSettings={onOpenSettings} />
