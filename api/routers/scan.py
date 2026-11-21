@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 
 from api.schemas import ScanRequest, serialize_result
 from api.sse import sse_event
+from core.llm_errors import scan_error_event
 from api.store import build_workspace, next_scan_id, scan_store
 from core.chat import persist_scan_for_chat
 from workflows.fmea_pipeline import run_fmea
@@ -69,7 +70,7 @@ async def submit_scan(req: ScanRequest):
         try:
             result = fut.result()
         except Exception as exc:
-            yield sse_event({"stage": "error", "msg": str(exc)}, event="error")
+            yield sse_event(scan_error_event(exc), event="error")
             return
 
         scan_id = next_scan_id()

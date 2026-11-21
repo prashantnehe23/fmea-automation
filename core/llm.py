@@ -40,13 +40,17 @@ _prompt_tokens: int = 0
 _completion_tokens: int = 0
 
 
+class MissingApiKeyError(RuntimeError):
+    """No API key is configured for the active provider (B-048: shown to the user as a plain message)."""
+
+
 def _get_client(provider_id: str) -> openai.OpenAI:
     """Return a client for the provider using its current key (rebuilt if the key changes)."""
     from core.providers import get_api_key, get_provider
     api_key = get_api_key(provider_id)
     if not api_key:
         cfg = get_provider(provider_id)
-        raise RuntimeError(
+        raise MissingApiKeyError(
             f"No API key for {cfg['display']}. Enter one in Settings or set {cfg['env_var']}."
         )
     cached = _clients.get(provider_id)

@@ -31,10 +31,10 @@ export function filterRisks(sel, scope) {
 export function getSelectionLabel(sel, scope, hierarchy = DEFAULT_HIERARCHY) {
   if (scope === 'org') return ORG.name;
   const portfolio = hierarchy.find(p => p.id === sel.portfolioId);
-  if (scope === 'portfolio') return portfolio?.name ?? '—';
+  if (scope === 'portfolio') return portfolio?.name ?? 'No portfolio selected';
   const project = portfolio?.projects.find(p => p.id === sel.projectId);
-  if (scope === 'project') return project?.name ?? '—';
-  return sel.componentName ?? '—';
+  if (scope === 'project') return project?.name ?? 'No project selected';
+  return sel.componentName ?? project?.name ?? portfolio?.name ?? 'No project selected';
 }
 
 // ── Aggregation ───────────────────────────────────────────────────────────────

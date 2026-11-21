@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from api.schemas import WorkspaceIn, serialize_result
 from api.sse import sse_event
+from core.llm_errors import scan_error_event
 from api.store import build_workspace, next_scan_id, scan_store
 from core.chat import persist_scan_for_chat
 from core.untrusted import sanitize_text
@@ -177,7 +178,7 @@ async def github_scan(req: GithubScanRequest):
         try:
             result = fut.result()
         except Exception as exc:
-            yield sse_event({"stage": "error", "msg": str(exc)}, event="error")
+            yield sse_event(scan_error_event(exc), event="error")
             return
 
         scan_id = next_scan_id()

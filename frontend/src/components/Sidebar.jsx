@@ -126,7 +126,7 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
           </div>
           <div>
             <p className="text-xs font-bold text-gray-700">{current.label}</p>
-            <p className="text-xs text-blue-400">demo@fmea.io</p>
+            <p className="text-xs text-blue-400">{current.desc}</p>
           </div>
         </div>
       </div>

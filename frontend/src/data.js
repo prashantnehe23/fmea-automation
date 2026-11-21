@@ -1,6 +1,6 @@
 // ── Organisation / hierarchy ──────────────────────────────────────────────────
 
-export const ORG = { id: 'o1', name: 'Acme Financial Services' };
+export const ORG = { id: 'o1', name: 'All portfolios' };
 
 export const HIERARCHY = [
   {

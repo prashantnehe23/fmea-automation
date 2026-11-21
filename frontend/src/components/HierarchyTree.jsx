@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { PERSONA_SCOPE_OPTIONS } from '../data';
 
 // ── Inline "new project" form ─────────────────────────────────────────────────
@@ -15,10 +15,13 @@ function NewProjectForm({ onSave, onCancel }) {
     onSave(name.trim(), repoUrl.trim(), businessTier, userType);
   };
 
+  const formRef = useRef(null);
+  useEffect(() => { formRef.current?.scrollIntoView({ block: 'nearest' }); }, []);
+
   const selectCls = "w-full text-xs px-2 py-1 rounded border border-gray-200 mb-1 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white";
 
   return (
-    <form onSubmit={submit} className="ml-5 mr-2 mt-1 mb-2 p-2 bg-white rounded-lg border border-blue-200 shadow-sm">
+    <form ref={formRef} onSubmit={submit} className="ml-5 mr-2 mt-1 mb-2 p-2 bg-white rounded-lg border border-blue-200 shadow-sm">
       <input
         autoFocus
         className="w-full text-xs px-2 py-1 rounded border border-gray-200 mb-1 focus:outline-none focus:ring-1 focus:ring-blue-300"
@@ -179,14 +182,14 @@ export default function HierarchyTree({
                     <div key={project.id} className="ml-3">
                       <div
                         onClick={() => {
-                          if (can('project')) onSelect({ portfolioId: portfolio.id, projectId: project.id, componentId: null, componentName: null });
+                          onSelect({ portfolioId: portfolio.id, projectId: project.id, componentId: null, componentName: null });
                           tPr(project.id);
                         }}
-                        className={`flex items-center gap-1.5 mx-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${prActive && can('project') ? 'bg-blue-600' : 'hover:bg-blue-200'}`}
+                        className={`flex items-center gap-1.5 mx-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${prActive ? 'bg-blue-600' : 'hover:bg-blue-200'}`}
                       >
-                        <span className={`text-xs w-3 flex-shrink-0 ${prActive && can('project') ? 'text-blue-200' : 'text-gray-400'}`}>{prOpen ? '▾' : '▸'}</span>
+                        <span className={`text-xs w-3 flex-shrink-0 ${prActive ? 'text-blue-200' : 'text-gray-400'}`}>{prOpen ? '▾' : '▸'}</span>
                         <span className="text-xs">🗂️</span>
-                        <span className={`text-xs font-medium truncate flex-1 ${prActive && can('project') ? 'text-white' : 'text-gray-600'}`}>{project.name}</span>
+                        <span className={`text-xs font-medium truncate flex-1 ${prActive ? 'text-white' : 'text-gray-600'}`}>{project.name}</span>
                         {project.repoUrl && (
                           <span className={`text-xs flex-shrink-0 ${prActive ? 'text-blue-200' : 'text-blue-400'}`} title={project.repoUrl}>🔗</span>
                         )}
