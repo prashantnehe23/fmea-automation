@@ -38,3 +38,5 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-023](ADR-023-benchmark-methodology.md) | Scan Effectiveness Benchmark Methodology | Draft | 2026-10-24 |
 | [ADR-024](ADR-024-defensive-framing-and-provider-blocks.md) | Defensive-Purpose Framing Across Providers, and Handling of Provider Blocks | Draft | 2026-11-09 |
 | [ADR-025](ADR-025-code-index-build-vs-adopt.md) | Code Index: Build a Thin Tree-sitter Index, Do Not Embed Graphify or CodeGraph | Accepted | 2026-11-09 |
+| [ADR-026](ADR-026-deployment-model.md) | Deployment Model: Single-Tenant Self-Hosted Container with the Customer's Own Model Key | Draft | 2026-11-21 |
+| [ADR-027](ADR-027-authentication-roles-and-repository-access.md) | Authentication, Roles, Server-Side Results and Repository Credentials | Draft | 2026-11-21 |

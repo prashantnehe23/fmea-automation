@@ -25,6 +25,8 @@
 
 Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 
+**Awaiting the engineer (2026-11-21):** every remaining item in this order either starts with an ADR the engineer must accept or depends on one, so no further implementation can start until then. Draft ADRs ready to review: [ADR-026](decisions/ADR-026-deployment-model.md) (B-042; four DECIDE points: SQLite for v1, `cryptography` dependency, default retention, licence), [ADR-027](decisions/ADR-027-authentication-roles-and-repository-access.md) (B-015, B-043; DECIDE points: OIDC library, password hashing, repository credential type), [ADR-019](decisions/ADR-019-finding-identity-and-locks.md) (B-031, unblocks B-028 phase 0, B-012, B-045, B-011, B-016), [ADR-024](decisions/ADR-024-defensive-framing-and-provider-blocks.md) (B-040). ADR-028 (B-045) is written when B-031 is done. Only B-047 (more providers) is free to start now; its criteria for a live hosted-provider check and a local endpoint need a valid key and a running endpoint.
+
 ### Next — P1: credible in an evaluation and part of the team's workflow
 
 | Order | Item | Title | ADR first | Depends on |
@@ -66,7 +68,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-042 · Deployment Model and Container Packaging `[ ]` APPROVED — P0 — *ADR first (ADR-026)*
+### B-042 · Deployment Model and Container Packaging `[ ]` APPROVED — P0 — *ADR first (ADR-026: Draft written 2026-11-21, awaiting acceptance)*
 
 **Why:** There is no way to install the product for a customer: no container, no licence, SQLite, scans serialised by global call counters, customer code and keys stored unencrypted. The deployment model decides how much of A5 and A7 in the discovery report the product must solve itself.
 
@@ -84,7 +86,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-015 · Sign-in, Roles and Server-Side Results `[ ]` APPROVED — P0 (moved from P3 on 2026-11-21) — *ADR first (ADR-027)*
+### B-015 · Sign-in, Roles and Server-Side Results `[ ]` APPROVED — P0 (moved from P3 on 2026-11-21) — *ADR first (ADR-027: Draft written 2026-11-21, awaiting acceptance; needs ADR-026)*
 
 **Why:** Every endpoint is open, including those that set provider keys and delete scenarios; personas are a dropdown; scan results live in browser localStorage, so a teammate or a second browser sees "No scan data" for a project that has scans. No team can share or trust results without this.
 
