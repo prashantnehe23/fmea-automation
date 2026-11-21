@@ -12,3 +12,4 @@ tree-sitter-java==0.23.5
 tree-sitter-c-sharp==0.23.5
 tree-sitter-typescript==0.23.2
 cryptography>=42.0.0
+Authlib>=1.3

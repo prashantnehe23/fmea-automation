@@ -2,7 +2,7 @@
 #   1. python -m core.secrets            (prints a new FMEA_SECRET_KEY; keep it: without it stored keys cannot be read)
 #   2. set FMEA_SECRET_KEY and OPENAI_API_KEY and/or MISTRAL_API_KEY in the environment or a .env file
 #   3. docker compose up --build         then open http://localhost:8000
-# The port is bound to localhost only: there is no sign-in until B-015, so do not publish it to a network.
+# The port is bound to localhost only. Before publishing it, put it behind HTTPS (the session cookie is Secure by default) and set FMEA_SETUP_TOKEN.
 services:
   fmea:
     build: .
@@ -13,6 +13,15 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       FMEA_SOURCE_RETENTION_DAYS: ${FMEA_SOURCE_RETENTION_DAYS:-30}
+      FMEA_ADMIN_USER: ${FMEA_ADMIN_USER:-}
+      FMEA_ADMIN_PASSWORD: ${FMEA_ADMIN_PASSWORD:-}
+      FMEA_SETUP_TOKEN: ${FMEA_SETUP_TOKEN:-}
+      FMEA_COOKIE_SECURE: ${FMEA_COOKIE_SECURE:-1}
+      FMEA_OIDC_ISSUER: ${FMEA_OIDC_ISSUER:-}
+      FMEA_OIDC_CLIENT_ID: ${FMEA_OIDC_CLIENT_ID:-}
+      FMEA_OIDC_CLIENT_SECRET: ${FMEA_OIDC_CLIENT_SECRET:-}
+      FMEA_OIDC_REDIRECT_URI: ${FMEA_OIDC_REDIRECT_URI:-}
+      FMEA_OIDC_ROLE_MAP: ${FMEA_OIDC_ROLE_MAP:-}
     volumes:
       - fmea-data:/data
     restart: unless-stopped

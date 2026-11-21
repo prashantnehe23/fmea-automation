@@ -18,8 +18,8 @@
 |---|---|---|---|---|---|
 | 1 | B-044 | Repository hygiene and an honest README — **done 2026-11-21** | no | none | S |
 | 2 | B-048 phase 0 — **done 2026-11-21** | UX blockers: project selection, scan errors, key status, placeholders | no | none | S |
-| 3 | B-042 | Deployment model and container packaging | **yes** (ADR-026) | none | M |
-| 4 | B-015 | Sign-in, roles and server-side results | **yes** (ADR-027) | B-042 decision | L |
+| 3 | B-042 — **implemented 2026-11-21, container run unverified** | Deployment model and container packaging | **yes** (ADR-026) | none | M |
+| 4 | B-015 — **done 2026-11-21** | Sign-in, roles and server-side results | **yes** (ADR-027) | B-042 decision | L |
 | 5 | B-043 | Private repository access | no (covered by ADR-027) | B-015 | M |
 | — | B-051 | Company landing page (go-to-market, not product code) | no | none | S, in progress |
 
@@ -88,19 +88,21 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-015 · Sign-in, Roles and Server-Side Results `[ ]` APPROVED — P0 (moved from P3 on 2026-11-21) — *ADR-027 accepted 2026-11-21*
+### B-015 · Sign-in, Roles and Server-Side Results `[x]` DONE 2026-11-21 (see open points) — P0 (moved from P3 on 2026-11-21) — *ADR-027 accepted 2026-11-21, amended*
 
 **Why:** Every endpoint is open, including those that set provider keys and delete scenarios; personas are a dropdown; scan results live in browser localStorage, so a teammate or a second browser sees "No scan data" for a project that has scans. No team can share or trust results without this.
 
 **Scope:** ADR-027 (OIDC single sign-on plus a local admin account for first setup; roles mapped from today's personas: admin, security engineer, risk manager, developer, viewer); every API route requires a session and checks the role (score changes: security engineer; settings and keys: admin); scan results and history read from the server (`scan_snapshots`), localStorage only as a cache; audit trail records the real user instead of a persona; persona switcher removed outside demo mode; workspace membership.
 
 **Acceptance criteria:**
-- [ ] ADR-027 accepted by the engineer before implementation
-- [ ] Every API route except health and sign-in returns 401 without a session (test that enumerates the routes)
-- [ ] Role rules enforced on the server: a developer cannot apply a score change or set a key (tests)
-- [ ] A scan run in one browser appears in a second browser for another user of the same workspace (browser check)
-- [ ] Adjustments and chat proposals record the signed-in user (test)
-- [ ] Existing data loads after migration: projects, scans, adjustments (test on a copy of a real database)
+- [x] ADR-027 accepted by the engineer before implementation (2026-11-21; amendments listed at the end of the ADR)
+- [x] Every API route except health and sign-in returns 401 without a session (`tests/test_auth.py`: every route has a policy entry, every non-public route returns 401 anonymously, no route exists outside the policy; the API docs pages are off by default)
+- [x] Role rules enforced on the server: a developer cannot apply a score change or set a key (tests, including a matrix of every route against every role)
+- [x] A scan run in one browser appears in a second browser for another user of the same workspace (browser check 2026-11-21 on a copy of the real database: with the browser cache cleared the project showed the stored scan, 1 Critical, RPN 270, from the server; a second user, a viewer, read it over the API. The scan was inserted into the temp database because the real database holds none and the provider key is expired; no live scan was run)
+- [x] Adjustments and chat proposals record the signed-in user (tests: `adjusted_by`, `decided_by`; key, model and user changes and sign-ins are in `audit_events`)
+- [x] Existing data loads after migration: projects, scans, adjustments (test on a hand-built old-schema database; plus a manual run on a copy of the real `fmea.db`: the API started, health ok, portfolios and projects loaded after sign-in. The real database has no stored scans, so scan migration was exercised only on the inserted demo scan)
+
+**Done 2026-11-21 (plan and report in `docs/harness/B-015/`):** local accounts with scrypt hashes, server-side sessions (`core/auth.py`, `api/routers/auth.py`); one policy table and an app-wide check for session, CSRF header and role (`api/policy.py`); five roles; first-run setup in the UI or by environment; admin user API; OpenID Connect sign-in with PKCE, signed-token checks and group-to-role mapping (`core/oidc.py`); login page, role-based view, persona switcher only in demo mode, browser cache cleared on sign-out or session loss; the latest scan of a project comes from the server (`GET /api/projects/{id}/latest-scan`). **Open:** user-management screen (API only); per-project membership (organisation-wide today); default workspace owner; an audit-trail screen; SSO tested only against a stand-in provider (no real identity provider, and group claims that sit only in the userinfo response are not read); older scan history is still per browser; the first-run setup is open to whoever reaches a new install unless `FMEA_SETUP_TOKEN` is set; two projects with the same names in different portfolios would share a workspace (pre-existing); the sign-in is new and has had one independent review.
 
 ---
 

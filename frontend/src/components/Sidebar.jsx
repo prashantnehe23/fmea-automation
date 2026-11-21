@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { PERSONAS, PROCESS_STEPS, PERSONA_PRIMARY, PERSONA_SCOPE_OPTIONS, SCOPE_LABEL } from '../data';
 import HierarchyTree from './HierarchyTree';
 
-export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHistory, onPersona, onStep, onSelect, onScope, onAddPortfolio, onAddProject }) {
+const ROLE_LABEL = { admin: 'Administrator', security_engineer: 'Security engineer', risk_manager: 'Risk manager', developer: 'Developer', viewer: 'Viewer' };
+
+export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHistory, onPersona, onStep, onSelect, onScope, onAddPortfolio, onAddProject, user, canSwitchPersona, onLogout }) {
   const [personaOpen, setPersonaOpen] = useState(false);
   const current      = PERSONAS.find(p => p.id === persona);
   const primarySteps = PERSONA_PRIMARY[persona];
@@ -24,7 +26,16 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
 
       {/* Persona picker */}
       <div className="px-3 pb-3 flex-shrink-0">
-        <button
+        {!canSwitchPersona && (
+          <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-blue-100">
+            <span className="text-lg">{current.icon}</span>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-sm font-bold text-gray-900 leading-tight truncate">{user?.display_name}</p>
+              <p className="text-xs text-gray-400 truncate">{ROLE_LABEL[user?.role] ?? user?.role}</p>
+            </div>
+          </div>
+        )}
+        {canSwitchPersona && <button
           onClick={() => setPersonaOpen(!personaOpen)}
           className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white shadow-sm hover:shadow-md transition-all border border-blue-100"
         >
@@ -34,9 +45,9 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
             <p className="text-xs text-gray-400 truncate">{current.desc}</p>
           </div>
           <span className="text-gray-300 text-xs">{personaOpen ? '▴' : '▾'}</span>
-        </button>
+        </button>}
 
-        {personaOpen && (
+        {canSwitchPersona && personaOpen && (
           <div className="mt-1.5 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-20 relative">
             {PERSONAS.map(p => (
               <button
@@ -125,8 +136,8 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
             {current.label[0]}
           </div>
           <div>
-            <p className="text-xs font-bold text-gray-700">{current.label}</p>
-            <p className="text-xs text-blue-400">{current.desc}</p>
+            <p className="text-xs font-bold text-gray-700">{user?.display_name ?? current.label}</p>
+            <button onClick={onLogout} className="text-xs text-blue-500 hover:text-blue-700 underline">Sign out</button>
           </div>
         </div>
       </div>

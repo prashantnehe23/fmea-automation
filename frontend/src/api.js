@@ -8,6 +8,20 @@
 
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
+// B-015: every request carries the session cookie and the header the server requires on changes.
+// A 401 anywhere (session expired or ended) tells the app to show the sign-in page.
+async function apiFetch(url, init = {}) {
+  const res = await fetch(url, {
+    ...init,
+    credentials: 'same-origin',
+    headers: { ...(init.headers ?? {}), 'X-Requested-With': 'fmea' },
+  });
+  if (res.status === 401 && !String(url).includes('/api/auth/')) {
+    window.dispatchEvent(new Event('fmea:unauthorized'));
+  }
+  return res;
+}
+
 // ── Internal SSE reader ───────────────────────────────────────────────────────
 
 /**
@@ -48,7 +62,7 @@ async function* _readSSE(response) {
  * @returns {object} { ref, file_count, files, readme_path, has_readme }
  */
 export async function previewGithubRepo(repoUrl) {
-  const res = await fetch(`${BASE}/api/github/preview`, {
+  const res = await apiFetch(`${BASE}/api/github/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ repo_url: repoUrl }),
@@ -82,7 +96,7 @@ export async function* streamGithubScan(
   forceRerun = false,
   selectedFiles = null,
 ) {
-  const res = await fetch(`${BASE}/api/github/scan`, {
+  const res = await apiFetch(`${BASE}/api/github/scan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -119,7 +133,7 @@ export async function* streamScan(
   maxFailureModes = 7,
   forceRerun = false,
 ) {
-  const res = await fetch(`${BASE}/api/scan`, {
+  const res = await apiFetch(`${BASE}/api/scan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -137,7 +151,7 @@ export async function* streamScan(
  * GET /api/scan/{scanId} — retrieve a completed scan result.
  */
 export async function getScan(scanId) {
-  const res = await fetch(`${BASE}/api/scan/${scanId}`);
+  const res = await apiFetch(`${BASE}/api/scan/${scanId}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -148,7 +162,7 @@ export async function getScan(scanId) {
  * GET /api/workspace — list all saved workspaces.
  */
 export async function listWorkspaces() {
-  const res = await fetch(`${BASE}/api/workspace`);
+  const res = await apiFetch(`${BASE}/api/workspace`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -157,7 +171,7 @@ export async function listWorkspaces() {
  * POST /api/workspace — create or update a workspace.
  */
 export async function upsertWorkspace(ws) {
-  const res = await fetch(`${BASE}/api/workspace`, {
+  const res = await apiFetch(`${BASE}/api/workspace`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(ws),
@@ -170,7 +184,7 @@ export async function upsertWorkspace(ws) {
  * GET /api/workspace/{workspaceId}/scans — scan history for a workspace.
  */
 export async function getWorkspaceScans(workspaceId) {
-  const res = await fetch(`${BASE}/api/workspace/${workspaceId}/scans`);
+  const res = await apiFetch(`${BASE}/api/workspace/${workspaceId}/scans`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -179,7 +193,7 @@ export async function getWorkspaceScans(workspaceId) {
  * GET /api/workspace/{workspaceId}/scenarios — locked scenario registry.
  */
 export async function getWorkspaceScenarios(workspaceId) {
-  const res = await fetch(`${BASE}/api/workspace/${workspaceId}/scenarios`);
+  const res = await apiFetch(`${BASE}/api/workspace/${workspaceId}/scenarios`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -188,7 +202,7 @@ export async function getWorkspaceScenarios(workspaceId) {
  * DELETE /api/workspace/{workspaceId}/scenarios — unlock registry.
  */
 export async function deleteWorkspaceScenarios(workspaceId) {
-  const res = await fetch(`${BASE}/api/workspace/${workspaceId}/scenarios`, {
+  const res = await apiFetch(`${BASE}/api/workspace/${workspaceId}/scenarios`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -206,7 +220,7 @@ export async function deleteWorkspaceScenarios(workspaceId) {
  *   {stage: "error",    msg: string}
  */
 export async function* streamRemediate(scanId) {
-  const res = await fetch(`${BASE}/api/remediate`, {
+  const res = await apiFetch(`${BASE}/api/remediate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scan_id: scanId }),
@@ -219,7 +233,7 @@ export async function* streamRemediate(scanId) {
  * GET /api/remediate/{remediationId} — retrieve completed remediation results.
  */
 export async function getRemediation(remediationId) {
-  const res = await fetch(`${BASE}/api/remediate/${remediationId}`);
+  const res = await apiFetch(`${BASE}/api/remediate/${remediationId}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -230,7 +244,7 @@ export async function getRemediation(remediationId) {
  * GET /api/eval/history/{workspaceId} — last N eval rows for a workspace.
  */
 export async function getEvalHistory(workspaceId, n = 20) {
-  const res = await fetch(`${BASE}/api/eval/history/${workspaceId}?n=${n}`);
+  const res = await apiFetch(`${BASE}/api/eval/history/${workspaceId}?n=${n}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -242,7 +256,7 @@ export async function getEvalHistory(workspaceId, n = 20) {
  * @returns {object} { id, workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at }
  */
 export async function postScoringAdjustment(workspaceId, failureMode, newS, newO, newD, justification) {
-  const res = await fetch(`${BASE}/api/scoring/adjustment`, {
+  const res = await apiFetch(`${BASE}/api/scoring/adjustment`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -263,7 +277,7 @@ export async function postScoringAdjustment(workspaceId, failureMode, newS, newO
  * @returns {Array} list of adjustment objects ordered newest first
  */
 export async function getScoringAdjustments(workspaceId) {
-  const res = await fetch(`${BASE}/api/scoring/adjustments/${workspaceId}`);
+  const res = await apiFetch(`${BASE}/api/scoring/adjustments/${workspaceId}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -275,7 +289,7 @@ export async function getScoringAdjustments(workspaceId) {
  * @returns {{ last_scan_latency, agent_avg_ms, error_rate, quality_trend, total_spans }}
  */
 export async function getTelemetry(workspaceId, n = 20) {
-  const res = await fetch(`${BASE}/api/telemetry/${workspaceId}?n=${n}`);
+  const res = await apiFetch(`${BASE}/api/telemetry/${workspaceId}?n=${n}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -287,7 +301,7 @@ export async function getTelemetry(workspaceId, n = 20) {
  * @returns {Array<{id, display, tier, prompt_per_1m, completion_per_1m, is_active}>}
  */
 export async function getModels() {
-  const res = await fetch(`${BASE}/api/settings/models`);
+  const res = await apiFetch(`${BASE}/api/settings/models`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -297,7 +311,7 @@ export async function getModels() {
  * @returns {{ active_model: string }}
  */
 export async function getActiveModel() {
-  const res = await fetch(`${BASE}/api/settings/model`);
+  const res = await apiFetch(`${BASE}/api/settings/model`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -308,7 +322,7 @@ export async function getActiveModel() {
  * @returns {{ active_model: string }}
  */
 export async function setActiveModel(modelId) {
-  const res = await fetch(`${BASE}/api/settings/model`, {
+  const res = await apiFetch(`${BASE}/api/settings/model`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: modelId }),
@@ -321,7 +335,7 @@ export async function setActiveModel(modelId) {
 
 /** GET /api/chat/{workspaceId} → { thread_id, messages, totals, has_scan, snapshot_id } */
 export async function getChatHistory(workspaceId) {
-  const res = await fetch(`${BASE}/api/chat/${workspaceId}`);
+  const res = await apiFetch(`${BASE}/api/chat/${workspaceId}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -333,7 +347,7 @@ export async function getChatHistory(workspaceId) {
  * Pass an AbortSignal to stop generation; the server keeps the partial answer.
  */
 export async function* streamChat(workspaceId, message, signal) {
-  const res = await fetch(`${BASE}/api/chat/stream`, {
+  const res = await apiFetch(`${BASE}/api/chat/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspace_id: workspaceId, message }),
@@ -357,7 +371,7 @@ export async function* streamChat(workspaceId, message, signal) {
 }
 
 async function _proposalCall(proposalId, action) {
-  const res = await fetch(`${BASE}/api/chat/proposals/${proposalId}/${action}`, { method: 'POST' });
+  const res = await apiFetch(`${BASE}/api/chat/proposals/${proposalId}/${action}`, { method: 'POST' });
   if (!res.ok) {
     let detail = {};
     try { detail = (await res.json()).detail ?? {}; } catch { /* not JSON */ }
@@ -379,14 +393,14 @@ export const dismissProposal = (proposalId) => _proposalCall(proposalId, 'dismis
 
 /** GET /api/settings/reasoning → { level, effective, supported, token_multiplier } */
 export async function getReasoning() {
-  const res = await fetch(`${BASE}/api/settings/reasoning`);
+  const res = await apiFetch(`${BASE}/api/settings/reasoning`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 /** PATCH /api/settings/reasoning — set the level (off | low | medium | high). */
 export async function setReasoning(level) {
-  const res = await fetch(`${BASE}/api/settings/reasoning`, {
+  const res = await apiFetch(`${BASE}/api/settings/reasoning`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ level }),
@@ -402,14 +416,14 @@ export async function setReasoning(level) {
  * @returns {Array<{id, display, key_set, key_hint, source, status}>}  status: missing|unchecked|valid|invalid|unverified
  */
 export async function getProviders() {
-  const res = await fetch(`${BASE}/api/settings/providers`);
+  const res = await apiFetch(`${BASE}/api/settings/providers`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 /** PUT /api/settings/providers/{id}/key — store a provider API key. */
 export async function setProviderKey(providerId, apiKey) {
-  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/key`, {
+  const res = await apiFetch(`${BASE}/api/settings/providers/${providerId}/key`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ api_key: apiKey }),
@@ -424,14 +438,14 @@ export async function setProviderKey(providerId, apiKey) {
 
 /** POST /api/settings/providers/{id}/verify — re-check the key in use; returns {id, status}. */
 export async function verifyProviderKey(providerId) {
-  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/verify`, { method: 'POST' });
+  const res = await apiFetch(`${BASE}/api/settings/providers/${providerId}/verify`, { method: 'POST' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 /** DELETE /api/settings/providers/{id}/key — remove a stored key. */
 export async function deleteProviderKey(providerId) {
-  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/key`, { method: 'DELETE' });
+  const res = await apiFetch(`${BASE}/api/settings/providers/${providerId}/key`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -461,14 +475,14 @@ function _mapPortfolio(p) {
 
 /** GET /api/portfolios — nested portfolios + projects (camelCase). */
 export async function listPortfolios() {
-  const res = await fetch(`${BASE}/api/portfolios`);
+  const res = await apiFetch(`${BASE}/api/portfolios`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()).map(_mapPortfolio);
 }
 
 /** POST /api/portfolios — create portfolio. Returns {id, name, projects: []}. */
 export async function createPortfolio(name) {
-  const res = await fetch(`${BASE}/api/portfolios`, {
+  const res = await apiFetch(`${BASE}/api/portfolios`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -479,14 +493,14 @@ export async function createPortfolio(name) {
 
 /** DELETE /api/portfolios/{id} — delete portfolio and its projects. */
 export async function deletePortfolio(portfolioId) {
-  const res = await fetch(`${BASE}/api/portfolios/${portfolioId}`, { method: 'DELETE' });
+  const res = await apiFetch(`${BASE}/api/portfolios/${portfolioId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 /** POST /api/portfolios/{id}/projects — create project. Returns mapped project. */
 export async function createProject(portfolioId, name, repoUrl, businessTier, userType) {
-  const res = await fetch(`${BASE}/api/portfolios/${portfolioId}/projects`, {
+  const res = await apiFetch(`${BASE}/api/portfolios/${portfolioId}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -506,7 +520,7 @@ export async function updateProject(projectId, patch) {
   if ('repoUrl'      in patch) body.repo_url      = patch.repoUrl;
   if ('businessTier' in patch) body.business_tier = patch.businessTier;
   if ('userType'     in patch) body.user_type     = patch.userType;
-  const res = await fetch(`${BASE}/api/projects/${projectId}`, {
+  const res = await apiFetch(`${BASE}/api/projects/${projectId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -517,7 +531,7 @@ export async function updateProject(projectId, patch) {
 
 /** DELETE /api/projects/{id} — delete project. */
 export async function deleteProject(projectId) {
-  const res = await fetch(`${BASE}/api/projects/${projectId}`, { method: 'DELETE' });
+  const res = await apiFetch(`${BASE}/api/projects/${projectId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -651,3 +665,39 @@ export const STAGE_LABELS = {
   complete:    'Scan complete',
   error:       'Error',
 };
+
+
+// ── Sign-in and users (B-015) ────────────────────────────────────────────────
+
+async function _json(res, fallback) {
+  if (res.ok) return res.json();
+  let detail = '';
+  try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+  throw new Error(typeof detail === 'string' && detail ? detail : fallback);
+}
+
+const _post = (path, body) => apiFetch(`${BASE}${path}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
+
+export async function getAuthStatus() {
+  return _json(await apiFetch(`${BASE}/api/auth/status`), 'Could not reach the server.');
+}
+export async function getMe() {
+  const res = await apiFetch(`${BASE}/api/auth/me`);
+  return res.ok ? res.json() : null;
+}
+export async function login(username, password) {
+  return _json(await _post('/api/auth/login', { username, password }), 'Could not sign in.');
+}
+export async function setupAdmin(username, password, setupToken) {
+  return _json(await _post('/api/auth/setup', { username, password, setup_token: setupToken || null }), 'Could not create the administrator.');
+}
+export async function logout() {
+  await _post('/api/auth/logout', {});
+}
+/** GET /api/projects/{id}/latest-scan — the project's stored scan in the shape kept per project, or null. */
+export async function getProjectScan(projectId) {
+  const res = await apiFetch(`${BASE}/api/projects/${projectId}/latest-scan`);
+  return res.ok ? res.json() : null;
+}

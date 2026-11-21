@@ -12,11 +12,13 @@ import os
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.policy import enforce
+from api.routers import auth as auth_router
 from api.routers import eval as eval_router
 from api.routers import github as github_router
 from api.routers import chat as chat_router
@@ -37,6 +39,11 @@ app = FastAPI(
     title="FMEA Platform API",
     version=APP_VERSION,
     description="AI-native continuous Failure Mode & Effects Analysis for software teams.",
+    dependencies=[Depends(enforce)],
+    # The schema pages are not covered by the session check; keep them off unless explicitly enabled
+    docs_url="/docs" if os.environ.get("FMEA_API_DOCS") == "1" else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if os.environ.get("FMEA_API_DOCS") == "1" else None,      # B-015: every route needs a session unless api/policy.py says public
 )
 
 # Allow requests from the React dev server and any local production build
@@ -51,6 +58,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(scan.router)
 app.include_router(workspace.router)
 app.include_router(remediation.router)
@@ -66,6 +74,8 @@ app.include_router(chat_router.router)
 async def startup() -> None:
     from core.secrets import encrypt_stored_keys
     from core.retention import purge_now, start_background_purge
+    from core.auth import bootstrap_admin_from_env
+    bootstrap_admin_from_env()
     encrypt_stored_keys()                       # raises with a clear message if FMEA_SECRET_KEY is invalid
     try:
         purge_now()

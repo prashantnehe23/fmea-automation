@@ -806,7 +806,7 @@ def proposal_view(p: dict | None) -> dict | None:
     if p is None:
         return None
     return {k: p.get(k) for k in ("id", "kind", "failure_mode", "reason", "status", "payload",
-                                  "result", "message_id", "created_at", "decided_at")}
+                                  "result", "message_id", "created_at", "decided_at", "decided_by")}
 
 
 def _load_open_proposal(proposal_id: int) -> tuple[dict, int]:
@@ -819,7 +819,7 @@ def _load_open_proposal(proposal_id: int) -> tuple[dict, int]:
     return p, thread["workspace_id"]
 
 
-def apply_proposal(proposal_id: int) -> dict:
+def apply_proposal(proposal_id: int, user: str | None = None) -> dict:
     """Apply a proposal the user accepted. Validates again against the latest scan, claims the
     proposal atomically (so a double click or two tabs apply it once), then performs the change."""
     p, workspace_id = _load_open_proposal(proposal_id)
@@ -843,12 +843,12 @@ def apply_proposal(proposal_id: int) -> dict:
     else:
         raise ChatError("invalid_proposal", f"Unknown proposal type {p['kind']!r}.")
 
-    if not db.decide_proposal(proposal_id, "applied"):          # lost a race: someone decided first
+    if not db.decide_proposal(proposal_id, "applied", decided_by=user):   # lost a race: someone decided first
         raise ChatError("already_decided", "This proposal was already decided.")
     try:
         if p["kind"] == "score_adjustment":
             adjustment_id = db.save_adjustment(workspace_id, p["failure_mode"], s, o, d,
-                                               p["reason"], source="chat")
+                                               p["reason"], source="chat", adjusted_by=user)
             rpn = s * o * d
             result = {"adjustment_id": adjustment_id, "workspace_id": workspace_id, "new_rpn": rpn,
                       "priority": priority_for(s, o, d).band}
@@ -862,9 +862,9 @@ def apply_proposal(proposal_id: int) -> dict:
     return {"proposal": proposal_view(db.get_proposal(proposal_id)), "result": result}
 
 
-def dismiss_proposal(proposal_id: int) -> dict:
+def dismiss_proposal(proposal_id: int, user: str | None = None) -> dict:
     _load_open_proposal(proposal_id)
-    if not db.decide_proposal(proposal_id, "dismissed"):
+    if not db.decide_proposal(proposal_id, "dismissed", decided_by=user):
         raise ChatError("already_decided", "This proposal was already decided.")
     return {"proposal": proposal_view(db.get_proposal(proposal_id))}
 

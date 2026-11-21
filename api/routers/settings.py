@@ -5,7 +5,7 @@ Endpoints:
   GET  /api/settings/models           — list available models with pricing
   GET  /api/settings/model            — get active model
   PATCH /api/settings/model           — set active model
-  GET  /api/settings/pricing/refresh  — trigger LiteLLM pricing refresh
+  POST /api/settings/pricing/refresh  — trigger LiteLLM pricing refresh
   GET  /api/settings/reasoning        — active reasoning level + levels the model supports (B-023)
   PATCH /api/settings/reasoning       — set reasoning level (B-023)
   GET    /api/settings/providers          — providers + masked key status (B-022)
@@ -13,11 +13,11 @@ Endpoints:
   DELETE /api/settings/providers/{id}/key — remove a stored key (B-022)
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from api.schemas import ApiKeyBody, ModelPatch, ReasoningPatch
 from core.costs import AVAILABLE_MODELS, FALLBACK_RATES, get_rates, refresh_pricing
-from core import providers
+from core import auth, providers
 from core.secrets import decrypt
 from core.providers import (
     PROVIDERS, clear_api_key, get_api_key, key_status, mask_key, provider_for_model, set_api_key,
@@ -57,7 +57,7 @@ async def get_model():
 
 
 @router.patch("/api/settings/model")
-async def set_model(body: ModelPatch):
+async def set_model(body: ModelPatch, request: Request):
     """Set the active model. Rejects unknown model IDs."""
     if body.model not in _VALID_IDS:
         raise HTTPException(
@@ -71,6 +71,7 @@ async def set_model(body: ModelPatch):
             detail=f"No API key set for {PROVIDERS[provider]['display']}. Add one first.",
         )
     set_setting("active_model", body.model)
+    auth.record_event(request.state.user, "model_changed", body.model)
     return {"active_model": body.model}
 
 
@@ -93,10 +94,11 @@ async def get_reasoning():
 
 
 @router.patch("/api/settings/reasoning")
-async def set_reasoning(body: ReasoningPatch):
+async def set_reasoning(body: ReasoningPatch, request: Request):
     if body.level not in LEVELS:
         raise HTTPException(status_code=422, detail=f"Unknown level '{body.level}'. Valid: {LEVELS}")
     set_setting("reasoning_level", body.level)
+    auth.record_event(request.state.user, "reasoning_changed", body.level)
     return _reasoning_state()
 
 
@@ -118,7 +120,7 @@ async def list_providers():
 
 
 @router.put("/api/settings/providers/{provider_id}/key")
-async def put_provider_key(provider_id: str, body: ApiKeyBody):
+async def put_provider_key(provider_id: str, body: ApiKeyBody, request: Request):
     if provider_id not in PROVIDERS:
         raise HTTPException(status_code=404, detail=f"Unknown provider '{provider_id}'")
     if not body.api_key.strip():
@@ -132,6 +134,7 @@ async def put_provider_key(provider_id: str, body: ApiKeyBody):
         )
     set_api_key(provider_id, key)
     set_key_status(provider_id, status)
+    auth.record_event(request.state.user, "provider_key_set", provider_id)
     return {"id": provider_id, "key_set": True, "key_hint": mask_key(key), "status": status}
 
 
@@ -147,14 +150,15 @@ async def verify_provider_key(provider_id: str):
 
 
 @router.delete("/api/settings/providers/{provider_id}/key")
-async def delete_provider_key(provider_id: str):
+async def delete_provider_key(provider_id: str, request: Request):
     if provider_id not in PROVIDERS:
         raise HTTPException(status_code=404, detail=f"Unknown provider '{provider_id}'")
     clear_api_key(provider_id)
+    auth.record_event(request.state.user, "provider_key_removed", provider_id)
     return {"id": provider_id, "key_set": bool(get_api_key(provider_id))}
 
 
-@router.get("/api/settings/pricing/refresh")
+@router.post("/api/settings/pricing/refresh")
 async def trigger_pricing_refresh():
     """Re-fetch LiteLLM pricing JSON. Falls back to hardcoded rates if fetch fails."""
     rates = refresh_pricing()

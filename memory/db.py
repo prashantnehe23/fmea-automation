@@ -184,6 +184,40 @@ CREATE TABLE IF NOT EXISTS projects (
     user_type      TEXT    NOT NULL DEFAULT 'external_customers',
     created_at     TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    display_name  TEXT    NOT NULL,
+    role          TEXT    NOT NULL,
+    password_hash TEXT,
+    oidc_subject  TEXT    UNIQUE,
+    disabled      INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT    NOT NULL,
+    expires_at TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts       TEXT    NOT NULL,
+    user_id  INTEGER,
+    username TEXT,
+    action   TEXT    NOT NULL,
+    detail   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS oidc_logins (
+    state         TEXT PRIMARY KEY,
+    nonce         TEXT NOT NULL,
+    code_verifier TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);
 """
 
 
@@ -201,6 +235,8 @@ def get_db() -> sqlite3.Connection:
         "ALTER TABLE scenarios ADD COLUMN embed_model TEXT",
         "ALTER TABLE adjustments ADD COLUMN source TEXT DEFAULT 'manual'",
         "ALTER TABLE adjustments ADD COLUMN flagged INTEGER DEFAULT 0",
+        "ALTER TABLE adjustments ADD COLUMN adjusted_by TEXT",
+        "ALTER TABLE chat_proposals ADD COLUMN decided_by TEXT",
     ):
         try:
             conn.execute(_col_sql)
@@ -571,6 +607,7 @@ def save_adjustment(
     new_d: int,
     justification: str,
     source: str = "manual",
+    adjusted_by: str | None = None,
 ) -> int:
     """Persist a score adjustment (source: "manual" or "chat"). Returns adjustment id.
 
@@ -585,11 +622,11 @@ def save_adjustment(
                 """
                 INSERT INTO adjustments
                     (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at,
-                     source, flagged)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     source, flagged, adjusted_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (workspace_id, failure_mode, new_s, new_o, new_d, new_rpn,
-                 justification, datetime.now().isoformat(), source or "manual", flagged),
+                 justification, datetime.now().isoformat(), source or "manual", flagged, adjusted_by),
             )
             conn.commit()
             return cur.lastrowid  # type: ignore[return-value]
@@ -604,7 +641,7 @@ def get_adjustments(workspace_id: int) -> list[dict]:
         rows = conn.execute(
             """
             SELECT id, failure_mode, new_s, new_o, new_d, new_rpn, justification, created_at,
-                   COALESCE(source, 'manual') AS source, COALESCE(flagged, 0) AS flagged
+                   COALESCE(source, 'manual') AS source, COALESCE(flagged, 0) AS flagged, adjusted_by
             FROM adjustments WHERE workspace_id=?
             ORDER BY created_at DESC, id DESC
             """,
@@ -673,6 +710,36 @@ def save_scan_snapshot(
             return snapshot_id  # type: ignore[return-value]
         finally:
             conn.close()
+
+
+def get_project_scan(project_id: int) -> dict | None:
+    """Latest stored scan of a project, in the shape the UI keeps per project (B-015), or None."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT w.id AS workspace_id, pr.repo_url AS repo_url
+               FROM projects pr JOIN portfolios po ON po.id = pr.portfolio_id
+               JOIN workspaces w ON w.customer = po.name AND w.project = pr.name
+               WHERE pr.id = ?""",
+            (project_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    snap = get_latest_snapshot(row["workspace_id"])
+    if not snap:
+        return None
+    result = snap["findings"]
+    risks = result.get("risks") or []
+    new = result.get("new_scenarios") or []
+    return {
+        "scanId": snap["scan_id"], "repoUrl": row["repo_url"], "timestamp": snap["created_at"],
+        "risk_count": len(risks), "max_rpn": max((r.get("rpn", 0) for r in risks), default=0),
+        "from_cache": bool(result.get("from_cache", False)),
+        "registry_locked": bool(result.get("registry_locked", False)),
+        "locked_count": len(risks) - len(new), "workspace_id": row["workspace_id"], "result": result,
+    }
 
 
 def purge_expired_sources(days: int) -> int:
@@ -922,17 +989,18 @@ def attach_proposals_to_message(proposal_ids: list[int], message_id: int) -> Non
             conn.close()
 
 
-def decide_proposal(proposal_id: int, new_status: str, result: dict | None = None) -> bool:
+def decide_proposal(proposal_id: int, new_status: str, result: dict | None = None,
+                    decided_by: str | None = None) -> bool:
     """Atomically move a proposal out of 'proposed'. Returns False if it was already decided,
     which is what makes Apply / Dismiss idempotent even under concurrent clicks."""
     with _lock:
         conn = get_db()
         try:
             cur = conn.execute(
-                """UPDATE chat_proposals SET status=?, result_json=?, decided_at=?
+                """UPDATE chat_proposals SET status=?, result_json=?, decided_at=?, decided_by=?
                    WHERE id=? AND status='proposed'""",
                 (new_status, json.dumps(result) if result is not None else None,
-                 datetime.now().isoformat(), proposal_id),
+                 datetime.now().isoformat(), decided_by, proposal_id),
             )
             conn.commit()
             return cur.rowcount == 1
@@ -945,7 +1013,7 @@ def reopen_proposal(proposal_id: int) -> None:
     with _lock:
         conn = get_db()
         try:
-            conn.execute("UPDATE chat_proposals SET status='proposed', result_json=NULL, decided_at=NULL WHERE id=?",
+            conn.execute("UPDATE chat_proposals SET status='proposed', result_json=NULL, decided_at=NULL, decided_by=NULL WHERE id=?",
                          (proposal_id,))
             conn.commit()
         finally:
