@@ -23,6 +23,8 @@ def isolated(tmp_path, monkeypatch):
     for p in providers.PROVIDERS.values():
         monkeypatch.delenv(p["env_var"], raising=False)
     llm._clients.clear()
+    # B-048: saving a key now asks the provider to validate it; these tests must not hit the network
+    monkeypatch.setattr(providers, "verify_key", lambda provider_id, key: "valid")
 
 
 @pytest.fixture

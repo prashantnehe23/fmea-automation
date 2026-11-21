@@ -17,7 +17,7 @@
 | Order | Item | Title | ADR first | Depends on | Size |
 |---|---|---|---|---|---|
 | 1 | B-044 | Repository hygiene and an honest README — **done 2026-11-21** | no | none | S |
-| 2 | B-048 phase 0 | UX blockers: project selection, scan errors, key status, placeholders | no | none | S |
+| 2 | B-048 phase 0 — **done 2026-11-21** | UX blockers: project selection, scan errors, key status, placeholders | no | none | S |
 | 3 | B-042 | Deployment model and container packaging | **yes** (ADR-026) | none | M |
 | 4 | B-015 | Sign-in, roles and server-side results | **yes** (ADR-027) | B-042 decision | L |
 | 5 | B-043 | Private repository access | no (covered by ADR-027) | B-015 | M |
@@ -114,7 +114,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-048 · UX Blockers and Findings-First Interface `[ ]` APPROVED — phase 0 P0, phase 1 P1
+### B-048 · UX Blockers and Findings-First Interface `[~]` PHASE 0 DONE 2026-11-21 (phase 1 not started) — phase 0 P0, phase 1 P1
 
 **Why:** From the UI/UX review (discovery report U1-U16). Phase 0 fixes what stops a first-time user; phase 1 restructures the app around triage and is built together with B-015 because both touch every page.
 
@@ -123,12 +123,14 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 **Phase 1 scope (P1):** navigation Overview · Findings · Coverage · Reports · Settings; one finding detail view with evidence, score, fix and history; cost and system health moved to an admin page; plain-language impact and CWE beside RPN; one icon set replacing emoji; accessibility pass (semantic buttons, labels, 4.5:1 contrast); first-run flow that starts from a repository URL with a cost and time estimate; catastrophic watchlist and `priority_reason` display (absorbs B-034 phase 3); scan history and "what changed" (absorbs B-004, needs B-031).
 
 **Acceptance criteria — phase 0:**
-- [ ] With the Developer persona, clicking a project selects it and the scan page shows that project (browser check)
-- [ ] An expired or invalid key produces a plain message and a Settings action; no raw provider error text is shown (test with a fake 401, browser check)
-- [ ] Saving an invalid key is rejected with a message; Settings shows key status per provider (test)
-- [ ] `grep` finds no "Acme", `demo@fmea.io` or "coming soon" in `frontend/src`
-- [ ] "Clear local data" requires confirmation
-- [ ] Frontend builds; existing tests green
+- [x] With the Developer persona, clicking a project selects it and the scan page shows that project (browser check 2026-11-21: Test File Selection opened, header "PROJECT / Test File Selection")
+- [x] An expired or invalid key produces a plain message and a Settings action; no raw provider error text is shown (`tests/test_ux_blockers.py`: fake 401 over the scan stream, plus rate limit, missing key, unknown error; browser check with the real expired Mistral key: banner "Your Mistral AI API key was rejected…" and an Open Settings button that opens the panel; raw text appears only in the server log)
+- [x] Saving an invalid key is rejected with a message; Settings shows key status per provider (tests; browser check: a fake key was rejected with "Mistral AI rejected this key", the stored key showed "Key rejected" after Check)
+- [x] `grep` finds no "Acme", `demo@fmea.io` or "coming soon" in `frontend/src` (`test_no_placeholders_in_frontend_source`; also "Within 7 days")
+- [x] "Clear local data" requires confirmation (already true: `confirm()` in `Header.jsx`; unchanged, moving it to its own section left for phase 1)
+- [x] Frontend builds; existing tests green (469 passed)
+
+**Phase 0 done:** U1 project selection for every persona (`HierarchyTree.jsx`); U8 placeholders (`data.js`, `Sidebar.jsx`, `KpiRow.jsx`, bell removed from `Header.jsx`); U9 never an empty title (`helpers.js`, and a "component" scope without a component now shows the selected project, `App.jsx`); U13 plain scan errors (`core/llm_errors.py`, scan, GitHub scan and remediation streams, `ScanPage.jsx`); U14 key validation on save, `POST /api/settings/providers/{id}/verify`, `status` on `GET /api/settings/providers`, status in Settings and above the scan controls (`core/providers.py`, `api/routers/settings.py`, `KeyStatus.jsx`, `Header.jsx`); U16 new-project form scrolled into view (`HierarchyTree.jsx`, browser check at 800x600). **Decisions to confirm:** only a 401 rejects a key on save; a network failure or a key that cannot list models (restricted keys) is saved as "unverified". There is no check before each scan: the status line and the fail-fast message cover it. **Not done / not checked:** the Developer persona's role-play switch itself (B-015); personas other than Developer were not clicked through in the browser; no JS test framework exists, so frontend behaviour rests on the browser check and the grep test. A finding for you: scan output for the shown repository was not produced (the key is expired), so result pages remain unreviewed.
 
 **Acceptance criteria — phase 1:**
 - [ ] A finding is fully reviewable (evidence, score with reason, fix, history) from one view (browser check)

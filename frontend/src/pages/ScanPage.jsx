@@ -17,6 +17,7 @@
 
 import { useState } from 'react';
 import ScopeHeader from '../components/ScopeHeader';
+import KeyStatus from '../components/KeyStatus';
 import KpiRow from '../components/KpiRow';
 import { SCOPE_LABEL, ALL_RISKS } from '../data';
 import { filterRisks, getSelectionLabel, aggregateBy } from '../helpers';
@@ -373,11 +374,14 @@ export default function ScanPage({
   liveScanId,
   onScanComplete,
   onUpdateProjectRepo,
+  settingsOpen,
+  onOpenSettings,
 }) {
   const [scanning,      setScan]         = useState(false);
   const [stages,        setStages]       = useState([]);
   const [stageOrder,    setStageOrder]   = useState(GITHUB_STAGES);
   const [scanError,     setScanError]    = useState('');
+  const [scanErrorAction, setScanErrorAction] = useState(null);   // 'open_settings' when the fix is in Settings
   const [result,        setResult]       = useState(null);
   const [repoInfo,      setRepoInfo]     = useState(null);   // {owner, repo, files_scanned, readme_used}
   const [showPaste,     setShowPaste]    = useState(false);  // fallback: paste code directly
@@ -443,6 +447,7 @@ export default function ScanPage({
   const runGithubScan = async (repoUrl, forceRerun = false, files = null) => {
     setScan(true);
     setScanError('');
+    setScanErrorAction(null);
     setResult(null);
     setRepoInfo(null);
     const order = GITHUB_STAGES;
@@ -463,6 +468,7 @@ export default function ScanPage({
           onScanComplete?.(event.scan_id, event.result, project?.id, repoUrl);
         } else if (event.stage === 'error') {
           setScanError(event.msg ?? 'Scan failed');
+          setScanErrorAction(event.action ?? null);
           setScan(false);
         } else {
           setStages(prev => prev.map(s => {
@@ -486,6 +492,7 @@ export default function ScanPage({
     if (!pasteCode.trim()) return;
     setScan(true);
     setScanError('');
+    setScanErrorAction(null);
     setResult(null);
     setRepoInfo(null);
     const order = CODE_STAGES;
@@ -505,6 +512,7 @@ export default function ScanPage({
           onScanComplete?.(event.scan_id, event.result, project?.id, null);
         } else if (event.stage === 'error') {
           setScanError(event.msg ?? 'Scan failed');
+          setScanErrorAction(event.action ?? null);
           setScan(false);
         } else {
           setStages(prev => prev.map(s => {
@@ -599,6 +607,9 @@ export default function ScanPage({
             `Last scanned · rescan anytime`
           }
         />
+        {scenario !== 'no-selection' && (
+          <KeyStatus refreshKey={`${settingsOpen}-${scanError}`} onOpenSettings={onOpenSettings} />
+        )}
 
         {/* ── Scenario: no project selected ───────────────────────── */}
         {scenario === 'no-selection' && !scanning && !result && (
@@ -797,10 +808,16 @@ export default function ScanPage({
           <div className="mt-5 p-4 rounded-2xl border border-red-200 bg-red-50 text-sm text-red-700">
             <p className="font-bold mb-1">⚠ Scan failed</p>
             <p className="text-xs">{scanError}</p>
-            <p className="text-xs mt-2 text-red-500">
-              Is the API server running?{' '}
-              <code className="font-mono bg-red-100 px-1 rounded">python -m uvicorn api.main:app --reload --port 8000</code>
-            </p>
+            {scanErrorAction === 'open_settings' ? (
+              <button onClick={onOpenSettings} className="mt-3 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700">
+                Open Settings
+              </button>
+            ) : (
+              <p className="text-xs mt-2 text-red-500">
+                Is the API server running?{' '}
+                <code className="font-mono bg-red-100 px-1 rounded">python -m uvicorn api.main:app --reload --port 8000</code>
+              </p>
+            )}
           </div>
         )}
       </div>

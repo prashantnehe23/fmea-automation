@@ -399,7 +399,7 @@ export async function setReasoning(level) {
 
 /**
  * GET /api/settings/providers — providers with masked key status.
- * @returns {Array<{id, display, key_set, key_hint, source}>}
+ * @returns {Array<{id, display, key_set, key_hint, source, status}>}  status: missing|unchecked|valid|invalid|unverified
  */
 export async function getProviders() {
   const res = await fetch(`${BASE}/api/settings/providers`);
@@ -414,7 +414,18 @@ export async function setProviderKey(providerId, apiKey) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ api_key: apiKey }),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `Could not save the key (HTTP ${res.status}).`);
+  }
+  return res.json();
+}
+
+/** POST /api/settings/providers/{id}/verify — re-check the key in use; returns {id, status}. */
+export async function verifyProviderKey(providerId) {
+  const res = await fetch(`${BASE}/api/settings/providers/${providerId}/verify`, { method: 'POST' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 

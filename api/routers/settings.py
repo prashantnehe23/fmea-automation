@@ -17,8 +17,10 @@ from fastapi import APIRouter, HTTPException
 
 from api.schemas import ApiKeyBody, ModelPatch, ReasoningPatch
 from core.costs import AVAILABLE_MODELS, FALLBACK_RATES, get_rates, refresh_pricing
+from core import providers
 from core.providers import (
-    PROVIDERS, clear_api_key, get_api_key, mask_key, provider_for_model, set_api_key,
+    PROVIDERS, clear_api_key, get_api_key, key_status, mask_key, provider_for_model, set_api_key,
+    set_key_status,
 )
 from core.reasoning import DEFAULT_LEVEL, LEVELS, TOKEN_MULTIPLIER, resolve_level, supported_levels
 from core.settings import get_setting, set_setting
@@ -108,6 +110,7 @@ async def list_providers():
             "key_set":  bool(get_api_key(pid)),
             "key_hint": mask_key(get_api_key(pid)),
             "source":   "settings" if stored.get(pid) else ("env" if get_api_key(pid) else None),
+            "status":   key_status(pid),
         }
         for pid, cfg in PROVIDERS.items()
     ]
@@ -119,8 +122,27 @@ async def put_provider_key(provider_id: str, body: ApiKeyBody):
         raise HTTPException(status_code=404, detail=f"Unknown provider '{provider_id}'")
     if not body.api_key.strip():
         raise HTTPException(status_code=422, detail="api_key must not be empty")
-    set_api_key(provider_id, body.api_key)
-    return {"id": provider_id, "key_set": True, "key_hint": mask_key(body.api_key.strip())}
+    key = body.api_key.strip()
+    status = providers.verify_key(provider_id, key)
+    if status == "invalid":
+        raise HTTPException(
+            status_code=422,
+            detail=f"{PROVIDERS[provider_id]['display']} rejected this key. Check it and try again.",
+        )
+    set_api_key(provider_id, key)
+    set_key_status(provider_id, status)
+    return {"id": provider_id, "key_set": True, "key_hint": mask_key(key), "status": status}
+
+
+@router.post("/api/settings/providers/{provider_id}/verify")
+async def verify_provider_key(provider_id: str):
+    """Re-check the key in use for a provider and record the result (B-048)."""
+    if provider_id not in PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown provider '{provider_id}'")
+    key = get_api_key(provider_id)
+    if key:
+        set_key_status(provider_id, providers.verify_key(provider_id, key))
+    return {"id": provider_id, "status": key_status(provider_id)}
 
 
 @router.delete("/api/settings/providers/{provider_id}/key")

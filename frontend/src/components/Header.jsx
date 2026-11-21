@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react';
 import { PERSONAS, PROCESS_STEPS, HIERARCHY, SCOPE_LABEL } from '../data';
 import { ORG } from '../data';
-import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, getReasoning, setReasoning } from '../api';
+import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, getReasoning, setReasoning, verifyProviderKey } from '../api';
 
 const LEVEL_LABEL = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High' };
 const LEVEL_ORDER = ['off', 'low', 'medium', 'high'];
+
+const KEY_STATUS = {
+  valid:      { label: 'Key valid',        cls: 'text-green-600 bg-green-50' },
+  invalid:    { label: 'Key rejected',     cls: 'text-red-600 bg-red-50' },
+  unverified: { label: 'Not verified',     cls: 'text-amber-600 bg-amber-50' },
+  unchecked:  { label: 'Not checked',      cls: 'text-gray-500 bg-gray-50' },
+  missing:    { label: 'No key',           cls: 'text-red-600 bg-red-50' },
+};
 
 const TIER_BADGE = {
   Fast:     'bg-green-50 text-green-700',
@@ -12,8 +20,9 @@ const TIER_BADGE = {
   Power:    'bg-purple-50 text-purple-700',
 };
 
-export default function Header({ persona, step, sel, scope, chatOpen, onToggleChat }) {
-  const [showSettings, setShowSettings] = useState(false);
+export default function Header({ persona, step, sel, scope, chatOpen, onToggleChat, settingsOpen, onSettingsOpenChange }) {
+  const showSettings    = settingsOpen;
+  const setShowSettings = onSettingsOpenChange;
   const [models, setModels]             = useState([]);
   const [activeModel, setActiveModelState] = useState(null);
   const [providers, setProviders]       = useState([]);
@@ -66,6 +75,12 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
     } catch (e) { setKeyError(e.message); }
   };
 
+  const handleCheckKey = async () => {
+    setKeyError('');
+    try { await verifyProviderKey(selected.provider); await refreshModels(); }
+    catch (e) { setKeyError(e.message); }
+  };
+
   const handleRemoveKey = async () => {
     setKeyError('');
     try { await deleteProviderKey(selected.provider); await refreshModels(); }
@@ -116,12 +131,8 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
           className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center transition-colors ${chatOpen ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-400'}`}
         >💬</button>
         <button
-          title="Notifications — coming soon"
-          className="w-8 h-8 rounded-lg hover:bg-gray-100 text-gray-400 text-sm flex items-center justify-center"
-        >🔔</button>
-        <button
           title="Settings"
-          onClick={() => setShowSettings(v => !v)}
+          onClick={() => setShowSettings(!showSettings)}
           className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center transition-colors ${showSettings ? 'bg-gray-100 text-gray-700' : 'hover:bg-gray-100 text-gray-400'}`}
         >⚙️</button>
         <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-green-50 border border-green-200 ml-1">
@@ -138,10 +149,14 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-gray-700">API Endpoint</p>
-                    <p className="text-xs text-gray-400">Backend URL for scan requests</p>
+                    <p className="text-xs font-semibold text-gray-700">Model key</p>
+                    <p className="text-xs text-gray-400">{selectedProvider?.display ?? 'Active provider'}</p>
                   </div>
-                  <span className="text-xs text-green-600 font-semibold bg-green-50 px-2 py-1 rounded-lg">Connected</span>
+                  {selectedProvider && (
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${KEY_STATUS[selectedProvider.status]?.cls ?? ''}`}>
+                      {KEY_STATUS[selectedProvider.status]?.label ?? selectedProvider.status}
+                    </span>
+                  )}
                 </div>
                 <hr className="border-gray-50" />
                 <div className="flex items-center justify-between">
@@ -223,17 +238,21 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
                       })()}
                       {selected && (
                         <div className="mt-2">
-                          {selected.key_set ? (
-                            <div className="flex items-center justify-between">
+                          {selected.key_set && (
+                            <div className="flex items-center justify-between gap-2 mb-1">
                               <p className="text-xs text-gray-400">
                                 {selectedProvider?.display} key {selectedProvider?.key_hint}
                                 {selectedProvider?.source === 'env' ? ' (env var)' : ''}
                               </p>
-                              {selectedProvider?.source === 'settings' && (
-                                <button onClick={handleRemoveKey} className="text-xs text-red-500 font-semibold hover:text-red-700">Remove</button>
-                              )}
+                              <span className="flex gap-2">
+                                <button onClick={handleCheckKey} className="text-xs text-blue-600 font-semibold hover:text-blue-800">Check</button>
+                                {selectedProvider?.source === 'settings' && (
+                                  <button onClick={handleRemoveKey} className="text-xs text-red-500 font-semibold hover:text-red-700">Remove</button>
+                                )}
+                              </span>
                             </div>
-                          ) : (
+                          )}
+                          {(!selected.key_set || selectedProvider?.status === 'invalid') && (
                             <div className="flex gap-1">
                               <input
                                 type="password"

@@ -15,7 +15,11 @@ Provides:
 
 from __future__ import annotations
 
+import hashlib
 import os
+from datetime import datetime, timezone
+
+import openai
 
 from core.settings import get_setting, set_setting
 
@@ -85,3 +89,51 @@ def clear_api_key(provider_id: str) -> None:
 
 def mask_key(key: str | None) -> str | None:
     return None if not key else "••••" + key[-4:]
+
+
+# ── Key validity (B-048 phase 0) ──────────────────────────────────────────────
+
+def _key_id(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def verify_key(provider_id: str, key: str) -> str:
+    """
+    Ask the provider whether the key is accepted (a cheap model-list call).
+    "valid" · "invalid" (the provider answered 401) · "unverified" (could not tell: network
+    failure, or a restricted key that may not list models — the key is not rejected for that).
+    """
+    cfg = get_provider(provider_id)
+    try:
+        client = openai.OpenAI(api_key=key, base_url=cfg["base_url"], timeout=10, max_retries=0)
+        client.models.list()
+        return "valid"
+    except openai.AuthenticationError:
+        return "invalid"
+    except Exception:
+        return "unverified"
+
+
+def set_key_status(provider_id: str, status: str) -> None:
+    """Record the last check of the key currently in use for the provider."""
+    key = get_api_key(provider_id)
+    if not key:
+        return
+    record = dict(get_setting("key_status") or {})
+    record[provider_id] = {
+        "status": status,
+        "key_id": _key_id(key),
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    set_setting("key_status", record)
+
+
+def key_status(provider_id: str) -> str:
+    """missing (no key) · unchecked (never checked, or the key changed since) · valid · invalid · unverified."""
+    key = get_api_key(provider_id)
+    if not key:
+        return "missing"
+    rec = (get_setting("key_status") or {}).get(provider_id)
+    if not rec or rec.get("key_id") != _key_id(key):
+        return "unchecked"
+    return rec["status"]

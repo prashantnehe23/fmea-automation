@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from agents.remediator import apply_and_rescan
 from api.schemas import RemediateRequest
 from api.sse import sse_event
+from core.llm_errors import scan_error_event
 from api.store import build_workspace, next_rem_id, remediation_store, scan_store
 from core.models import FailureMode, RemediationPlan, RiskScore
 
@@ -78,7 +79,7 @@ async def submit_remediation(req: RemediateRequest):
         try:
             rem_results = fut.result()
         except Exception as exc:
-            yield sse_event({"stage": "error", "msg": str(exc)}, event="error")
+            yield sse_event(scan_error_event(exc), event="error")
             return
 
         serialized = [r.model_dump() for r in rem_results]

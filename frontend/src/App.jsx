@@ -133,6 +133,7 @@ export default function App() {
   const [step,    setStep]    = useState('scan');
   const [scope,   setScope]   = useState('project');
   const [chatOpen, setChatOpen] = useState(() => ls(KEY_CHAT_OPEN, false));
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sel,     setSel]     = useState(init.sel);
 
   const [hierarchy,   setHierarchyState]   = useState(init.hierarchy);
@@ -345,6 +346,8 @@ export default function App() {
   };
 
   const Content = PAGES[step];
+  // No component picker exists yet: a 'component' scope without a component means the selected project
+  const pageScope = scope === 'component' && !sel.componentName ? 'project' : scope;
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
@@ -363,13 +366,15 @@ export default function App() {
         onAddProject={addProject}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} />
+        <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} settingsOpen={settingsOpen} onSettingsOpenChange={setSettingsOpen} />
         <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto bg-gray-50">
           <Content
             persona={persona}
             sel={sel}
-            scope={scope}
+            scope={pageScope}
+            settingsOpen={settingsOpen}
+            onOpenSettings={() => setSettingsOpen(true)}
             hierarchy={hierarchy}
             scanHistory={scanHistory}
             liveRisks={liveRisks}
