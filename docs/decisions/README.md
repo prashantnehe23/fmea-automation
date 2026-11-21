@@ -40,4 +40,4 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-025](ADR-025-code-index-build-vs-adopt.md) | Code Index: Build a Thin Tree-sitter Index, Do Not Embed Graphify or CodeGraph | Accepted | 2026-11-09 |
 | [ADR-026](ADR-026-deployment-model.md) | Deployment Model: Single-Tenant Self-Hosted Container with the Customer's Own Model Key | Accepted | 2026-11-21 |
 | [ADR-027](ADR-027-authentication-roles-and-repository-access.md) | Authentication, Roles, Server-Side Results and Repository Credentials | Accepted | 2026-11-21 |
-| [ADR-029](ADR-029-pull-request-check.md) | Pull-Request Check Invoked from CI | Draft (implemented on the recommended default) | 2026-11-21 |
+| [ADR-029](ADR-029-pull-request-check.md) | Pull-Request Check Invoked from CI | Accepted | 2026-11-21 |

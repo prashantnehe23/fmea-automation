@@ -1,6 +1,6 @@
 # ADR-029: Pull-Request Check Invoked from CI
 
-**Status:** Draft: implemented on the recommended default so that B-012 could ship; the engineer may reverse it (see Options)  **Date:** 2026-11-21  **Backlog:** B-012 (depends on ADR-027 for tokens and ADR-019 for finding identity)
+**Status:** Accepted (engineer, 2026-11-21: "CI invoked design for now is okay"); the webhook option stays open for later  **Date:** 2026-11-21  **Backlog:** B-012 (depends on ADR-027 for tokens and ADR-019 for finding identity)
 
 ## Context
 Risk is only seen when someone opens the app. Teams want it on the pull request, before merge. The backlog assumed a GitHub App delivering webhooks. ADR-026 makes the install single-tenant and self-hosted, often behind a firewall, and ADR-027 chose a repository token first because it needs no inbound connection. The check needs a trigger, a place for the verdict and a way to bound its cost.
