@@ -12,6 +12,7 @@ def run_saboteur(
     max_scenarios: int | None = None,
     learning_context: str = "",
     locked_names: list[str] | None = None,
+    previous_names: list[str] | None = None,
 ) -> list[FailureMode]:
     cap_line = ""
     if max_scenarios is not None:
@@ -30,11 +31,22 @@ def run_saboteur(
         names_list = "\n".join(f"- {n}" for n in locked_names)
         lock_block = f"""
 IMPORTANT — SCENARIO CONTINUITY:
-You MUST reproduce ALL of the following failure scenarios by their EXACT names (copy verbatim).
-You MAY identify additional NEW scenarios beyond this list, up to the cap.
+These scenarios were found in earlier scans. For each one whose weakness is still present in the code below,
+reproduce it by its EXACT name (copy verbatim). If its weakness has been fixed or removed so that it no longer
+applies to this code, leave it out: never repeat a scenario that no longer applies.
+Locked scenarios do not count against the cap: always report every NEW scenario you find in addition to them.
 
-Locked scenarios (reproduce these verbatim):
+Earlier scenarios:
 {names_list}
+
+"""
+
+    if previous_names:
+        previous_list = "\n".join(f"- {n}" for n in previous_names)
+        lock_block += f"""
+These scenarios were fixed in the past, or may have been. Report one only if its weakness is present in the code
+below, using its EXACT name; otherwise leave it out.
+{previous_list}
 
 """
 

@@ -19,3 +19,5 @@ State for the feature-delivery harness. The feature list is `docs/BACKLOG.md` (t
 | 2026-11-21 | B-015 | Close | PR opened and merged |
 | 2026-11-21 | B-043 | Plan / Build / Verify / Review | Implemented; independent review: no critical, important findings fixed; real private repo not tested |
 | 2026-11-21 | B-043 | Close | PR opened and merged |
+| 2026-11-21 | B-031 | Plan / Build / Verify / Review | Implemented; independent review: no critical, important findings fixed; not measured with a real model |
+| 2026-11-21 | B-031 | Close | PR opened and merged |

@@ -41,6 +41,7 @@ POLICY: dict[tuple[str, str], str] = {
     ("GET", "/api/workspace"): "read",
     ("GET", "/api/workspace/{workspace_id}/scans"): "read",
     ("GET", "/api/workspace/{workspace_id}/scenarios"): "read",
+    ("GET", "/api/workspace/{workspace_id}/findings"): "read",
     ("GET", "/api/portfolios"): "read",
     ("GET", "/api/projects/{project_id}/latest-scan"): "read",
     ("GET", "/api/remediate/{remediation_id}"): "read",
@@ -63,6 +64,7 @@ POLICY: dict[tuple[str, str], str] = {
     ("POST", "/api/chat/proposals/{proposal_id}/dismiss"): "chat",
     # score changes (including unlocking a locked scenario)
     ("POST", "/api/scoring/adjustment"): "score",
+    ("POST", "/api/workspace/{workspace_id}/findings/state"): "score",
     ("DELETE", "/api/workspace/{workspace_id}/scenarios"): "score",
     ("POST", "/api/chat/proposals/{proposal_id}/apply"): "score",
     # portfolios and projects

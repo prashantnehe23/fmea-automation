@@ -18,6 +18,7 @@
 import { useState } from 'react';
 import ScopeHeader from '../components/ScopeHeader';
 import KeyStatus from '../components/KeyStatus';
+import FindingChanges from '../components/FindingChanges';
 import KpiRow from '../components/KpiRow';
 import { SCOPE_LABEL, ALL_RISKS } from '../data';
 import { filterRisks, getSelectionLabel, aggregateBy } from '../helpers';
@@ -376,6 +377,7 @@ export default function ScanPage({
   onUpdateProjectRepo,
   settingsOpen,
   onOpenSettings,
+  canDecideFindings,
 }) {
   const [scanning,      setScan]         = useState(false);
   const [stages,        setStages]       = useState([]);
@@ -607,6 +609,9 @@ export default function ScanPage({
             `Last scanned · rescan anytime`
           }
         />
+        {scenario === 'has-scan' && (
+          <FindingChanges workspaceId={lastScan?.workspace_id} refreshKey={result?.db_scan_id ?? lastScan?.scanId} canDecide={canDecideFindings} />
+        )}
         {scenario !== 'no-selection' && (
           <KeyStatus refreshKey={`${settingsOpen}-${scanError}`} onOpenSettings={onOpenSettings} />
         )}

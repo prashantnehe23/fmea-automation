@@ -718,3 +718,15 @@ export async function deleteRepoCredential(owner) {
   return _json(await apiFetch(`${BASE}/api/settings/repo-credentials?owner=${encodeURIComponent(owner)}`, { method: 'DELETE' }),
                'Could not remove the token.');
 }
+
+// ── Finding lifecycle (B-031) ────────────────────────────────────────────────
+
+/** GET /api/workspace/{id}/findings — {findings: [{failure_mode, state, ...}], events: [...]}. */
+export async function getFindings(workspaceId) {
+  return _json(await apiFetch(`${BASE}/api/workspace/${workspaceId}/findings`), 'Could not load findings.');
+}
+/** POST /api/workspace/{id}/findings/state — a person confirms a fix, accepts a risk or reopens a finding. */
+export async function setFindingState(workspaceId, failureMode, state) {
+  return _json(await _post(`/api/workspace/${workspaceId}/findings/state`, { failure_mode: failureMode, state }),
+               'Could not change the finding.');
+}
