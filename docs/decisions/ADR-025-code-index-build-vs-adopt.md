@@ -52,3 +52,9 @@ Honest limits of these numbers: the fixtures are tiny and were written by the sa
 - Receiver-aware resolution lifted call precision on the spike repositories from 0.78-0.88 to 1.00 with recall unchanged. The key rule is that a receiver whose type is not defined in the scanned code (a framework, driver or `express()` result) creates no edge, which removes `@router.get(...)` and `db.prepare(...).get(x)` being read as calls to a repo method named `get`.
 - Index build time: 0.25 s for 307 KB in 630 files across the four languages.
 - `tree-sitter-javascript` is not pinned: plain JavaScript is parsed with the TypeScript grammar.
+
+## Implementation notes (phase 2, 2026-11-10)
+- Entry-point detection stays data-light: each framework idiom is one small branch in `core/code_index.py`; the 15-fixture idiom probe (`benchmarks/index_spike/idioms/`) is the regression net and checks the route string as well as the handler.
+- Prefixes are resolved after the traversal (`finish()`), because a router can be created, used and mounted in any order. A mount records (child, prefix, parent) so nested mounts compose, with a cycle guard; the first mount of a router wins.
+- Flask and FastAPI differ on purpose: a Flask registration prefix replaces the blueprint's own `url_prefix`, a FastAPI `include_router` prefix is prepended to the router's own.
+- Cross-file mounts, chained route builders and decorator-based frameworks such as NestJS are still open; each is a table or branch addition, not a redesign.

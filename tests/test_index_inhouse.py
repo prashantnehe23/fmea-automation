@@ -30,6 +30,5 @@ def test_every_labelled_call_entry_point_and_sink_is_found(repo):
     assert s["sink_recall"] == 1.0 and s["sink_precision"] == 1.0
 
 
-def test_idiom_probe_documents_the_detectors_that_do_not_exist_yet():
-    result = probe()
-    assert [f for f, ok in result.items() if not ok] == ["django_urls.py", "aspnet_minimal.cs", "Jaxrs.java"]
+def test_idiom_probe_detects_every_idiom_with_its_route():
+    assert [f for f, ok in probe().items() if not ok] == []
