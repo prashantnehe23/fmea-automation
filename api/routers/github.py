@@ -17,7 +17,7 @@ import queue
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.schemas import WorkspaceIn, serialize_result
 from api.sse import sse_event
@@ -27,7 +27,8 @@ from core import auth, repo_credentials
 from core.chat import persist_scan_for_chat
 from core.untrusted import sanitize_text
 from core.github_fetcher import RepoAccessError, fetch_contents, fetch_readme, list_repo, scan_repo
-from core.scan_scope import build_scan_input, choose_within_budget, summarise_manifest
+from core.estimate import estimate_scan
+from core.scan_scope import DEFAULT_MAX_BATCHES, MAX_BYTES, build_scan_input, plan_batches, summarise_manifest
 from core.workspace import WorkspaceContext
 from workflows.fmea_pipeline import run_fmea
 
@@ -46,13 +47,15 @@ def _repo_error_event(exc: Exception, prefix: str = "") -> dict:
 class GithubScanRequest(BaseModel):
     repo_url: str
     workspace: WorkspaceIn | None = None
-    max_failure_modes: int = 7
+    max_failure_modes: int | None = None     # None = no cap on what is reported (B-028 phase 0)
+    max_batches: int = Field(DEFAULT_MAX_BATCHES, ge=1, le=10)   # passes over a large repository (cost ceiling)
     force_rerun: bool = False
     selected_files: list[str] | None = None
 
 
 class GithubPreviewRequest(BaseModel):
     repo_url: str
+    max_batches: int = Field(DEFAULT_MAX_BATCHES, ge=1, le=10)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -135,15 +138,16 @@ async def github_scan(req: GithubScanRequest, request: Request):
         })
 
         try:
-            # Choose by priority within the byte budget from the tree's sizes, download only those,
-            # and record everything else as not examined (B-033): never a silent cut.
+            # Plan the batches by priority from the tree's sizes, download only those files, and record
+            # everything else as not examined (B-033): never a silent cut.
             wanted = set(files)
-            chosen, _ = choose_within_budget([e for e in entries if e.path in wanted])
+            planned, _ = plan_batches([e for e in entries if e.path in wanted], MAX_BYTES, req.max_batches)
+            chosen = [e for b in planned for e in b]
             contents, _errors = await asyncio.to_thread(fetch_contents, ref, [e.path for e in chosen])
         except Exception as exc:
             yield sse_event(_repo_error_event(exc, "File download failed: "), event="error")
             return
-        scan_input = build_scan_input(contents, entries, not_selected=not_selected)
+        scan_input = build_scan_input(contents, entries, not_selected=not_selected, max_batches=req.max_batches)
         code, fetched = scan_input.code, scan_input.examined
         scope = {"manifest": scan_input.manifest, "summary": summarise_manifest(scan_input.manifest),
                  "secrets": scan_input.secret_findings}
@@ -172,6 +176,7 @@ async def github_scan(req: GithubScanRequest, request: Request):
                 workspace=ws,
                 on_progress=_on_progress,
                 scope=scope,
+                batches=scan_input.batch_codes,
             ),
         )
 
@@ -225,14 +230,19 @@ async def github_preview(req: GithubPreviewRequest):
     Used by the UI to let the user confirm what will be scanned.
     """
     try:
-        ref, files, readme_path = await asyncio.to_thread(scan_repo, req.repo_url)
+        ref, entries, readme_path = await asyncio.to_thread(list_repo, req.repo_url)
     except RepoAccessError as exc:
         raise HTTPException(status_code=400, detail=exc.message)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    files = sorted(e.path for e in entries if e.included)
+    planned, over = plan_batches([e for e in entries if e.included], MAX_BYTES, req.max_batches)
+    estimate = estimate_scan([sum(e.size or 0 for e in b) for b in planned])
+    estimate.update(files_examined=sum(len(b) for b in planned), files_unexamined=len(over))
     return {
         "ref": {"owner": ref.owner, "repo": ref.repo, "branch": ref.branch},
+        "estimate": estimate,
         "file_count": len(files),
         "files": files,
         "readme_path": readme_path,

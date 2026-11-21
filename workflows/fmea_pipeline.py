@@ -12,7 +12,9 @@ from agents.sre_agent import run_sre_agent
 from agents.surveyor import run_surveyor
 from agents.validator import run_validator
 from core.line_numbers import number_lines
+from core.batch_merge import merge_contexts, merge_failures, merge_linkage
 from core.llm import get_call_count, reset_call_count
+from core.models import ControlAssessment, RemediationPlan
 from core.priority import exploit_confirmed_from, guarded_severity, priority_for
 from core.telemetry import agent_span, clear_scan_context, get_run_id, set_scan_context
 from memory import eval_store, workspace_store
@@ -58,6 +60,30 @@ def _refresh_lifecycle(cached: dict, workspace) -> None:
         logging.getLogger(__name__).warning("finding lifecycle refresh failed", exc_info=True)
 
 
+# Agents that answer for a whole list of findings in one call get at most this many at a time: with no cap on
+# findings (B-028 phase 0) one call over dozens of them would run out of output tokens and silently lose items.
+AGENT_CHUNK = 10
+# One remediation call is made per finding; beyond this many per scan the rest get a placeholder (spend guard).
+MAX_REMEDIATION_PLANS = 30
+
+
+def _chunks(n: int):
+    return [(s, min(s + AGENT_CHUNK, n)) for s in range(0, n, AGENT_CHUNK)] or [(0, 0)]
+
+
+def _assess(failures: list, prompt_code: str) -> tuple[list, list]:
+    """Linkage reports and one control assessment per finding, asked for in chunks."""
+    reports, controls = [], []
+    for s, e in _chunks(len(failures)):
+        group = failures[s:e]
+        reports.append(run_scenario_linkage(group, prompt_code))
+        got = list(run_controls_assessor(group, prompt_code))
+        got += [ControlAssessment(failure_mode=f.failure_mode, controls={}, control_maturity="Unknown", gaps=["not assessed"])
+                for f in group[len(got):]]
+        controls += got[:len(group)]
+    return reports, controls
+
+
 # Demo / predictable billing: at most this many failure modes (2 + 2*N API calls).
 DEFAULT_MAX_FAILURE_MODES = 7
 
@@ -65,15 +91,18 @@ DEFAULT_MAX_FAILURE_MODES = 7
 def run_fmea(
     code: str,
     *,
-    max_failure_modes: int = DEFAULT_MAX_FAILURE_MODES,
+    max_failure_modes: int | None = DEFAULT_MAX_FAILURE_MODES,
     force_rerun: bool = False,
     workspace=None,
     on_progress=None,
     scope: dict | None = None,
+    batches: list[str] | None = None,
 ) -> dict:
     """
     Run the full FMEA pipeline with caching, learning, validation, and evaluation.
 
+    max_failure_modes: None = report everything the agents find (B-028 phase 0); a number keeps the old cap.
+    batches: the code split into passes for a large repository; each is scanned on its own and the findings merged.
     workspace: optional WorkspaceContext — scopes cache, learning, and eval history
                per customer/project.  Pass None to use global (legacy) paths.
 
@@ -115,7 +144,7 @@ def run_fmea(
     locked: list[dict] = get_locked_scenarios(workspace_id) if workspace_id else []
     locked_names: list[str] = expected_names(locked)         # fixed findings and fix candidates may stay out (B-031)
     # Locked findings never take a new finding's place: they do not count against the cap (ADR-019)
-    cap = max_failure_modes + len(locked_names)
+    cap = None if max_failure_modes is None else max_failure_modes + len(locked_names)
     locked_rpn: dict[str, dict] = {row["failure_mode"]: row for row in locked}
 
     # ── Learning context injection ─────────────────────────────────────────────
@@ -127,45 +156,85 @@ def run_fmea(
     # ── Core pipeline ──────────────────────────────────────────────────────────
     # Agents see numbered lines so the line numbers they cite are real (B-041); the original
     # text is what is cached, fingerprinted and stored.
-    prompt_code = number_lines(code)
+    parts = list(batches) if batches and len(batches) > 1 else [code]
+    prompt_codes = [number_lines(c) for c in parts]
+    multi = len(parts) > 1
+
     if on_progress: on_progress("surveyor")
     with agent_span("surveyor"):
-        context = run_surveyor(prompt_code, business_context=biz_ctx)
+        contexts = [run_surveyor(pc, business_context=biz_ctx) for pc in prompt_codes]
+    context = merge_contexts(contexts) if multi else contexts[0]
 
     if on_progress: on_progress("saboteur")
     with agent_span("saboteur"):
-        failures = run_saboteur(
-            prompt_code, context,
-            max_scenarios=cap,
-            learning_context=learning_ctx,
-            locked_names=locked_names if locked_names else None,
-            previous_names=previous_names(locked) or None,
-        )
-    failures = failures[:cap]
+        per_batch = [
+            run_saboteur(
+                pc, contexts[i],
+                max_scenarios=cap,
+                learning_context=learning_ctx,
+                locked_names=locked_names if locked_names else None,
+                previous_names=previous_names(locked) or None,
+                **({"part": (i + 1, len(parts))} if multi else {}),
+            )
+            for i, pc in enumerate(prompt_codes)
+        ]
+    failures, origin = merge_failures(per_batch) if multi else (per_batch[0], [0] * len(per_batch[0]))
+    if cap is not None:
+        # Locked findings are never cut by the cap, wherever they sit; new findings fill the rest
+        room = max_failure_modes
+        keep = []
+        for k, f in enumerate(failures):
+            if f.failure_mode in locked_names:
+                keep.append(k)
+            elif room > 0:
+                keep.append(k)
+                room -= 1
+        failures, origin = [failures[k] for k in keep], [origin[k] for k in keep]
 
     if on_progress: on_progress("controls")
     with agent_span("controls"):
-        scenario_linkage = run_scenario_linkage(failures, prompt_code)
-        controls = run_controls_assessor(failures, prompt_code)
+        reports, controls = [], [None] * len(failures)
+        for i, pc in enumerate(prompt_codes):
+            idx = [k for k, o in enumerate(origin) if o == i]
+            if not idx:
+                continue
+            group_reports, group_controls = _assess([failures[k] for k in idx], pc)
+            reports += group_reports
+            for k, assessment in zip(idx, group_controls):
+                controls[k] = assessment
+        scenario_linkage = reports[0] if len(reports) == 1 else merge_linkage(reports)
 
     # Single batched actuary call — locked scenarios short-circuit (no LLM call)
     if on_progress: on_progress("actuary")
     with agent_span("actuary"):
-        risks = score_all_failures(
-            failures, controls, context,
-            business_context=biz_ctx,
-            locked_rpn=locked_rpn if locked_rpn else None,
-        )
+        risks = []
+        for s_, e_ in _chunks(len(failures)):
+            risks += score_all_failures(
+                failures[s_:e_], controls[s_:e_], context,
+                business_context=biz_ctx,
+                locked_rpn=locked_rpn if locked_rpn else None,
+            )
 
     # Per-failure SRE (complex plans benefit from focused attention)
     if on_progress: on_progress("sre")
     with agent_span("sre"):
-        remediations = [run_sre_agent(f, c, r) for f, c, r in zip(failures, controls, risks)]
+        by_risk = sorted(range(len(risks)), key=lambda k: -risks[k].rpn)
+        planned = set(by_risk[:MAX_REMEDIATION_PLANS])
+        remediations = [
+            run_sre_agent(f, c, r) if k in planned else RemediationPlan(
+                failure_mode=f.failure_mode, monitoring=[], resilience_upgrades=[], roadmap_90_day={},
+                fixes=[f"Not generated: the limit of {MAX_REMEDIATION_PLANS} remediation plans per scan was reached "
+                       "(highest risk first). Ask in the results chat or rescan."])
+            for k, (f, c, r) in enumerate(zip(failures, controls, risks))
+        ]
+        skipped_plans = [failures[k].failure_mode for k in range(len(failures)) if k not in planned]
 
     # ── Validator (single batched call) ────────────────────────────────────────
     if on_progress: on_progress("validator")
     with agent_span("validator"):
-        validations = run_validator(failures, risks)
+        validations = []
+        for s_, e_ in _chunks(len(failures)):
+            validations += run_validator(failures[s_:e_], risks[s_:e_])
 
     # Apply validated score adjustments — locked scenarios are exempt.
     # The validator is an LLM agent and is non-deterministic; applying its
@@ -216,7 +285,11 @@ def run_fmea(
 
     # ── LLM-as-judge (single batched call) ────────────────────────────────────
     with agent_span("llm_judge"):
-        judge_verdicts = run_llm_judge(failures, risks, validations, remediations)
+        # The judge rates the run as a whole from a sample: the highest-risk findings, at most one chunk
+        top = sorted(range(len(risks)), key=lambda k: -risks[k].rpn)[:AGENT_CHUNK] if len(risks) > AGENT_CHUNK else None
+        judge_verdicts = (run_llm_judge(failures, risks, validations, remediations) if top is None else run_llm_judge(
+            [failures[k] for k in sorted(top)], [risks[k] for k in sorted(top)],
+            [validations[k] for k in sorted(top)], [remediations[k] for k in sorted(top)]))
 
     # ── Eval persistence + drift detection ────────────────────────────────────
     eval_store.append_eval(evaluation, workspace)
@@ -288,6 +361,8 @@ def run_fmea(
         "lifecycle_changes": lifecycle_changes,   # B-031: what this scan changed (new, regressed, fix candidates)
         "fix_candidates": pending_fixes,           # B-031: findings waiting for a person to confirm they are fixed
         "scope": scope,                    # B-033: what was examined and what was not
+        "batches": len(parts),             # B-028 phase 0: passes over the code
+        "remediation_limit": {"limit": MAX_REMEDIATION_PLANS, "skipped": skipped_plans},   # spend guard (placeholders)
     }
 
     # Cache for next run (JSON file cache for fast repeated loads)

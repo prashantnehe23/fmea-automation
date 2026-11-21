@@ -59,7 +59,7 @@ class RepoCredentialBody(BaseModel):
 class ScanRequest(BaseModel):
     code: str
     workspace: WorkspaceIn | None = None
-    max_failure_modes: int = 7
+    max_failure_modes: int | None = None     # None = no cap on what is reported (B-028 phase 0)
     force_rerun: bool = False
 
 

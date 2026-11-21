@@ -13,6 +13,7 @@ def run_saboteur(
     learning_context: str = "",
     locked_names: list[str] | None = None,
     previous_names: list[str] | None = None,
+    part: tuple[int, int] | None = None,
 ) -> list[FailureMode]:
     cap_line = ""
     if max_scenarios is not None:
@@ -40,6 +41,12 @@ Earlier scenarios:
 {names_list}
 
 """
+
+    if part:
+        lock_block = f"""
+You are shown part {part[0]} of {part[1]} of a larger repository. Report weaknesses in the code shown here. A scenario
+from the earlier lists may live in another part: leave it out only if it does not apply to the code shown.
+""" + lock_block
 
     if previous_names:
         previous_list = "\n".join(f"- {n}" for n in previous_names)
