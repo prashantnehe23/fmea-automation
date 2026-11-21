@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { PERSONAS, PROCESS_STEPS, HIERARCHY, SCOPE_LABEL } from '../data';
 import { ORG } from '../data';
-import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, getReasoning, setReasoning, verifyProviderKey } from '../api';
+import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, getReasoning, setReasoning, verifyProviderKey,
+  listRepoCredentials, saveRepoCredential, deleteRepoCredential } from '../api';
 
 const LEVEL_LABEL = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High' };
 const LEVEL_ORDER = ['off', 'low', 'medium', 'high'];
@@ -20,7 +21,7 @@ const TIER_BADGE = {
   Power:    'bg-purple-50 text-purple-700',
 };
 
-export default function Header({ persona, step, sel, scope, chatOpen, onToggleChat, settingsOpen, onSettingsOpenChange }) {
+export default function Header({ persona, step, sel, scope, chatOpen, onToggleChat, settingsOpen, onSettingsOpenChange, isAdmin }) {
   const showSettings    = settingsOpen;
   const setShowSettings = onSettingsOpenChange;
   const [models, setModels]             = useState([]);
@@ -29,6 +30,10 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
   const [keyInput, setKeyInput]         = useState('');
   const [keyError, setKeyError]         = useState('');
   const [reasoning, setReasoningState]  = useState('off');
+  const [repoCreds, setRepoCreds]       = useState([]);     // B-043: [{owner, hint}]
+  const [repoOwner, setRepoOwner]       = useState('');
+  const [repoToken, setRepoToken]       = useState('');
+  const [repoError, setRepoError]       = useState('');
 
   const refreshModels = () =>
     Promise.all([getModels(), getProviders()]).then(([list, provs]) => {
@@ -46,6 +51,7 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
       })
       .catch(() => {});
     getReasoning().then(r => setReasoningState(r.level)).catch(() => {});
+    if (isAdmin) listRepoCredentials().then(setRepoCreds).catch(() => {});
   }, [showSettings]);
 
   const handleReasoningChange = async (level) => {
@@ -73,6 +79,22 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
       setKeyInput('');
       await refreshModels();
     } catch (e) { setKeyError(e.message); }
+  };
+
+  const handleSaveRepoToken = async () => {
+    setRepoError('');
+    try {
+      await saveRepoCredential(repoOwner.trim(), repoToken.trim());
+      setRepoToken('');
+      setRepoOwner('');
+      setRepoCreds(await listRepoCredentials());
+    } catch (e) { setRepoError(e.message); }
+  };
+
+  const handleRemoveRepoToken = async (owner) => {
+    setRepoError('');
+    try { await deleteRepoCredential(owner); setRepoCreds(await listRepoCredentials()); }
+    catch (e) { setRepoError(e.message); }
   };
 
   const handleCheckKey = async () => {
@@ -182,6 +204,31 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
                     className="text-xs text-red-500 font-semibold hover:text-red-700 bg-red-50 px-2 py-1 rounded-lg"
                   >Clear</button>
                 </div>
+                {isAdmin && (
+                  <>
+                    <hr className="border-gray-50" />
+                    <div>
+                      <p className="text-xs font-semibold text-gray-700">Private repositories</p>
+                      <p className="text-xs text-gray-400 mb-1.5">GitHub access token for one owner (read-only Contents). Use * for every owner: wider, since anyone who can scan can then read every private repository it reaches.</p>
+                      {repoCreds.map(c => (
+                        <div key={c.owner} className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                          <span>{c.owner === '*' ? 'every owner (*)' : c.owner} <span className="text-gray-400">{c.hint}</span></span>
+                          <button onClick={() => handleRemoveRepoToken(c.owner)} className="text-red-500 font-semibold hover:text-red-700">Remove</button>
+                        </div>
+                      ))}
+                      <div className="flex gap-1">
+                        <input aria-label="GitHub owner" placeholder="owner" value={repoOwner} onChange={e => setRepoOwner(e.target.value)}
+                               className="w-20 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                        <input aria-label="GitHub access token" type="password" autoComplete="off" placeholder="access token" value={repoToken}
+                               onChange={e => setRepoToken(e.target.value)}
+                               className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                        <button onClick={handleSaveRepoToken} disabled={!repoToken.trim() || !repoOwner.trim()}
+                                className="text-xs font-semibold px-2 py-1 rounded-lg bg-blue-50 text-blue-700 disabled:opacity-40">Save</button>
+                      </div>
+                      {repoError && <p role="alert" className="text-xs text-red-500 mt-1">{repoError}</p>}
+                    </div>
+                  </>
+                )}
                 {models.length > 0 && (
                   <>
                     <hr className="border-gray-50" />

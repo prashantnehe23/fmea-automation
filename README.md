@@ -62,7 +62,7 @@ npm install
 npm run dev                           # app on http://localhost:5173
 ```
 
-Open the app. The first time, it asks you to create the administrator (or set `FMEA_ADMIN_USER` and `FMEA_ADMIN_PASSWORD` before starting). Then enter your provider key in the settings panel, create a portfolio and project, paste a public GitHub repository URL, and run a scan.
+Open the app. The first time, it asks you to create the administrator (or set `FMEA_ADMIN_USER` and `FMEA_ADMIN_PASSWORD` before starting). Then enter your provider key in the settings panel, create a portfolio and project, paste a GitHub repository URL (for a private one, add an access token in Settings first), and run a scan.
 
 The SQLite database (`memory/fmea.db`) and the scan caches are created automatically on first run. They are listed in `.gitignore` and never committed.
 
@@ -80,7 +80,7 @@ Set `FMEA_SECRET_KEY` and `OPENAI_API_KEY` and/or `MISTRAL_API_KEY` in the envir
 ### Tests
 
 ```bash
-python -m pytest tests/ -v            # 536 passing on 2026-11-21
+python -m pytest tests/ -v            # 563 passing on 2026-11-21
 ```
 
 `make test`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
@@ -107,7 +107,7 @@ Priority also depends on severity, so a catastrophic item cannot be hidden by a 
 
 Read these before a pilot.
 
-- **Public GitHub repositories only.** There is no private-repository access, GitLab or Bitbucket.
+- **GitHub only.** Private repositories work with an access token per GitHub owner (administrators add it in Settings; read-only Contents access is enough; the scan role can then scan anything that token reaches). Not verified against a real private repository yet. There is no GitLab or Bitbucket.
 - **Sign-in is new and has had one independent review only.** Every API route needs a session (password sign-in, or OpenID Connect single sign-on when configured) and a role: admin, security engineer, risk manager, developer, viewer. The user-management screen does not exist yet (use `GET/POST/PATCH /api/users`). Serve it over HTTPS (the session cookie is `Secure` by default; set `FMEA_COOKIE_SECURE=0` only for plain-http local development on a browser that needs it). Set `FMEA_SETUP_TOKEN` so that only someone holding it can create the first administrator on a new install. All users of an install see all projects; there is no per-project membership.
 - **Results come from the server for the latest scan of a project.** The browser keeps a cache; older scan history stays per browser.
 - **Keys are encrypted at rest only when `FMEA_SECRET_KEY` is set** (always in the container); otherwise they are plain text in `core/settings.json`. Scanned code is stored in SQLite until the retention period ends, and a copy of each finished scan is kept in the API process's memory until restart.

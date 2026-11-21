@@ -59,7 +59,9 @@ def decrypt(value: str) -> str | None:
 def undecryptable_providers() -> list[str]:
     """Providers whose stored key cannot be opened with the current FMEA_SECRET_KEY (changed or missing)."""
     from core.settings import get_setting
-    return sorted(pid for pid, k in (get_setting("api_keys") or {}).items() if k and decrypt(k) is None)
+    keys = sorted(pid for pid, k in (get_setting("api_keys") or {}).items() if k and decrypt(k) is None)
+    repo = ((get_setting("repo_credentials") or {}).get("github") or {})
+    return keys + sorted(f"github:{owner}" for owner, v in repo.items() if v and decrypt(v) is None)
 
 
 def encrypt_stored_keys() -> None:
@@ -71,6 +73,11 @@ def encrypt_stored_keys() -> None:
     changed = {pid: encrypt(k) for pid, k in keys.items() if k and not k.startswith(PREFIX)}
     if changed:
         set_setting("api_keys", {**keys, **changed})
+    repo = dict(get_setting("repo_credentials") or {})
+    github = dict(repo.get("github") or {})
+    plain = {owner: encrypt(v) for owner, v in github.items() if v and not v.startswith(PREFIX)}
+    if plain:
+        set_setting("repo_credentials", {**repo, "github": {**github, **plain}})
 
 
 if __name__ == "__main__":

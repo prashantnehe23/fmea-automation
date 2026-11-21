@@ -51,6 +51,11 @@ class ApiKeyBody(BaseModel):
     api_key: str
 
 
+class RepoCredentialBody(BaseModel):
+    owner: str = ""          # GitHub user or organisation; empty or "*" = any owner
+    token: str
+
+
 class ScanRequest(BaseModel):
     code: str
     workspace: WorkspaceIn | None = None

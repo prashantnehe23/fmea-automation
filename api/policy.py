@@ -79,6 +79,9 @@ POLICY: dict[tuple[str, str], str] = {
     ("PUT", "/api/settings/providers/{provider_id}/key"): "settings",
     ("DELETE", "/api/settings/providers/{provider_id}/key"): "settings",
     ("POST", "/api/settings/providers/{provider_id}/verify"): "settings",
+    ("GET", "/api/settings/repo-credentials"): "settings",
+    ("PUT", "/api/settings/repo-credentials"): "settings",
+    ("DELETE", "/api/settings/repo-credentials"): "settings",
     ("POST", "/api/settings/pricing/refresh"): "settings",
     # users
     ("GET", "/api/users"): "users",

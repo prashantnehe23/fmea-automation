@@ -385,7 +385,7 @@ function Workspace({ user, status, onLogout }) {
         onAddProject={addProject}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} settingsOpen={settingsOpen} onSettingsOpenChange={setSettingsOpen} />
+        <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} settingsOpen={settingsOpen} onSettingsOpenChange={setSettingsOpen} isAdmin={user.role === 'admin'} />
         <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto bg-gray-50">
           <Content

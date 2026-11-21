@@ -20,7 +20,7 @@
 | 2 | B-048 phase 0 — **done 2026-11-21** | UX blockers: project selection, scan errors, key status, placeholders | no | none | S |
 | 3 | B-042 — **implemented 2026-11-21, container run unverified** | Deployment model and container packaging | **yes** (ADR-026) | none | M |
 | 4 | B-015 — **done 2026-11-21** | Sign-in, roles and server-side results | **yes** (ADR-027) | B-042 decision | L |
-| 5 | B-043 | Private repository access | no (covered by ADR-027) | B-015 | M |
+| 5 | B-043 — **done 2026-11-21** | Private repository access | no (covered by ADR-027) | B-015 | M |
 | — | B-051 | Company landing page (go-to-market, not product code) | no | none | S, in progress |
 
 Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
@@ -106,17 +106,19 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-043 · Private Repository Access `[ ]` APPROVED — P0
+### B-043 · Private Repository Access `[x]` DONE 2026-11-21 (1 criterion proven only against a fake GitHub) — P0 — *ADR-027 point 9, amended*
 
 **Why:** Only public GitHub repositories can be scanned (`core/github_fetcher.py`); customers' code is private.
 
 **Scope:** GitHub App installation (preferred) or fine-grained token per workspace, stored encrypted (B-042); fetcher uses it for tree and file requests; clear errors for missing access and rate limits; GitLab next, Bitbucket and Azure DevOps later (separate items when asked for); token never sent to a model or shown after save.
 
 **Acceptance criteria:**
-- [ ] A private GitHub repository is scanned end to end with a workspace credential (recorded)
-- [ ] Missing or revoked access shows a plain message naming the repository and the fix (test)
-- [ ] The credential never appears in prompts, logs, telemetry or API responses (test capturing all four)
-- [ ] Public repositories still scan without a credential (regression test)
+- [x] A private GitHub repository is scanned end to end with a stored credential (`tests/test_repo_access.py::test_private_repository_is_scanned_end_to_end_with_the_credential` against a fake GitHub that only answers to the bearer token. **Not run against real GitHub:** no private repository or token was available. Credentials are per GitHub owner, see the ADR amendment)
+- [x] Missing or revoked access shows a plain message naming the repository and the fix (tests for not found, rejected, no access, rate limit, malformed token; browser check against real GitHub: a nonexistent repository gave "Repository … was not found. If it is private, add an access token for '…' in Settings" with an Open Settings button; a fake token was rejected by GitHub on save)
+- [x] The credential never appears in prompts, logs, telemetry or API responses (test capturing all four plus stored scans, on the success path and on revoked, rate-limited, no-access and malformed-token paths, and in the delete response)
+- [x] Public repositories still scan without a credential (regression tests: no Authorization header is sent for an owner without a token, and the raw-file host never receives one)
+
+**Done 2026-11-21 (plan and report in `docs/harness/B-043/`):** `core/repo_credentials.py` (per-owner tokens, encrypted with `FMEA_SECRET_KEY`, masked hints only); `core/github_fetcher.py` (bearer token to `api.github.com` only, contents API for file bodies when a token exists, `RepoAccessError` with plain messages, redirect and URL hardening); `GET/PUT/DELETE /api/settings/repo-credentials` (administrators, validated with GitHub on save, audited); `scan_with_stored_token` audit events; Settings section "Private repositories". **Open:** a run against a real private repository; no allowed-repository list (anyone with the scan role can scan any repository the token reaches, recorded in the ADR); GitLab, Bitbucket and Azure DevOps (separate items); GitHub App installation (planned for B-012); 403 messages cannot tell a missing permission from a file over 1 MB; for owners that have a token, public repository files also come through the contents API (1 MB per file limit).
 
 ---
 
