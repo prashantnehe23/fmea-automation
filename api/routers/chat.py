@@ -104,18 +104,18 @@ async def post_chat_stream(body: ChatRequest, request: Request):
 
 
 @router.post("/api/chat/proposals/{proposal_id}/apply")
-def post_apply_proposal(proposal_id: int):
+def post_apply_proposal(proposal_id: int, request: Request):
     """Apply a proposed change. Only a user click reaches this; the model cannot call it."""
     try:
-        return apply_proposal(proposal_id)
+        return apply_proposal(proposal_id, user=request.state.user["username"])
     except ChatError as exc:
         raise _http_error(exc)
 
 
 @router.post("/api/chat/proposals/{proposal_id}/dismiss")
-def post_dismiss_proposal(proposal_id: int):
+def post_dismiss_proposal(proposal_id: int, request: Request):
     try:
-        return dismiss_proposal(proposal_id)
+        return dismiss_proposal(proposal_id, user=request.state.user["username"])
     except ChatError as exc:
         raise _http_error(exc)
 

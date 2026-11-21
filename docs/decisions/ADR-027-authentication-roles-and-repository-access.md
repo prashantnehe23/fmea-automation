@@ -26,3 +26,10 @@ All routes return 401 without a session (enumerating test); a developer cannot a
 
 ## Alternatives not chosen
 A hosted identity service as the only option (adds a third party for self-hosted installs); JWTs in `localStorage` (readable by page scripts and not revocable); per-route role checks written by hand without the enumerating test (drifts).
+
+## Amendments made during implementation (2026-11-21)
+- **Workspace membership (item 6) is organisation-wide for now.** Every signed-in user of an install can read every project; roles limit actions, not visibility. A user-to-project table is a follow-up when a customer needs it.
+- **Default workspace owned by the first administrator (item 8) was not built.** Existing data carries no owner, and nothing reads one yet.
+- **Audit (item 7) stores the username, not the user id,** on adjustments (`adjusted_by`) and proposals (`decided_by`); key, model, reasoning and user changes and sign-ins go to `audit_events` (user id and username, no secrets). There is no screen or API to read the audit trail yet.
+- **Single sign-on users:** the identity provider is the authority for their role and password; an administrator cannot change either (409) and can still disable the account locally.
+- **Additions from the independent review:** setup is allowed only while no active administrator exists (single-sign-on users do not close it) and can require `FMEA_SETUP_TOKEN`; sign-in failures are counted per client address and normalised username, with a bounded table; the session cookie is `Secure` unless `FMEA_COOKIE_SECURE=0`; the OIDC callback is bound to the starting browser by a state cookie; `/docs` and `/openapi.json` are off unless `FMEA_API_DOCS=1`; the pricing refresh is a POST.

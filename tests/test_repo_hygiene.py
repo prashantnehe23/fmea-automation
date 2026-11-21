@@ -66,9 +66,12 @@ def test_fresh_checkout_starts_api_and_creates_empty_database(tmp_path):
     script = (
         "from fastapi.testclient import TestClient\n"
         "from api.main import app\n"
-        "r = TestClient(app).get('/api/portfolios')\n"
-        "assert r.status_code == 200, r.text\n"
-        "assert r.json() == [], r.json()\n"
+        "c = TestClient(app)\n"
+        "r = c.get('/api/health')\n"
+        "assert r.status_code == 200 and r.json()['database'] == 'ok', r.text\n"
+        "r = c.get('/api/auth/status')\n"
+        "assert r.status_code == 200 and r.json()['setup_required'] is True, r.text\n"   # empty database: first-run setup
+        "assert c.get('/api/portfolios').status_code == 401\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", script], cwd=tmp_path, capture_output=True, text=True

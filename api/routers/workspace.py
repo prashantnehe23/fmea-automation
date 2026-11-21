@@ -70,6 +70,15 @@ async def upsert_ws(ws_in: WorkspaceIn):
     return _ws_to_dict(ws, workspace_id)
 
 
+@router.get("/api/projects/{project_id}/latest-scan")
+async def project_latest_scan(project_id: int):
+    """The project's latest stored scan, so every user of the install sees the same results (B-015)."""
+    scan = db.get_project_scan(project_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="No scan stored for this project")
+    return scan
+
+
 @router.delete("/api/workspace/{workspace_id}/sources")
 async def delete_stored_sources(workspace_id: int):
     """Delete the scanned source code stored for a project. Findings and scores are kept (B-042)."""

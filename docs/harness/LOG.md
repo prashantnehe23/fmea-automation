@@ -15,3 +15,5 @@ State for the feature-delivery harness. The feature list is `docs/BACKLOG.md` (t
 | 2026-11-21 | ADR-019, 024, 026, 027 | Design | Accepted by the engineer |
 | 2026-11-21 | B-042 | Plan / Build / Verify / Review | Implemented; independent review: no critical, important findings fixed; container run unverified |
 | 2026-11-21 | B-042 | Close | PR opened and merged; stays in progress for the container run and licence |
+| 2026-11-21 | B-015 | Plan / Build / Verify / Review | Implemented; independent review: no critical, important findings fixed |
+| 2026-11-21 | B-015 | Close | PR opened and merged |

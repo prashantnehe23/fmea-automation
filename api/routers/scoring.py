@@ -7,7 +7,7 @@ GET  /api/scoring/adjustments/{workspace_id} — fetch audit trail for a workspa
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import memory.db as db
@@ -36,12 +36,13 @@ class AdjustmentOut(BaseModel):
     justification: str
     created_at:   str
     source:       str = "manual"   # "manual" (Scoring page) or "chat" (B-025)
+    adjusted_by:  str | None = None   # signed-in user (B-015); None for rows saved before sign-in existed
     priority:     str = ""
     flagged:      bool = False     # took a Severity >= 9 scenario below 9 (B-034)
 
 
 @router.post("/adjustment", response_model=AdjustmentOut, status_code=201)
-def create_adjustment(body: AdjustmentIn):
+def create_adjustment(body: AdjustmentIn, request: Request):
     current = db.get_current_severity(body.workspace_id, body.failure_mode)
     flagged = current is not None and lowers_catastrophic_severity(current, body.new_s)
     if flagged and len(body.justification.strip()) < MIN_DOWNGRADE_JUSTIFICATION_CHARS:
@@ -54,6 +55,7 @@ def create_adjustment(body: AdjustmentIn):
         new_o=body.new_o,
         new_d=body.new_d,
         justification=body.justification,
+        adjusted_by=request.state.user["username"],
     )
     return {
         "id":           adj_id,
@@ -66,6 +68,7 @@ def create_adjustment(body: AdjustmentIn):
         "justification": body.justification,
         "created_at":   datetime.now().isoformat(),
         "source":       "manual",
+        "adjusted_by":  request.state.user["username"],
         "priority":     priority_for(body.new_s, body.new_o, body.new_d).band,
         "flagged":      flagged,
     }

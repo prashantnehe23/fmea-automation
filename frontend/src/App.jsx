@@ -21,7 +21,15 @@ import {
   createPortfolio,
   createProject,
   updateProject,
+  getAuthStatus,
+  getMe,
+  logout,
+  getProjectScan,
 } from './api';
+import LoginPage from './pages/LoginPage';
+
+// The view each real role gets; the persona switcher only exists in demo mode (B-015)
+const ROLE_PERSONA = { admin: 'security_engineer', security_engineer: 'security_engineer', risk_manager: 'risk_manager', developer: 'developer', viewer: 'executive' };
 
 const PAGES = {
   scan:        ScanPage,
@@ -123,13 +131,14 @@ function applyAdjustments(risks, adjustments) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function Workspace({ user, status, onLogout }) {
   // All initial state derived from localStorage in a single read.
   // After B-007, KEY_HIERARCHY is a read-through cache of the API response;
   // it seeds the UI immediately so there is no blank flash on load.
   const [init] = useState(loadInitialState);
 
-  const [persona, setPersona] = useState('developer');
+  // Real users get the view of their role; the switcher exists only in demo mode (B-015)
+  const [persona, setPersona] = useState(ROLE_PERSONA[user.role] ?? 'developer');
   const [step,    setStep]    = useState('scan');
   const [scope,   setScope]   = useState('project');
   const [chatOpen, setChatOpen] = useState(() => ls(KEY_CHAT_OPEN, false));
@@ -204,6 +213,13 @@ export default function App() {
       const entry = scanHistoryRef.current[sel.projectId];
       setScanResult(entry?.result  ?? null);
       setLiveScanId(entry?.scanId  ?? null);
+      const projectId = sel.projectId;
+      getProjectScan(projectId).then(stored => {
+        if (!stored || stored.scanId === scanHistoryRef.current[projectId]?.scanId && stored.timestamp === scanHistoryRef.current[projectId]?.timestamp) return;
+        recordScan(projectId, stored);
+        setScanResult(stored.result);
+        setLiveScanId(stored.scanId);
+      }).catch(() => {});
     } else {
       setScanResult(null);
       setLiveScanId(null);
@@ -359,6 +375,9 @@ export default function App() {
         hierarchy={hierarchy}
         scanHistory={scanHistory}
         onPersona={switchPersona}
+        user={user}
+        canSwitchPersona={!!status?.demo_mode}
+        onLogout={onLogout}
         onStep={setStep}
         onSelect={setSel}
         onScope={switchScope}
@@ -399,4 +418,33 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+// The browser cache holds one user's results; drop it on sign-out so the next user never sees it
+function clearLocalCache() {
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('fmea')).forEach(k => localStorage.removeItem(k));
+  } catch { /* storage unavailable */ }
+}
+
+// ── Sign-in gate (B-015) ──────────────────────────────────────────────────────
+
+export default function App() {
+  const [status, setStatus] = useState(null);       // { setup_required, demo_mode, oidc_enabled }
+  const [user, setUser]     = useState(undefined);  // undefined = checking, null = signed out
+
+  useEffect(() => {
+    Promise.all([getAuthStatus(), getMe()])
+      .then(([st, me]) => { setStatus(st); setUser(me); })
+      .catch(() => { setStatus({}); setUser(null); });
+    const onUnauthorized = () => { clearLocalCache(); setUser(null); };
+    window.addEventListener('fmea:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('fmea:unauthorized', onUnauthorized);
+  }, []);
+
+  if (user === undefined) return null;
+  if (!user) {
+    return <LoginPage status={status} onSignedIn={u => { setUser(u); getAuthStatus().then(setStatus).catch(() => {}); }} />;
+  }
+  return <Workspace key={user.id} user={user} status={status} onLogout={async () => { await logout(); clearLocalCache(); setUser(null); }} />;
 }
