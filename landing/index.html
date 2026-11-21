@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Faultmap — the risk register written from your code</title>
+<meta name="description" content="Faultmap reads your repositories, ranks what could hurt the business most, shows the evidence, and tells you what it did not examine.">
+<meta name="color-scheme" content="dark">
+<style>
+  :root {
+    --bg: #07090d; --bg2: #0c1016; --card: #10151d; --card2: #141a24; --line: #1f2733; --line2: #2b3545;
+    --ink: #eef1f6; --muted: #98a2b3; --dim: #667085;
+    --hot: #ff6a45; --hot2: #ffb199; --amber: #f5b14c; --cool: #5fd4c4; --blue: #7aa7ff;
+    --sans: "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    --ease: cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  p { margin: 0; }
+  h1, h2, h3 { margin: 0; letter-spacing: -0.025em; line-height: 1.08; text-wrap: balance; }
+  h1 { font-size: clamp(2.5rem, 6vw, 4.6rem); font-weight: 700; }
+  h2 { font-size: clamp(1.9rem, 3.8vw, 3rem); font-weight: 650; }
+  h3 { font-size: 1.1rem; letter-spacing: -0.01em; line-height: 1.3; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; position: relative; }
+  .grad { background: linear-gradient(100deg, var(--hot) 0%, var(--amber) 55%, var(--hot2) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font: 600 0.74rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--hot2); }
+  .eyebrow::before { content: ""; width: 18px; height: 1px; background: var(--hot); }
+  .lede { font-size: 1.18rem; color: var(--muted); max-width: 60ch; }
+  .mono { font-family: var(--mono); }
+
+  /* background */
+  #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -2; }
+  .glow { position: fixed; z-index: -1; border-radius: 50%; filter: blur(110px); opacity: .5; pointer-events: none; }
+  .glow.a { width: 620px; height: 620px; left: -180px; top: -220px; background: #ff5a3033; animation: drift 22s ease-in-out infinite alternate; }
+  .glow.b { width: 560px; height: 560px; right: -200px; top: 240px; background: #3c7bff2b; animation: drift 28s ease-in-out infinite alternate-reverse; }
+  @keyframes drift { to { transform: translate(90px, 70px) scale(1.15); } }
+  .gridlines { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 64px 64px; opacity: .28; mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%); -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%); }
+
+  /* nav */
+  .nav { position: sticky; top: 0; z-index: 50; transition: background .3s, border-color .3s, backdrop-filter .3s; border-bottom: 1px solid transparent; }
+  .nav.scrolled { background: #07090dcc; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-color: var(--line); }
+  .nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; text-decoration: none; letter-spacing: -0.02em; }
+  .brand svg { width: 26px; height: 26px; }
+  .nav nav { display: flex; align-items: center; gap: 28px; font-size: 0.93rem; }
+  .nav nav a.link { text-decoration: none; color: var(--muted); transition: color .2s; }
+  .nav nav a.link:hover { color: var(--ink); }
+
+  /* buttons */
+  .btn { position: relative; display: inline-flex; align-items: center; gap: 9px; padding: 13px 22px; border-radius: 10px; font-weight: 600; font-size: 0.98rem;
+         text-decoration: none; cursor: pointer; border: 1px solid transparent; transition: transform .2s var(--ease), box-shadow .25s, background .2s, border-color .2s; font-family: inherit; }
+  .btn.primary { color: #190a05; background: linear-gradient(180deg, #ff8a66, var(--hot)); box-shadow: 0 0 0 1px #ffffff22 inset, 0 10px 34px -10px #ff6a45aa; overflow: hidden; }
+  .btn.primary::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, #ffffff66 50%, transparent 70%); transform: translateX(-120%); animation: sheen 4.5s ease-in-out infinite; }
+  @keyframes sheen { 0%, 60% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+  .btn.primary:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px #ffffff33 inset, 0 16px 44px -10px #ff6a45cc; }
+  .btn.ghost { color: var(--ink); background: #ffffff08; border-color: var(--line2); }
+  .btn.ghost:hover { background: #ffffff12; border-color: #46546a; transform: translateY(-2px); }
+  .btn.sm { padding: 9px 16px; font-size: 0.9rem; border-radius: 8px; }
+  .btn .arr { transition: transform .2s var(--ease); }
+  .btn:hover .arr { transform: translateX(4px); }
+  .btn .play { width: 20px; height: 20px; border-radius: 50%; background: #ffffff18; display: grid; place-items: center; font-size: 9px; padding-left: 2px; }
+  :focus-visible { outline: 2px solid var(--hot2); outline-offset: 3px; border-radius: 6px; }
+
+  /* hero */
+  .hero { padding: 64px 0 40px; display: grid; grid-template-columns: 1.02fr 1fr; gap: 56px; align-items: center; }
+  .hero-copy { display: grid; gap: 24px; }
+  .pill { display: inline-flex; align-items: center; gap: 10px; width: fit-content; padding: 6px 14px 6px 8px; border: 1px solid var(--line2); border-radius: 999px; background: #ffffff06; font-size: 0.83rem; color: var(--muted); }
+  .pill b { color: var(--ink); font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cool); box-shadow: 0 0 0 0 #5fd4c4aa; animation: ping 2s infinite; }
+  @keyframes ping { 70% { box-shadow: 0 0 0 9px #5fd4c400; } 100% { box-shadow: 0 0 0 0 #5fd4c400; } }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .assure { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.86rem; color: var(--dim); }
+  .assure span::before { content: "✓"; color: var(--cool); margin-right: 7px; font-weight: 700; }
+
+  /* scan card */
+  .scan { position: relative; border-radius: 16px; background: linear-gradient(180deg, var(--card2), var(--card)); border: 1px solid var(--line2);
+          box-shadow: 0 40px 90px -40px #000, 0 0 0 1px #ffffff08 inset; overflow: hidden; }
+  .scan::before { content: ""; position: absolute; inset: -1px; border-radius: 16px; padding: 1px; background: linear-gradient(140deg, #ff6a4588, transparent 35%, transparent 65%, #7aa7ff66);
+                  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  .scan-top { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); font: 0.76rem var(--mono); color: var(--dim); }
+  .scan-top i { width: 10px; height: 10px; border-radius: 50%; background: var(--line2); }
+  .scan-top span { margin-left: 8px; }
+  .scan-top em { margin-left: auto; font-style: normal; border: 1px solid var(--line2); padding: 2px 7px; border-radius: 5px; }
+  .status { padding: 14px 16px 10px; font: 0.8rem var(--mono); color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
+  .status b { color: var(--cool); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar { height: 3px; margin: 0 16px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cool), var(--blue)); border-radius: 3px; transition: width .35s linear; }
+  .rows { padding: 12px 10px 6px; display: grid; gap: 6px; min-height: 318px; align-content: start; }
+  .row { display: grid; grid-template-columns: 82px 1fr auto; gap: 12px; align-items: center; padding: 11px 10px; border-radius: 10px; border: 1px solid transparent;
+         opacity: 0; transform: translateY(14px) scale(.98); transition: opacity .5s var(--ease), transform .5s var(--ease), background .3s, border-color .3s; }
+  .row.in { opacity: 1; transform: none; }
+  .row:hover { background: #ffffff06; border-color: var(--line); }
+  .row .t { font-size: 0.9rem; line-height: 1.35; }
+  .row .t small { display: block; font: 0.73rem var(--mono); color: var(--dim); margin-top: 3px; }
+  .row .n { text-align: right; font: 600 1.05rem var(--mono); }
+  .row .n small { display: block; font: 0.66rem var(--mono); color: var(--dim); font-weight: 400; }
+  .band { font: 700 0.66rem var(--mono); letter-spacing: .06em; padding: 4px 0; text-align: center; border-radius: 6px; border: 1px solid; }
+  .crit { color: var(--hot); background: #ff6a4514; animation: pulse 2.2s ease-in-out infinite; }
+  .high { color: var(--amber); background: #f5b14c12; }
+  .med { color: var(--blue); background: #7aa7ff10; }
+  @keyframes pulse { 50% { box-shadow: 0 0 18px -2px #ff6a4588; } }
+  .scan-foot { display: flex; gap: 18px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--line); font: 0.74rem var(--mono); color: var(--dim); opacity: 0; transition: opacity .6s; }
+  .scan-foot.in { opacity: 1; }
+  .scan-foot b { color: var(--ink); font-weight: 600; }
+  .replay { margin-left: auto; background: none; border: 0; color: var(--muted); font: inherit; cursor: pointer; padding: 0; }
+  .replay:hover { color: var(--ink); }
+  .beam { position: absolute; left: 0; right: 0; height: 90px; top: 40px; background: linear-gradient(180deg, transparent, #5fd4c416, transparent); pointer-events: none; opacity: 0; }
+  .scan.running .beam { opacity: 1; animation: beam 1.6s linear infinite; }
+  @keyframes beam { from { transform: translateY(0); } to { transform: translateY(360px); } }
+
+  /* strip */
+  .strip { margin-top: 44px; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+  .marq { display: flex; gap: 48px; width: max-content; animation: marq 38s linear infinite; font: 0.82rem var(--mono); color: var(--dim); white-space: nowrap; }
+  .marq span b { color: var(--muted); font-weight: 500; }
+  @keyframes marq { to { transform: translateX(-50%); } }
+
+  section { padding: 104px 0; }
+  .head { display: grid; gap: 16px; max-width: 760px; }
+  .rv { opacity: 0; transform: translateY(26px); transition: opacity .8s var(--ease), transform .8s var(--ease); transition-delay: var(--d, 0s); }
+  .rv.in { opacity: 1; transform: none; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 18px; margin-top: 48px; }
+  .card { position: relative; padding: 28px; border-radius: 16px; background: linear-gradient(180deg, #ffffff08, #ffffff03); border: 1px solid var(--line); overflow: hidden;
+          transition: transform .35s var(--ease), border-color .3s; }
+  .card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(380px circle at var(--mx, 50%) var(--my, 0%), #ff6a4520, transparent 60%); opacity: 0; transition: opacity .3s; }
+  .card:hover { transform: translateY(-4px); border-color: var(--line2); }
+  .card:hover::before { opacity: 1; }
+  .card > * { position: relative; }
+  .card p { color: var(--muted); margin-top: 10px; font-size: 0.97rem; }
+  .ico { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; background: #ff6a4514; border: 1px solid #ff6a4533; margin-bottom: 18px; }
+  .ico svg { width: 20px; height: 20px; stroke: var(--hot2); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .ico.c { background: #5fd4c412; border-color: #5fd4c433; } .ico.c svg { stroke: var(--cool); }
+
+  /* how it works */
+  .how { margin-top: 52px; display: grid; grid-template-columns: 360px 1fr; gap: 22px; }
+  .steps { display: grid; gap: 8px; align-content: start; }
+  .stepbtn { position: relative; text-align: left; background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 12px; padding: 14px 16px; cursor: pointer; font: inherit; overflow: hidden; transition: background .25s, border-color .25s, color .25s; }
+  .stepbtn:hover { background: #ffffff06; color: var(--ink); }
+  .stepbtn .k { font: 600 0.72rem var(--mono); letter-spacing: .1em; color: var(--dim); display: flex; gap: 8px; align-items: center; }
+  .stepbtn .h { display: block; font-weight: 600; font-size: 1.02rem; margin-top: 4px; color: inherit; }
+  .stepbtn .d { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s var(--ease); font-size: 0.92rem; }
+  .stepbtn .d > span { overflow: hidden; }
+  .stepbtn[aria-selected="true"] { background: var(--card2); border-color: var(--line2); color: var(--ink); }
+  .stepbtn[aria-selected="true"] .k { color: var(--hot2); }
+  .stepbtn[aria-selected="true"] .d { grid-template-rows: 1fr; margin-top: 6px; color: var(--muted); }
+  .stepbtn .prog { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: linear-gradient(90deg, var(--hot), var(--amber)); }
+  .how.auto .stepbtn[aria-selected="true"] .prog { animation: prog 6s linear forwards; }
+  @keyframes prog { to { width: 100%; } }
+  .tag { font: 600 0.6rem var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 6px; }
+  .stage { position: relative; border-radius: 16px; background: linear-gradient(180deg, var(--card2), var(--card)); border: 1px solid var(--line2); min-height: 430px; overflow: hidden; }
+  .panel { position: absolute; inset: 0; padding: 28px; opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity .45s var(--ease), transform .45s var(--ease); display: grid; align-content: center; gap: 14px; }
+  .panel.on { opacity: 1; transform: none; pointer-events: auto; }
+  .panel .cap { font: 0.74rem var(--mono); color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+  .file { display: flex; justify-content: space-between; gap: 12px; font: 0.84rem var(--mono); padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: #ffffff04; }
+  .file .ok { color: var(--cool); } .file .no { color: var(--amber); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chips span { font-size: 0.8rem; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line2); color: var(--muted); }
+  .meter { display: grid; grid-template-columns: 96px 1fr 30px; gap: 12px; align-items: center; font: 0.84rem var(--mono); color: var(--muted); }
+  .meter div { height: 10px; background: var(--line); border-radius: 6px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg, var(--amber), var(--hot)); transition: width 1s var(--ease) .15s; }
+  .panel.on .meter i { width: var(--w); }
+  .meter b { color: var(--ink); text-align: right; }
+  .verdict { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1px solid #ff6a4544; background: #ff6a450f; font-size: 0.93rem; flex-wrap: wrap; }
+  .verdict b { font: 700 1.5rem var(--mono); }
+  pre { margin: 0; font: 0.8rem/1.75 var(--mono); background: #05070a; border: 1px solid var(--line); border-radius: 10px; padding: 14px 0; overflow-x: auto; color: #b9c2d0; }
+  pre span { display: block; padding: 0 16px; white-space: pre; }
+  pre .ln { display: inline; padding: 0 14px 0 0; color: var(--dim); }
+  pre .hit { background: #ff6a451c; box-shadow: 3px 0 0 var(--hot) inset; color: #ffd9cf; }
+  pre .add { background: #5fd4c414; color: #bff3ea; } pre .del { background: #ff6a4514; color: #ffb9a6; text-decoration: line-through; text-decoration-color: #ff6a4577; }
+  .bubble { max-width: 88%; padding: 11px 14px; border-radius: 12px; font-size: 0.9rem; }
+  .bubble.q { justify-self: end; background: #7aa7ff1c; border: 1px solid #7aa7ff33; }
+  .bubble.a { background: #ffffff08; border: 1px solid var(--line); color: var(--muted); }
+  .log { display: grid; grid-template-columns: 92px 1fr; gap: 12px; font-size: 0.88rem; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .log time { font: 0.76rem var(--mono); color: var(--dim); padding-top: 2px; }
+  .log span { color: var(--muted); } .log b { color: var(--ink); font-weight: 600; }
+  .howcta { margin-top: 30px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 0.95rem; }
+
+  /* stats */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 48px; border: 1px solid var(--line); border-radius: 16px; background: #ffffff05; overflow: hidden; }
+  .stat { padding: 30px 26px; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: 0; }
+  .stat .v { font: 700 clamp(2rem, 3.6vw, 3rem)/1 var(--sans); letter-spacing: -0.03em; }
+  .stat .l { color: var(--muted); font-size: 0.9rem; margin-top: 10px; }
+  .note { margin-top: 18px; font-size: 0.86rem; color: var(--dim); max-width: 82ch; }
+
+  /* offers */
+  .offers { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 48px; }
+  .offer { padding: 32px; border-radius: 18px; border: 1px solid var(--line); background: #ffffff05; display: grid; gap: 14px; align-content: start; }
+  .offer.feat { border-color: #ff6a4555; background: linear-gradient(180deg, #ff6a4512, #ffffff04); box-shadow: 0 30px 80px -50px #ff6a45; }
+  .offer ul { list-style: none; padding: 0; margin: 4px 0 10px; display: grid; gap: 9px; color: var(--muted); font-size: 0.96rem; }
+  .offer li::before { content: "→"; color: var(--hot2); margin-right: 10px; }
+  .offer .k { font: 600 0.72rem var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--hot2); }
+
+  details { border-top: 1px solid var(--line); padding: 20px 0; }
+  details:last-of-type { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font: 400 1.4rem/1 var(--mono); color: var(--hot2); transition: transform .3s; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { margin-top: 12px; color: var(--muted); max-width: 72ch; }
+
+  /* booking */
+  .book { position: relative; border-radius: 24px; border: 1px solid var(--line2); background: radial-gradient(900px 400px at 15% 0%, #ff6a451f, transparent 60%), linear-gradient(180deg, var(--card2), var(--card));
+          padding: clamp(28px, 5vw, 56px); display: grid; grid-template-columns: 1fr 1fr; gap: 44px; align-items: center; overflow: hidden; }
+  .book ol { margin: 22px 0 0; padding: 0; list-style: none; display: grid; gap: 14px; counter-reset: s; color: var(--muted); font-size: 0.97rem; }
+  .book li { counter-increment: s; display: flex; gap: 14px; }
+  .book li::before { content: counter(s); flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line2); display: grid; place-items: center; font: 600 0.75rem var(--mono); color: var(--hot2); }
+  form { display: grid; gap: 14px; }
+  label { display: grid; gap: 6px; font-size: 0.84rem; color: var(--muted); }
+  input, select { font: inherit; color: var(--ink); background: #05070a; border: 1px solid var(--line2); border-radius: 10px; padding: 12px 14px; transition: border-color .2s, box-shadow .2s; width: 100%; }
+  input:focus, select:focus { outline: none; border-color: var(--hot); box-shadow: 0 0 0 4px #ff6a4522; }
+  form .btn { justify-content: center; margin-top: 4px; }
+  form small { color: var(--dim); font-size: 0.8rem; text-align: center; }
+
+  footer { border-top: 1px solid var(--line); padding: 30px 0 90px; color: var(--dim); font-size: 0.84rem; margin-top: 104px; }
+  .mbar { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 60; display: none; gap: 10px; padding: 10px; border-radius: 14px; background: #0c1016ee; border: 1px solid var(--line2); backdrop-filter: blur(12px);
+          transform: translateY(140%); transition: transform .4s var(--ease); }
+  .mbar.show { transform: none; }
+  .mbar .btn { flex: 1; justify-content: center; padding: 12px 10px; font-size: 0.9rem; }
+
+  @media (max-width: 980px) {
+    .hero { grid-template-columns: 1fr; padding-top: 36px; gap: 40px; }
+    .how { grid-template-columns: 1fr; }
+    .steps { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+    .stepbtn .d { display: none; }
+    .stats { grid-template-columns: 1fr 1fr; } .stat:nth-child(2) { border-right: 0; } .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+    .offers, .book { grid-template-columns: 1fr; }
+    .nav nav a.link { display: none; }
+    section { padding: 76px 0; }
+    .mbar { display: flex; }
+  }
+  @media (max-width: 520px) {
+    .row { grid-template-columns: 70px 1fr; } .row .n { display: none; }
+    .stage { min-height: 470px; } .panel { padding: 20px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .rv, .row, .scan-foot { opacity: 1; transform: none; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="gridlines" aria-hidden="true"></div>
+<div class="glow a" aria-hidden="true"></div>
+<div class="glow b" aria-hidden="true"></div>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Faultmap home">
+      <svg viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="1" y="1" width="24" height="24" rx="7" stroke="#ff6a45" stroke-width="1.6"/><path d="M6 17l4.5-6 3.5 4 2.5-3.5L20 17" stroke="#ffb199" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10.5" cy="11" r="1.6" fill="#ff6a45"/></svg>
+      Faultmap
+    </a>
+    <nav>
+      <a class="link" href="#how" data-cta="nav-how">How it works</a>
+      <a class="link" href="#proof">Evidence</a>
+      <a class="link" href="#faq">Questions</a>
+      <a class="btn primary sm" href="#book" data-cta="nav-book">Book an assessment</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<div class="wrap">
+  <div class="hero">
+    <div class="hero-copy">
+      <span class="pill rv"><span class="dot"></span><span><b>Now taking design partners</b> · limited places</span></span>
+      <h1 class="rv" style="--d:.05s">Know which line of code could <span class="grad">cost you the company.</span></h1>
+      <p class="lede rv" style="--d:.12s">Faultmap reads your repositories and writes the risk register for you: every way the system could fail or be attacked, ranked by business impact, with the evidence and an honest list of what was not examined.</p>
+      <div class="cta rv" style="--d:.18s">
+        <a class="btn primary" href="#book" data-cta="hero-book">Book a risk assessment <span class="arr">→</span></a>
+        <a class="btn ghost" href="#how" data-cta="hero-how"><span class="play">▶</span> See how it works</a>
+      </div>
+      <div class="assure rv" style="--d:.24s"><span>Fixed scope, up to 3 repositories</span><span>Runs in your environment</span><span>Your own model key</span></div>
+    </div>
+
+    <div class="scan rv" id="scan" style="--d:.2s" role="img" aria-label="Animated illustration of a Faultmap scan producing a ranked risk register">
+      <div class="beam"></div>
+      <div class="scan-top"><i></i><i></i><i></i><span>payments-api</span><em>illustrative</em></div>
+      <div class="status"><span id="st-label">Reading</span><b id="st-file">…</b></div>
+      <div class="bar"><i id="st-bar"></i></div>
+      <div class="rows">
+        <div class="row"><span class="band crit">CRITICAL</span><div class="t">Image-fetch URL reaches the internal admin service; backups can be deleted<small>public.py:41 → internal_admin.py:18 · severity floor applied</small></div><div class="n">210<small>10·3·7</small></div></div>
+        <div class="row"><span class="band high">HIGH</span><div class="t">Order search builds SQL from the request parameter<small>orders/repository.py:31-33</small></div><div class="n">270<small>9·6·5</small></div></div>
+        <div class="row"><span class="band high">HIGH</span><div class="t">Release workflow runs untrusted pull-request code with deploy secrets<small>.github/workflows/release.yml:12</small></div><div class="n">216<small>9·4·6</small></div></div>
+        <div class="row"><span class="band med">MEDIUM</span><div class="t">Export job retries without limit when storage is down<small>jobs.py:77 · score adjusted, reason recorded</small></div><div class="n">150<small>5·5·6</small></div></div>
+      </div>
+      <div class="scan-foot" id="scan-foot"><span><b>212</b> files examined</span><span><b>9</b> not examined, listed</span><button class="replay" id="replay" type="button">↻ Replay</button></div>
+    </div>
+  </div>
+
+  <div class="strip" aria-hidden="true">
+    <div class="marq">
+      <span><b>application code</b> · Python · Java · C# · TypeScript</span><span><b>infrastructure</b> · Dockerfile · Terraform · Kubernetes</span><span><b>pipelines</b> · GitHub Actions</span><span><b>templates</b> · HTML · Vue · Jinja</span><span><b>secrets</b> redacted before any model sees them</span><span><b>scores</b> locked · adjusted only with a reason</span>
+      <span><b>application code</b> · Python · Java · C# · TypeScript</span><span><b>infrastructure</b> · Dockerfile · Terraform · Kubernetes</span><span><b>pipelines</b> · GitHub Actions</span><span><b>templates</b> · HTML · Vue · Jinja</span><span><b>secrets</b> redacted before any model sees them</span><span><b>scores</b> locked · adjusted only with a reason</span>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="head rv"><span class="eyebrow">The problem</span><h2>Scanners give you a list. Nobody gives you the risk.</h2></div>
+    <div class="cards">
+      <div class="card rv"><div class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div><h3>Findings without consequence</h3><p>A thousand alerts sorted by a technical score say nothing about which three could end the quarter.</p></div>
+      <div class="card rv" style="--d:.08s"><div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg></div><h3>Registers written from memory</h3><p>The risk register is a spreadsheet filled in once a quarter from what people remember. The code changed the following week.</p></div>
+      <div class="card rv" style="--d:.16s"><div class="ico"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg></div><h3>The one that got buried</h3><p>After most incidents someone finds the ticket. It was known, rated medium, and never looked at again.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="head rv"><span class="eyebrow">How it works</span><h2>From repository to ranked, evidenced risk.</h2><p class="lede">Step through what happens to one repository.</p></div>
+    <div class="how auto rv" id="howbox">
+      <div class="steps" role="tablist" aria-label="How Faultmap works">
+        <button class="stepbtn" role="tab" aria-selected="true" data-cta="how-step-1"><span class="k">01 · READ</span><span class="h">Understands what the system is for</span><span class="d"><span>Code, infrastructure, pipelines and templates are read with your business context: who uses it and what would be catastrophic.</span></span><i class="prog"></i></button>
+        <button class="stepbtn" role="tab" aria-selected="false" data-cta="how-step-2"><span class="k">02 · RANK</span><span class="h">Scores what failure would cost</span><span class="d"><span>Severity, likelihood and detectability. A severity floor stops a catastrophic outcome being ranked medium because it is unlikely.</span></span><i class="prog"></i></button>
+        <button class="stepbtn" role="tab" aria-selected="false" data-cta="how-step-3"><span class="k">03 · PROVE</span><span class="h">Shows the evidence, answers questions</span><span class="d"><span>Findings cite file and line. Challenge any score; the assistant re-reads the code. It can propose a change, only a person applies it.</span></span><i class="prog"></i></button>
+        <button class="stepbtn" role="tab" aria-selected="false" data-cta="how-step-4"><span class="k">04 · FIX</span><span class="h">Drafts the correction</span><span class="d"><span>A proposed code change, a test, and the expected effect on the score.</span></span><i class="prog"></i></button>
+        <button class="stepbtn" role="tab" aria-selected="false" data-cta="how-step-5"><span class="k">05 · HOLD</span><span class="h">Keeps the register stable</span><span class="d"><span>Scores are locked between scans. Expert adjustments record who, when and why.</span></span><i class="prog"></i></button>
+        <button class="stepbtn" role="tab" aria-selected="false" data-cta="how-step-6"><span class="k">06 · PREVENT <span class="tag">in development</span></span><span class="h">Addresses the root cause</span><span class="d"><span>Findings grouped by root cause across projects, with preventive actions.</span></span><i class="prog"></i></button>
+      </div>
+      <div class="stage">
+        <div class="panel on"><span class="cap">Scan scope · payments-api</span>
+          <div class="file"><span>orders/repository.py</span><span class="ok">examined</span></div>
+          <div class="file"><span>.github/workflows/release.yml</span><span class="ok">examined</span></div>
+          <div class="file"><span>infra/storage.tf</span><span class="ok">examined</span></div>
+          <div class="file"><span>config.env</span><span class="ok">examined · values redacted</span></div>
+          <div class="file"><span>vendor/geo/data.bin</span><span class="no">not examined · binary</span></div>
+          <div class="chips"><span>Mission-critical</span><span>External customers</span><span>Catastrophic: loss of payment records</span></div></div>
+        <div class="panel"><span class="cap">Scoring · admin service reachable from the image fetcher</span>
+          <div class="meter"><span>Severity</span><div><i style="--w:100%"></i></div><b>10</b></div>
+          <div class="meter"><span>Occurrence</span><div><i style="--w:30%"></i></div><b>3</b></div>
+          <div class="meter"><span>Detection</span><div><i style="--w:70%"></i></div><b>7</b></div>
+          <div class="verdict"><span>RPN 210 would be <i>High</i>.<br>Severity 10 with a confirmed path, hard to detect: <b style="font-size:1rem;color:var(--hot)">Critical</b></span><b>210</b></div></div>
+        <div class="panel"><span class="cap">Evidence · orders/repository.py</span>
+<pre><span><span class="ln">30</span>term = request.args.get("q", "")</span><span class="hit"><span class="ln">31</span>rows = db().execute(</span><span class="hit"><span class="ln">32</span>  f"SELECT id, email, card_token FROM orders WHERE email LIKE '%{term}%'"</span><span class="hit"><span class="ln">33</span>).fetchall()</span></pre>
+          <div class="bubble q">Why is likelihood 6 and not 9? The route needs a login.</div>
+          <div class="bubble a">It does, but any customer token passes the check at app.py:27, so every registered user can reach it. I would keep 6.</div></div>
+        <div class="panel"><span class="cap">Proposed fix · orders/repository.py</span>
+<pre><span class="del"><span class="ln">32</span>  f"SELECT … WHERE email LIKE '%{term}%'"</span><span class="add"><span class="ln">32</span>  "SELECT … WHERE email LIKE ?", (f"%{term}%",)</span></pre>
+          <div class="file"><span>tests/test_order_search.py</span><span class="ok">+ 1 test proposed</span></div>
+          <div class="verdict"><span>Expected effect on this scenario</span><b style="font-size:1.1rem">270 → 45</b></div></div>
+        <div class="panel"><span class="cap">Audit trail</span>
+          <div class="log"><time>scan 12</time><span><b>Score locked</b> · SQL built from request parameter · 9·6·5</span></div>
+          <div class="log"><time>scan 13</time><span>Same code, <b>same score</b>. No drift between runs.</span></div>
+          <div class="log"><time>3 Nov</time><span><b>Adjusted by a security engineer</b> · occurrence 6 → 5 · "WAF rule deployed in front of this route"</span></div>
+          <div class="log" style="border:0"><time>3 Nov</time><span><b>Flag raised</b> · attempt to lower a severity-9 item without a reason was rejected</span></div></div>
+        <div class="panel"><span class="cap">Root causes across projects · in development</span>
+          <div class="meter" style="grid-template-columns:1fr 120px 30px"><span>Missing authorisation at service boundaries</span><div><i style="--w:80%"></i></div><b>4</b></div>
+          <div class="meter" style="grid-template-columns:1fr 120px 30px"><span>Untrusted input reaches a query</span><div><i style="--w:60%"></i></div><b>3</b></div>
+          <div class="meter" style="grid-template-columns:1fr 120px 30px"><span>Secrets available to pipeline code</span><div><i style="--w:40%"></i></div><b>2</b></div>
+          <div class="verdict" style="border-color:var(--line2);background:#ffffff06"><span>Preventive action: one shared authorisation layer for internal services, instead of four separate fixes.</span></div></div>
+      </div>
+    </div>
+    <div class="howcta rv"><a class="btn primary" href="#book" data-cta="how-book">See it on your code <span class="arr">→</span></a><span>One call to scope it. Results in days, not a quarter.</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="head rv"><span class="eyebrow">What is different</span><h2>Built for the person who has to sign the register.</h2></div>
+    <div class="cards">
+      <div class="card rv"><div class="ico c"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></div><h3>It says what it did not look at</h3><p>Every scan lists what was examined and what was not, with the reason. No tool can prove code is safe; this one is explicit about its limits.</p></div>
+      <div class="card rv" style="--d:.08s"><div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3z"/></svg></div><h3>Catastrophic stays visible</h3><p>Lowering the severity of a catastrophic scenario needs a written justification and is flagged in the audit trail.</p></div>
+      <div class="card rv" style="--d:.16s"><div class="ico c"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div><h3>Your environment, your model key</h3><p>Runs where you run it and calls the model provider you choose, including a European one. Recognised secrets are redacted before any text is sent.</p></div>
+      <div class="card rv" style="--d:.24s"><div class="ico"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg></div><h3>Your code is treated as untrusted</h3><p>Instructions hidden in code or documentation are handled as data. Our test set includes repositories written to make the scanner report nothing; they do not succeed.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="proof">
+  <div class="wrap">
+    <div class="head rv"><span class="eyebrow">Evidence</span><h2>Measured, including the parts that are not finished.</h2></div>
+    <div class="stats rv">
+      <div class="stat"><div class="v"><span data-count="9">0</span> of 9</div><div class="l">seeded catastrophic issues found, in each of three runs</div></div>
+      <div class="stat"><div class="v"><span data-count="96">0</span>%</div><div class="l">of all seeded issues found</div></div>
+      <div class="stat"><div class="v"><span data-count="92">0</span>%</div><div class="l">of matched findings cite the correct lines</div></div>
+      <div class="stat"><div class="v">$<span data-count="0.17" data-dec="2">0</span></div><div class="l">model cost per scan of a small repository</div></div>
+    </div>
+    <p class="note rv">Internal benchmark, November 2026: six small repositories with 17 deliberately seeded issues across application code, infrastructure, pipelines and templates, scanned three times each. It does not yet measure false-positive rate and is not a substitute for results on your code. A public benchmark on open-source projects with known vulnerabilities is in preparation.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="head rv"><span class="eyebrow">Getting started</span><h2>Two ways in. Both start with one call.</h2></div>
+    <div class="offers">
+      <div class="offer feat rv"><span class="k">Start here</span><h3 style="font-size:1.5rem">Risk assessment</h3><p style="color:var(--muted)">A fixed-scope review of up to three repositories.</p>
+        <ul><li>Ranked register with evidence and coverage</li><li>Proposed fixes for the top risks</li><li>Walkthrough with your security and engineering leads</li></ul>
+        <a class="btn primary" href="#book" data-cta="offer-assessment" style="width:fit-content">Book a risk assessment <span class="arr">→</span></a></div>
+      <div class="offer rv" style="--d:.1s"><span class="k">Then</span><h3 style="font-size:1.5rem">Design-partner pilot</h3><p style="color:var(--muted)">Faultmap in your environment for a quarter.</p>
+        <ul><li>Your repositories, your model provider</li><li>Direct line to the people building it</li><li>Your priorities shape the integration roadmap</li></ul>
+        <a class="btn ghost" href="#book" data-cta="offer-pilot" style="width:fit-content">Ask about a pilot</a></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap" style="max-width:860px">
+    <div class="head rv"><span class="eyebrow">Questions</span><h2>What people ask first.</h2></div>
+    <div class="rv" style="margin-top:36px">
+      <details><summary>Where does our code go?</summary><p>It stays in the environment where Faultmap runs. Portions are sent to the language-model provider you configure, under your own account and key. Values in environment files and recognised credential patterns are redacted first.</p></details>
+      <details><summary>Does this replace our scanner?</summary><p>No. Scanners find known patterns quickly and cheaply, and you should keep them. Faultmap answers a different question: of everything that could go wrong in this system, what matters most to the business, and why.</p></details>
+      <details><summary>Which languages and models?</summary><p>Code navigation is deepest for Python, Java, C# and TypeScript; other languages are read as text. OpenAI and Mistral models are supported today, with more providers planned.</p></details>
+      <details><summary>Does it connect to pull requests and ticketing?</summary><p>Not yet. These are next, and design partners decide the order.</p></details>
+      <details><summary>What does FMEA have to do with it?</summary><p>Failure Mode and Effects Analysis is the method safety engineers have used for decades to rank what could go wrong by severity, likelihood and detectability. Faultmap applies it to software, continuously, from the code.</p></details>
+    </div>
+  </div>
+</section>
+
+<section id="book" style="padding-bottom:0">
+  <div class="wrap">
+    <div class="book rv">
+      <div>
+        <span class="eyebrow">Book an assessment</span>
+        <h2 style="margin-top:16px">Find out what your code is carrying.</h2>
+        <ol><li>A 30-minute call to choose the repositories and agree what "catastrophic" means for you.</li><li>We run the assessment in your environment with your model key.</li><li>You get a ranked register, proposed fixes, and an honest account of what we could not examine.</li></ol>
+      </div>
+      <form id="bookform">
+        <label>Name<input name="name" autocomplete="name" required></label>
+        <label>Work email<input name="email" type="email" autocomplete="email" required></label>
+        <label>Team size
+          <select name="size"><option>Under 50 engineers</option><option>50 to 200</option><option>200 to 500</option><option>More than 500</option></select></label>
+        <button class="btn primary" type="submit" data-cta="form-submit">Request my assessment <span class="arr">→</span></button>
+        <small>Opens your email client with the details filled in. No code is shared at this stage.</small>
+      </form>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap">© 2026 Faultmap (working name). Faultmap does not prove the absence of vulnerabilities and does not replace penetration testing or a formal audit.</div></footer>
+
+<div class="mbar" id="mbar"><a class="btn ghost" href="#how" data-cta="mbar-how">How it works</a><a class="btn primary" href="#book" data-cta="mbar-book">Book assessment</a></div>
+
+<script>
+(() => {
+  const CONTACT = 'hello@example.com';            // TODO: replace with the real address or booking link
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  // click tracking hook: every CTA carries data-cta; wire window.trackCta to your analytics
+  document.addEventListener('click', e => { const el = e.target.closest('[data-cta]'); if (el && window.trackCta) window.trackCta(el.dataset.cta); });
+
+  // nav + mobile bar
+  const nav = $('#nav'), mbar = $('#mbar'), book = $('#book');
+  const onScroll = () => {
+    nav.classList.toggle('scrolled', scrollY > 12);
+    const nearForm = book.getBoundingClientRect().top < innerHeight * 0.8;
+    mbar.classList.toggle('show', scrollY > 520 && !nearForm);
+  };
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+  // reveal on scroll
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: 0.12 });
+  $$('.rv').forEach(el => io.observe(el));
+
+  // card spotlight
+  $$('.card').forEach(c => c.addEventListener('pointermove', e => { const r = c.getBoundingClientRect(); c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px'); }));
+
+  // hero scan sequence
+  const scan = $('#scan'), rows = $$('.row', scan), bar = $('#st-bar'), file = $('#st-file'), label = $('#st-label'), foot = $('#scan-foot');
+  const files = ['public.py', 'internal_admin.py', 'orders/repository.py', '.github/workflows/release.yml', 'infra/storage.tf', 'jobs.py', 'templates/comments.html', 'Dockerfile'];
+  let timers = [];
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+  function runScan() {
+    timers.forEach(clearTimeout); timers = [];
+    if (reduce) { rows.forEach(r => r.classList.add('in')); foot.classList.add('in'); bar.style.width = '100%'; label.textContent = 'Scan complete'; file.textContent = '4 of 7 scenarios shown'; return; }
+    rows.forEach(r => r.classList.remove('in')); foot.classList.remove('in'); bar.style.width = '0'; label.textContent = 'Reading'; scan.classList.add('running');
+    files.forEach((f, i) => later(() => { file.textContent = f; bar.style.width = ((i + 1) / files.length * 100) + '%'; }, 350 * i));
+    const t0 = 350 * files.length;
+    later(() => { label.textContent = 'Ranking'; file.textContent = 'by business impact'; }, t0);
+    rows.forEach((r, i) => later(() => r.classList.add('in'), t0 + 350 + i * 420));
+    later(() => { scan.classList.remove('running'); label.textContent = 'Scan complete'; file.textContent = '4 of 7 scenarios shown'; foot.classList.add('in'); }, t0 + 350 + rows.length * 420 + 200);
+  }
+  const once = new IntersectionObserver(es => { if (es[0].isIntersecting) { runScan(); once.disconnect(); } }, { threshold: 0.3 });
+  once.observe(scan);
+  $('#replay').addEventListener('click', runScan);
+
+  // how it works stepper
+  const how = $('#howbox'), btns = $$('.stepbtn', how), panels = $$('.panel', how);
+  let cur = 0;
+  function show(i) { cur = i; btns.forEach((b, j) => b.setAttribute('aria-selected', j === i)); panels.forEach((p, j) => p.classList.toggle('on', j === i)); }
+  btns.forEach((b, i) => {
+    b.addEventListener('click', () => { how.classList.remove('auto'); show(i); });
+    $('.prog', b).addEventListener('animationend', () => { if (how.classList.contains('auto')) show((i + 1) % btns.length); });
+  });
+  if (reduce) how.classList.remove('auto');
+  // only auto-advance while visible
+  how.style.animationPlayState = 'paused';
+  new IntersectionObserver(es => { const v = es[0].isIntersecting; $$('.prog', how).forEach(p => p.style.animationPlayState = v ? 'running' : 'paused'); }, { threshold: 0.35 }).observe(how);
+
+  // count up
+  const cio = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return; cio.unobserve(e.target);
+    const el = e.target, to = +el.dataset.count, dec = +(el.dataset.dec || 0);
+    if (reduce) { el.textContent = to.toFixed(dec); return; }
+    const t0 = performance.now(), dur = 1400;
+    (function tick(t) { const k = Math.min(1, (t - t0) / dur), v = to * (1 - Math.pow(1 - k, 3)); el.textContent = v.toFixed(dec); if (k < 1) requestAnimationFrame(tick); })(t0);
+  }), { threshold: 0.6 });
+  $$('[data-count]').forEach(el => cio.observe(el));
+
+  // booking form -> email
+  $('#bookform').addEventListener('submit', e => {
+    e.preventDefault(); const f = new FormData(e.target);
+    const body = `Name: ${f.get('name')}\nWork email: ${f.get('email')}\nTeam size: ${f.get('size')}\n\nRepositories we would like assessed:\n`;
+    location.href = `mailto:${CONTACT}?subject=${encodeURIComponent('Risk assessment request')}&body=${encodeURIComponent(body)}`;
+  });
+
+  // background: slow dependency graph
+  if (!reduce) {
+    const c = $('#bg'), x = c.getContext('2d'); let w, h, pts = [], raf;
+    const size = () => { const d = Math.min(devicePixelRatio || 1, 2); w = innerWidth; h = innerHeight; c.width = w * d; c.height = h * d; x.setTransform(d, 0, 0, d, 0, 0);
+      const n = Math.round(Math.min(70, w * h / 22000)); pts = Array.from({ length: n }, (_, i) => ({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - .5) * .22, vy: (Math.random() - .5) * .22, hot: i % 11 === 0 })); };
+    const draw = () => {
+      x.clearRect(0, 0, w, h);
+      for (const p of pts) { p.x += p.vx; p.y += p.vy; if (p.x < 0 || p.x > w) p.vx *= -1; if (p.y < 0 || p.y > h) p.vy *= -1; }
+      for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i], b = pts[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d < 150) { const hot = a.hot || b.hot; x.strokeStyle = hot ? `rgba(255,106,69,${(1 - d / 150) * .28})` : `rgba(122,167,255,${(1 - d / 150) * .13})`; x.lineWidth = 1; x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke(); }
+      }
+      for (const p of pts) { x.fillStyle = p.hot ? 'rgba(255,106,69,.85)' : 'rgba(152,162,179,.45)'; x.beginPath(); x.arc(p.x, p.y, p.hot ? 2.2 : 1.3, 0, 7); x.fill(); }
+      raf = requestAnimationFrame(draw);
+    };
+    size(); draw(); addEventListener('resize', size);
+    document.addEventListener('visibilitychange', () => { cancelAnimationFrame(raf); if (!document.hidden) draw(); });
+  }
+})();
+</script>
+</body>
+</html>

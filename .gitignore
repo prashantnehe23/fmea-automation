@@ -36,3 +36,10 @@ Thumbs.db
 
 # Local Claude settings (machine-specific)
 .claude/settings.local.json
+
+# Runtime data: database, scan caches and per-workspace output (B-044). Created on first run.
+memory/fmea.db
+memory/fmea.db-*
+memory/*.json
+memory/workspaces/
+memory/core/

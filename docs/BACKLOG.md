@@ -1,8 +1,257 @@
 # FMEA Platform — Product Backlog
 
-> Last updated: 2026-10-24 (restructured by status; agent-by-agent review added B-033..B-036)  
+> Last updated: 2026-11-21 (re-prioritised for go-to-market from `docs/DISCOVERY-2026-11.md`; added B-042..B-051)  
 > Single source of truth — `docs/BACKLOG.md`  
 > Status: `[x]` Done · `[~]` In progress · `[ ]` Not started · Priorities: P0 must-have, P1 next, P2 later, P3 strategic
+
+---
+
+## Go-to-market build order (engineer-approved 2026-11-21) — supersedes earlier orderings
+
+**Why the change:** the discovery review (`docs/DISCOVERY-2026-11.md`) found that scan quality is well advanced but no team can use the product on its own code: no sign-in, public repositories only, results held in the browser, no deployment package, no pull-request check or export. New discovery work is paused once the in-flight items land; the foundation below comes first, then evaluation credibility, then the discovery and prevention programme resumes.
+
+**Rules for this order:** items marked *ADR first* start with a Draft ADR stating options, benefits and trade-offs; implementation starts only after the engineer accepts it (CLAUDE.md rule 5). Items without that mark can start immediately.
+
+### Now — P0: one team can use it on its own code
+
+| Order | Item | Title | ADR first | Depends on | Size |
+|---|---|---|---|---|---|
+| 1 | B-044 | Repository hygiene and an honest README — **done 2026-11-21** | no | none | S |
+| 2 | B-048 phase 0 | UX blockers: project selection, scan errors, key status, placeholders | no | none | S |
+| 3 | B-042 | Deployment model and container packaging | **yes** (ADR-026) | none | M |
+| 4 | B-015 | Sign-in, roles and server-side results | **yes** (ADR-027) | B-042 decision | L |
+| 5 | B-043 | Private repository access | no (covered by ADR-027) | B-015 | M |
+| — | B-051 | Company landing page (go-to-market, not product code) | no | none | S, in progress |
+
+Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
+
+### Next — P1: credible in an evaluation and part of the team's workflow
+
+| Order | Item | Title | ADR first | Depends on |
+|---|---|---|---|---|
+| 6 | B-031 | Finding identity, lifecycle and lock semantics (moved up) | ADR-019 to accept | none |
+| 7 | B-028 phase 0 | Remove the 7-finding cap; prioritised handling of large repositories (pulled forward) | no | B-031 |
+| 8 | B-012 | Pull-request check (moved from P3) | no | B-015, B-031, B-043 |
+| 9 | B-040 | Defensive framing and provider-block handling (P2 to P1: before any pilot) | ADR-024 to accept | none |
+| 10 | B-047 | More model providers: Azure OpenAI, AWS Bedrock, Anthropic, local endpoint | no (extends ADR-011) | none |
+| 11 | B-045 | SARIF import and export; CWE on every finding | **yes** (ADR-028) | B-031 |
+| 12 | B-046 | Public benchmark on real code and head-to-head with Semgrep and CodeQL (absorbs B-026 targets) | no (extends ADR-023) | B-028 phase 0 |
+| 13 | B-048 phase 1 | Findings-first UI and accessibility (absorbs B-034 phase 3 and B-004) | no | B-015 |
+| 14 | B-011 | Report export for auditors and boards (moved up) | no | B-031 |
+| 15 | B-049 | Fixes as pull requests | no | B-043 |
+| 16 | B-016 | Ticketing (Jira, Linear) and Slack / Teams alerts (moved from P3, widened) | no | B-031 |
+
+### Paused — resume after the P1 list (moved to P2)
+
+B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B-033 phase 3 (lockfile inventory partly replaced by SARIF import of dependency scanners) · B-027 phase 1 · B-028 phases B0, A-D · B-035 · B-029 · B-030 · B-032 · B-008 · B-009 · B-019 · B-020. B-050 (control mapping) is new at P2. Prevention (B-029, B-030) is the long-term differentiator and is the first thing to resume.
+
+---
+
+## Now — go-to-market foundation (P0)
+
+### B-044 · Repository Hygiene and an Honest README `[x]` DONE 2026-11-21 — P0
+
+**Why:** `memory/fmea.db` and `memory/workspaces/**` (scan output for third-party repositories) are committed; the README describes an older product (API "planned", OpenAI only, Python only, 34 tests, ADRs 001-008, mock data) and claims GDPR / PCI-DSS / SOC 2 / ISO 27001 alignment that no code implements. A prospect or investor reading it sees a prototype and an unbacked claim.
+
+**Scope:** untrack runtime data (`memory/fmea.db`, `memory/*.json`, `memory/workspaces/`, `memory/core/`) and add them to `.gitignore`, keeping a way to create an empty database on first run; rewrite README to match the product today (stack, providers, languages, how to run API + frontend, test count, ADR index link, known limits); remove the compliance alignment claims until B-050 exists; delete or merge the duplicate `SKILSS.md`.
+
+**Acceptance criteria:**
+- [x] `git ls-files memory/` lists only Python sources (`tests/test_repo_hygiene.py::test_only_python_sources_tracked_under_memory`; ignore rules also tested)
+- [x] A fresh clone starts the API and creates an empty database with no committed data (`test_fresh_checkout_starts_api_and_creates_empty_database` copies only tracked files to a temp dir, calls `GET /api/portfolios`, expects `[]` and a new `fmea.db`)
+- [x] README states only capabilities that exist; every command in it runs (checked by hand 2026-11-21: `uvicorn api.main:app --port 8000` served `/docs` and `/api/portfolios`; `npm run build` built; `pytest tests/` 439 passed). `npm install` / `npm run dev` not re-run on a fresh clone; the dev proxy config was read, not exercised. Tests also check that README links resolve and every registered provider is named
+- [x] No compliance alignment claim remains in README or landing page (`test_no_compliance_alignment_claims_in_readme_or_landing`, case-insensitive regex over README and `landing/*.html`)
+- [x] Full test suite green (439 passed)
+
+**Done:** `memory/fmea.db`, `memory/*.json`, `memory/workspaces/`, `memory/core/` untracked and in `.gitignore` (files stay on disk; the database is created on first connection by `memory/db.py`); README rewritten (adds a "Known limits" section, 439-test count, ADR index link); `SKILSS.md` deleted (an older strict subset of `CLAUDE.md`). **Not done, needs the engineer:** the files remain in git history (third-party scan output); purging needs a history rewrite. Branches cut before this change (for example `feature/b036-code-index-phase2`) still track `memory/fmea.db`, so merging them gives a modify/delete conflict: resolve by deleting the file. `frontend/src/data.js` still holds mock constants with a "GDPR breach exposure" sample string (UI placeholder, B-048 phase 0).
+
+---
+
+### B-042 · Deployment Model and Container Packaging `[ ]` APPROVED — P0 — *ADR first (ADR-026)*
+
+**Why:** There is no way to install the product for a customer: no container, no licence, SQLite, scans serialised by global call counters, customer code and keys stored unencrypted. The deployment model decides how much of A5 and A7 in the discovery report the product must solve itself.
+
+**Proposed decision for the ADR (engineer to accept or change):** single-tenant, self-hosted container image (API + built frontend) run in the customer's environment with the customer's own model key; hosted SaaS later. Benefits: customer code leaves their environment only for the provider they chose; fits the existing bring-your-own-key design; acceptable to regulated buyers. Trade-offs: upgrades and support across customer installs; no usage data unless reported; SQLite limits concurrency (Postgres option to be decided in the ADR).
+
+**Scope:** ADR-026; `Dockerfile` and compose file; configuration by environment variables; database location on a mounted volume; provider keys encrypted at rest (key from the environment); scan source retention setting with delete; per-scan state instead of global call counters so two scans can run at once; health and version endpoint; licence file chosen by the engineer.
+
+**Acceptance criteria:**
+- [ ] ADR-026 accepted by the engineer before any other scope starts
+- [ ] `docker compose up` on a clean machine serves the app and runs a scan on a benchmark repository (recorded)
+- [ ] Provider keys are not readable in plain text on disk (test)
+- [ ] Stored scan sources are deleted after the configured retention, and on request per project (test)
+- [ ] Two scans run concurrently with correct, separate call counts and costs (test)
+- [ ] `/api/health` reports version and database status
+
+---
+
+### B-015 · Sign-in, Roles and Server-Side Results `[ ]` APPROVED — P0 (moved from P3 on 2026-11-21) — *ADR first (ADR-027)*
+
+**Why:** Every endpoint is open, including those that set provider keys and delete scenarios; personas are a dropdown; scan results live in browser localStorage, so a teammate or a second browser sees "No scan data" for a project that has scans. No team can share or trust results without this.
+
+**Scope:** ADR-027 (OIDC single sign-on plus a local admin account for first setup; roles mapped from today's personas: admin, security engineer, risk manager, developer, viewer); every API route requires a session and checks the role (score changes: security engineer; settings and keys: admin); scan results and history read from the server (`scan_snapshots`), localStorage only as a cache; audit trail records the real user instead of a persona; persona switcher removed outside demo mode; workspace membership.
+
+**Acceptance criteria:**
+- [ ] ADR-027 accepted by the engineer before implementation
+- [ ] Every API route except health and sign-in returns 401 without a session (test that enumerates the routes)
+- [ ] Role rules enforced on the server: a developer cannot apply a score change or set a key (tests)
+- [ ] A scan run in one browser appears in a second browser for another user of the same workspace (browser check)
+- [ ] Adjustments and chat proposals record the signed-in user (test)
+- [ ] Existing data loads after migration: projects, scans, adjustments (test on a copy of a real database)
+
+---
+
+### B-043 · Private Repository Access `[ ]` APPROVED — P0
+
+**Why:** Only public GitHub repositories can be scanned (`core/github_fetcher.py`); customers' code is private.
+
+**Scope:** GitHub App installation (preferred) or fine-grained token per workspace, stored encrypted (B-042); fetcher uses it for tree and file requests; clear errors for missing access and rate limits; GitLab next, Bitbucket and Azure DevOps later (separate items when asked for); token never sent to a model or shown after save.
+
+**Acceptance criteria:**
+- [ ] A private GitHub repository is scanned end to end with a workspace credential (recorded)
+- [ ] Missing or revoked access shows a plain message naming the repository and the fix (test)
+- [ ] The credential never appears in prompts, logs, telemetry or API responses (test capturing all four)
+- [ ] Public repositories still scan without a credential (regression test)
+
+---
+
+### B-048 · UX Blockers and Findings-First Interface `[ ]` APPROVED — phase 0 P0, phase 1 P1
+
+**Why:** From the UI/UX review (discovery report U1-U16). Phase 0 fixes what stops a first-time user; phase 1 restructures the app around triage and is built together with B-015 because both touch every page.
+
+**Phase 0 scope (P0, can start now):** any persona can open a project (roles restrict actions, not navigation) (U1); scan failures shown as plain messages in view with a next step, e.g. "Your Mistral key has expired" with a button to Settings (U13); provider key validated on save and before a scan, status shown in Settings and beside the scan button (U14); remove hard-coded "Acme Financial Services", `demo@fmea.io`, the "coming soon" bell and the "Within 7 days" promise (U8); no empty scope title (U9); destructive "Clear local data" behind confirmation (U10); new-project form not clipped (U16).
+
+**Phase 1 scope (P1):** navigation Overview · Findings · Coverage · Reports · Settings; one finding detail view with evidence, score, fix and history; cost and system health moved to an admin page; plain-language impact and CWE beside RPN; one icon set replacing emoji; accessibility pass (semantic buttons, labels, 4.5:1 contrast); first-run flow that starts from a repository URL with a cost and time estimate; catastrophic watchlist and `priority_reason` display (absorbs B-034 phase 3); scan history and "what changed" (absorbs B-004, needs B-031).
+
+**Acceptance criteria — phase 0:**
+- [ ] With the Developer persona, clicking a project selects it and the scan page shows that project (browser check)
+- [ ] An expired or invalid key produces a plain message and a Settings action; no raw provider error text is shown (test with a fake 401, browser check)
+- [ ] Saving an invalid key is rejected with a message; Settings shows key status per provider (test)
+- [ ] `grep` finds no "Acme", `demo@fmea.io` or "coming soon" in `frontend/src`
+- [ ] "Clear local data" requires confirmation
+- [ ] Frontend builds; existing tests green
+
+**Acceptance criteria — phase 1:**
+- [ ] A finding is fully reviewable (evidence, score with reason, fix, history) from one view (browser check)
+- [ ] Every interactive element is reachable and labelled for keyboard and screen-reader use (automated accessibility check with zero serious violations)
+- [ ] The watchlist lists every severity 9+ finding, including locked ones; old stored scans show current bands without migration (from B-034)
+- [ ] A new user scans a repository from the first screen in one step (browser check)
+
+---
+
+### B-051 · Company Landing Page `[~]` IN PROGRESS — P0 (go-to-market)
+
+**Why:** A page for design-partner outreach whose goal is clicks on "Book an assessment" and "How it works". Draft built 2026-11-17 and redesigned 2026-11-21 at `landing/index.html`.
+
+**Acceptance criteria:**
+- [x] Every call to action carries a `data-cta` label; the hero and how-it-works sections lead to the booking form
+- [x] No horizontal scroll at 375 px; animations respect reduced-motion settings; no console errors (checked in the browser pane)
+- [ ] Company name chosen and checked for trade mark and domain; "Faultmap" placeholder replaced
+- [ ] Booking form sends to a real address or scheduling tool (placeholder `hello@example.com` today)
+- [ ] `window.trackCta` wired to the chosen analytics tool; clicks per CTA visible
+- [ ] Every claim matches the product (re-checked after B-044); "limited places" and "results in days" kept only if true
+- [ ] Desktop two-column layout checked above 980 px
+
+---
+
+## Next — evaluation credibility and workflow (P1, new items)
+
+### B-045 · SARIF Import and Export; CWE on Every Finding `[ ]` APPROVED — P1 — *ADR first (ADR-028)*
+
+**Why:** Buyers already run scanners and will not trust a new detector on day one. Importing their findings and scoring, deduplicating and registering them alongside ours makes the product "the risk layer above your scanners" and adds dependency (SCA) results without building SCA. Security teams and auditors also need standard identifiers.
+
+**Scope:** ADR-028 (imported findings as a source in the finding identity model of B-031; how imported findings are scored and verified); `POST /api/import/sarif`; CWE (and OWASP category where clear) on every finding, ours and imported; SARIF export per scan; source shown on each finding.
+
+**Acceptance criteria:**
+- [ ] ADR-028 accepted before implementation
+- [ ] SARIF files from Semgrep, CodeQL and one dependency scanner import without error (fixtures, tests)
+- [ ] An imported finding at the same location and class as one of ours is merged, not duplicated (test)
+- [ ] Imported findings receive S/O/D, priority and the catastrophic floor like our own (test)
+- [ ] Every finding has a CWE or an explicit "unmapped" (test)
+- [ ] Exported SARIF validates against the SARIF 2.1.0 schema (test)
+
+---
+
+### B-046 · Public Benchmark on Real Code and Head-to-Head `[ ]` APPROVED — P1
+
+**Why:** The internal benchmark (6 small seeded repositories, 17 items written in-house) will not convince a buyer, and the false-positive rate is unknown — the first question an AppSec lead asks. Absorbs the open B-026 criterion "targets for B-028 written after the baseline".
+
+**Scope:** at least three open-source projects at commits with published vulnerabilities (CVE or advisory), labelled from the advisories; same code scanned by this product, Semgrep and CodeQL; a triaged sample of our extra findings to estimate the false-positive rate; method, results and misses written up for publication; targets for B-028 set from the results.
+
+**Acceptance criteria:**
+- [ ] Three or more real projects labelled from public advisories, labels signed off by the engineer
+- [ ] Recall on advisories reported for this product, Semgrep and CodeQL on identical code
+- [ ] False-positive rate estimated from a triaged sample of at least 50 findings, with the triage recorded
+- [ ] Write-up with method and misses ready for publication (engineer approves before it is published)
+- [ ] B-028 targets recorded in B-026 and approved
+
+---
+
+### B-047 · More Model Providers `[ ]` APPROVED — P1
+
+**Why:** Enterprises commonly require Azure OpenAI, AWS Bedrock, Anthropic or a self-hosted model; today only OpenAI and Mistral are registered (ADR-011).
+
+**Scope:** registry entries and request adapters for Azure OpenAI (deployment names, API version), AWS Bedrock, Anthropic, and any OpenAI-compatible local endpoint (base URL configurable); prices and reasoning capabilities taken from provider documentation at implementation time; embeddings per provider.
+
+**Acceptance criteria:**
+- [ ] Each new provider passes the existing provider tests with a fake client (request shape, keys, token parameter)
+- [ ] A local OpenAI-compatible endpoint runs a full scan (recorded)
+- [ ] At least one new hosted provider verified live on the benchmark, block rate recorded (B-040)
+- [ ] Adding a provider still needs only registry entries plus an adapter where the protocol differs (test)
+
+---
+
+### B-049 · Fixes as Pull Requests `[ ]` APPROVED — P1
+
+**Why:** Generated fixes are applied only in memory; engineers need them where they work.
+
+**Scope:** from a finding, open a branch and pull request containing the corrective diff and the proposed test, with the finding, evidence and expected score change in the description; never pushes to the default branch; link the pull request to the finding and update its lifecycle when merged (B-031).
+
+**Acceptance criteria:**
+- [ ] A fix opens a pull request on a test repository with diff, test and description (recorded)
+- [ ] No write to the default branch is possible (test)
+- [ ] Merging the pull request and rescanning marks the finding `fixed` (test with B-031)
+- [ ] Requires the security engineer or developer role (B-015)
+
+---
+
+### B-012 · Pull-Request Check `[ ]` APPROVED — P1, order 8 (moved from P3 on 2026-11-21)
+
+**Why:** Risk is only seen when someone opens the app. Teams need it on the pull request, before merge.
+
+**Scope:** GitHub check run (via the B-043 GitHub App) on pull requests: comment listing new and regressed findings with evidence links; fail on new or regressed severity 9+ findings (B-034) and, once B-028 phases exist, on unresolved catastrophic cells; Quick depth by default with a USD budget per check; configurable per workspace.
+
+**Acceptance criteria:**
+- [ ] A pull request that introduces a catastrophic finding fails the check with a comment naming file and line (recorded on a test repository)
+- [ ] A pull request with no new or regressed findings passes and comments nothing, or one summary line (test)
+- [ ] Unchanged findings are not reported again (uses B-031 identity; test)
+- [ ] The check never exceeds its USD budget; reaching it passes with a "budget reached" notice rather than failing silently (test)
+
+---
+
+### B-016 · Ticketing and Alerts `[ ]` APPROVED — P1, order 16 (moved from P3 and widened on 2026-11-21)
+
+**Why:** Findings need to land where work is tracked, and owners need to hear about new catastrophic risk without opening the app.
+
+**Scope:** create a Jira or Linear issue from a finding, with status synced back to the finding lifecycle (B-031); Slack / Teams webhook on new or regressed severity 9+ findings; configurable per workspace.
+
+**Acceptance criteria:**
+- [ ] Creating an issue from a finding links them both ways; closing the issue moves the finding to "fix pending verification" (test with a fake tracker)
+- [ ] A new severity 9+ finding sends one alert; a rescan with no change sends none (test)
+- [ ] Tracker and webhook credentials are stored encrypted and never returned by the API (test)
+
+---
+
+### B-050 · Control Mapping as Data `[ ]` PROPOSED — P2
+
+**Why:** Compliance alignment was claimed without an implementation (removed by B-044). Risk owners need findings mapped to the controls they report on.
+
+**Scope:** control catalogues as data files (ISO 27001 Annex A, SOC 2, DORA, NIS2, PCI DSS where applicable); mapping from CWE and root-cause domain to controls; evidence export per control.
+
+**Acceptance criteria:**
+- [ ] Adding a catalogue needs only a data file (test)
+- [ ] Each finding lists the controls it bears on, with the mapping rule shown
+- [ ] Evidence export per control for a project
+- [ ] Compliance wording in README and landing page only after this ships
 
 ---
 
@@ -469,7 +718,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ## In progress
 
-### B-027 · Business Profile + System Map; Untrusted-README Hardening `[~]` IN PROGRESS — phase 0 DONE, phase 1 pending
+### B-027 · Business Profile + System Map; Untrusted-README Hardening `[~]` IN PROGRESS — phase 0 DONE, phase 1 paused at P2 on 2026-11-21
 
 **Priority note:** Phase 0 is a security defect in the platform itself and should not wait for the rest. **Decision:** [ADR-017](decisions/ADR-017-business-profile-system-map.md)
 
@@ -497,6 +746,8 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 ---
 
 ## Next — scan-effectiveness programme (in suggested order)
+
+> **Paused 2026-11-21:** this programme's ordering is superseded by the go-to-market build order at the top. In-flight work lands; B-031 and B-028 phase 0 move into the P1 list; the rest resumes after it.
 
 ### PROGRAMME · Scan Effectiveness — find every catastrophic scenario, explain the root, shorten the noise `[~]` IN PROGRESS (B-027 phase 0 done)
 
@@ -551,7 +802,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — P0 (phases 1-3 done; provisional baseline recorded 2026-11-09; labels awaiting sign-off; B-028 targets pending)
+### B-026 · Scan Effectiveness Benchmark (Ground-Truth Harness) `[~]` IN PROGRESS — phases 1-3 done; labels signed off 2026-11-09; remaining criterion (B-028 targets) moved into B-046 on 2026-11-21
 
 **Decision:** [ADR-023](decisions/ADR-023-benchmark-methodology.md) (Draft). **Phases:** 1 scorer + truth schema + one seed repo (done) · 2 remaining repos and the extra criteria below · 3 runner, `make bench`, baseline on two models.
 
@@ -616,7 +867,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-034 · Severity-Aware Prioritisation and Catastrophic Guardrails `[~]` IN PROGRESS — P0 (phases 1-2 of 3 done)
+### B-034 · Severity-Aware Prioritisation and Catastrophic Guardrails `[~]` IN PROGRESS — phases 1-2 done; phase 3 (watchlist UI, stored-scan bands) moved into B-048 phase 1 on 2026-11-21
 
 **Decision:** [ADR-020](decisions/ADR-020-severity-aware-prioritisation.md) (Accepted 2026-10-24). **Added by the 2026-10-24 backlog review.** **Phases:** 1 core function, replace copies, validator guard (done) · 2 expert-adjustment guard and audit flag · 3 watchlist UI, `priority_reason` display, re-evaluation of old stored scans.
 
@@ -646,7 +897,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-040 · Defensive-Purpose Framing Across Models and Provider-Block Handling `[ ]` PROPOSED — P2
+### B-040 · Defensive-Purpose Framing Across Models and Provider-Block Handling `[ ]` APPROVED — P1 (P2 to P1 on 2026-11-21: must land before any pilot)
 
 **Decision:** [ADR-024](decisions/ADR-024-defensive-framing-and-provider-blocks.md) (Draft). **Priority:** P2 (engineer-set 2026-11-09). **Ordering (engineer-approved 2026-11-09):** before B-028 phase B, so the new hunters and verifiers are written with the preamble from the start. **Found by:** the first live benchmark run (B-026): 8 of 18 Mistral Large 4 scans were blocked.
 
@@ -694,7 +945,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **Known limits:** the linkage agent reads only the first 12,000 characters, and the prefixes shorten what fits; models can still cite wrong lines, which this metric now shows; a stricter check that the quoted code actually sits at the cited line arrives with B-028's mechanical evidence verification.
 
 ---
-### B-033 · Scan Scope and Coverage Transparency `[~]` IN PROGRESS — P1 (phases 1-2 of 3 built; engineer-approved 2026-11-09)
+### B-033 · Scan Scope and Coverage Transparency `[~]` IN PROGRESS — phases 1-2 built; phase 3 paused at P2 on 2026-11-21 (dependency inventory partly replaced by SARIF import, B-045)
 
 **Decision:** [ADR-021](decisions/ADR-021-scan-scope-and-secrets.md) (Accepted 2026-11-09). **Added by the 2026-10-24 backlog review.** **Phases:** 1 scope rule, manifest, budget and wider file types (built) - 2 secret redaction and deterministic reporting (built) - 3 lockfile dependency inventory, persisted per-project patterns, ledger cells (not started).
 
@@ -724,7 +975,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-030 · Corrective and Preventive Remediation Agents; Retire 30-60-90 and Gantt `[ ]` PROPOSED — P1
+### B-030 · Corrective and Preventive Remediation Agents; Retire 30-60-90 and Gantt `[ ]` PROPOSED — P2 (paused 2026-11-21; first to resume)
 
 **Decision:** [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md). **Supersedes:** B-010.
 
@@ -744,7 +995,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-029 · Root-Cause Classification (Security / Architectural / Engineering / Operational) `[ ]` PROPOSED — P1
+### B-029 · Root-Cause Classification (Security / Architectural / Engineering / Operational) `[ ]` PROPOSED — P2 (paused 2026-11-21; first to resume)
 
 **Decision:** [ADR-016](decisions/ADR-016-root-cause-taxonomy.md)
 
@@ -764,7 +1015,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-036 · Code Navigation Toolkit for Agents `[~]` IN PROGRESS — P1 (phases 0-1 done, tools in the chat; prerequisite of B-028 phase B)
+### B-036 · Code Navigation Toolkit for Agents `[~]` IN PROGRESS — phases 0-1 on main, phase 2 on unmerged branch `feature/b036-code-index-phase2`; remaining criteria paused at P2 on 2026-11-21 (land that branch first)
 
 **Decision:** Addendum to [ADR-015](decisions/ADR-015-goal-based-discovery.md); build-versus-adopt decided in [ADR-025](decisions/ADR-025-code-index-build-vs-adopt.md) (Accepted 2026-11-09). **Added by the 2026-10-24 backlog review.** **Phases:** 0 spike (done) · 1 Python index with receiver-aware call resolution · 2 Java, C#, TypeScript and the missing framework idioms · 3 tools registered with the chat and the verifier.
 
@@ -797,7 +1048,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-031 · Finding Identity, Lifecycle and Lock Semantics `[ ]` PROPOSED — P1
+### B-031 · Finding Identity, Lifecycle and Lock Semantics `[ ]` APPROVED — P1, order 6 (moved up 2026-11-21: needed by B-012, B-028 phase 0, B-045, B-011)
 
 **Decision:** [ADR-019](decisions/ADR-019-finding-identity-and-locks.md). **Revises:** parts of ADR-003 and B-001.
 
@@ -815,13 +1066,14 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[ ]` PROPOSED — P1
+### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[ ]` PROPOSED — phase 0 P1 (order 7); phases B0, A-D P2 (paused 2026-11-21)
 
 **Decision:** [ADR-015](decisions/ADR-015-goal-based-discovery.md). **Depends on:** B-026 (measure), B-027 (profile and system map), B-031 (identity and locks before phase D).
 
 **Why:** Make sure every part of the attack surface is examined against every applicable threat class, every hypothesis ends in an evidenced verdict, and nothing catastrophic is silently dropped.
 
 **Phases (each shippable and re-measured on B-026):**
+- **0. Cap and scale (pulled forward 2026-11-21, P1):** `max_failure_modes` no longer limits what is reported (locked findings never take a new finding's place, with B-031); repositories above the scope budget are processed in prioritised batches (entry points, auth, data access, infrastructure first) instead of sampled, with unprocessed files listed; cost estimate shown before a scan whose estimate exceeds today's single pass. Acceptance: 7 locked findings plus a new vulnerability reports all 8 (test); a 1 MB benchmark repository is fully processed or lists what was not (test); Quick depth keeps today's cost on the existing benchmark (re-run recorded); recall and precision on B-026 not worse than the last recorded run.
 - **B0. Verifier slice (added 2026-10-24):** the exploit verifier and the exploit goal / path-step schema (ADR-015 addendum 2) applied to the existing saboteur findings, with attempt log and mechanical evidence check; no inventory yet; re-measured on B-026
 - **A. Inventory, threat registry, coverage ledger:** structured attack-surface inventory (two independent passes, unioned), threat-class registry with variant playbooks (data file), coverage ledger persisted per scan; no change to scoring yet
 - **B. Hunters and exploit verifier:** per-cell hypothesis generation over relevant code via the read-only code tools; verifier tries every playbook variant before refuting; attempt log; mechanical evidence verification; verdict confirmed / refuted / unresolved
@@ -849,7 +1101,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-035 · Agent Roster Migration `[ ]` PROPOSED — P1 (alongside B-028 phase B)
+### B-035 · Agent Roster Migration `[ ]` PROPOSED — P2 (paused 2026-11-21; alongside B-028 phase B)
 
 **Decision:** [ADR-022](decisions/ADR-022-agent-roster-after-goal-based-discovery.md). **Added by the 2026-10-24 backlog review.**
 
@@ -877,7 +1129,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-032 · Pipeline Observability, Cost Estimate and Budget Guard for the New Stages `[ ]` PROPOSED — P2
+### B-032 · Pipeline Observability, Cost Estimate and Budget Guard for the New Stages `[ ]` PROPOSED — P2 (paused 2026-11-21 with B-028)
 
 **Depends on:** B-028.
 
@@ -895,7 +1147,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ## Later — P2
 
-### B-004 · Scan History Page
+### B-004 · Scan History Page — *absorbed into B-048 phase 1 (P1) on 2026-11-21*
 **Why:** Users cannot see previous scan runs for a project. There is no RPN trend, no way to compare two scans, and no record of when a risk was first detected.
 
 **Scope:**
@@ -1056,7 +1308,7 @@ This is different from the existing scenario registry (which deduplicates within
 
 ---
 
-### B-011 · PDF / DOCX Report Export
+### B-011 · PDF / DOCX Report Export `[ ]` APPROVED — P1, order 14 (moved up 2026-11-21: auditors and boards need a deliverable; depends on B-031)
 **Why:** Stakeholders who don't use the app need a shareable deliverable. A one-click export covering the executive summary, KPI cards, risk table, and mitigation plan covers this without requiring access.
 
 **Scope:**
@@ -1077,11 +1329,11 @@ This is different from the existing scenario registry (which deduplicates within
 
 | # | Item | Notes |
 |---|---|---|
-| [ ] | **B-012 · CI/CD integration** (GitHub Actions / Jenkins) | Block PR merge if new Critical risks introduced. `POST /api/ci/check` returns pass/fail + risk delta. *(2026-10-24: use Standard depth with a budget; fail on new or regressed S ≥ 9 findings (B-034) and on unresolved catastrophic cells (B-028); needs B-031.)* |
+| → | **B-012 · CI/CD integration** — *moved to P1 order 8 on 2026-11-21 (pull-request check: comment new or regressed findings, fail on new catastrophic ones; needs B-015, B-031, B-043)* | Block PR merge if new Critical risks introduced. `POST /api/ci/check` returns pass/fail + risk delta. *(2026-10-24: use Standard depth with a budget; fail on new or regressed S ≥ 9 findings (B-034) and on unresolved catastrophic cells (B-028); needs B-031.)* |
 | [ ] | **B-013 · Multi-language AST support** (TypeScript, Java, Go) | Extend `core/ast_extractor.py` with Tree-sitter grammars. Detect language from file extension. *(2026-10-24: also feeds the code index of B-036, whose non-Python extractors are text-based until then.)* |
 | [ ] | **B-014 · IDE integration** (VS Code extension) | Right-click a function → "Run FMEA on this function". Inline risk annotations as diagnostics. |
-| [ ] | **B-015 · Authentication + multi-user support** | OAuth2 + JWT. Per-user workspace ownership. Role-based API access. Hard dependency for cloud/SaaS. |
-| [ ] | **B-016 · Slack / Teams alerting** | Webhook POST when new Critical risk registered or eval score drops. Configurable per workspace. *(2026-10-24: also alert on regressed findings (B-031), new S ≥ 9 findings (B-034) and unresolved catastrophic cells (B-028).)* |
+| → | **B-015 · Authentication + multi-user support** | *Moved to P0 on 2026-11-21; full item under "Now — go-to-market foundation".* |
+| → | **B-016 · Slack / Teams alerting** — *moved to P1 order 16 on 2026-11-21 and widened to Jira / Linear tickets with status synced back* | Webhook POST when new Critical risk registered or eval score drops. Configurable per workspace. *(2026-10-24: also alert on regressed findings (B-031), new S ≥ 9 findings (B-034) and unresolved catastrophic cells (B-028).)* |
 | [ ] | **B-017 · Level 4 memory — cross-customer anonymised patterns** | Opt-in. Anonymised embedding sharing across opted-in workspaces. Requires privacy review. See ADR-005. |
 
 ---
@@ -1090,7 +1342,8 @@ This is different from the existing scenario registry (which deduplicates within
 
 - New work needs engineer approval of priority and of any architecture decision (ADR in `docs/decisions/`) before implementation starts.
 - Effectiveness claims are measured against the labelled benchmark (B-026); no scan-quality improvement is declared done without a before/after measurement.
-- B-015 (authentication) is a hard dependency for any external beta or multi-user use. Until then, persona permissions are enforced in the UI only.
+- B-015 (authentication) is a hard dependency for any external beta or multi-user use. Until then, persona permissions are enforced in the UI only. It is P0 from 2026-11-21.
+- From 2026-11-21 the go-to-market build order at the top of this file decides what is next; the scan-effectiveness programme resumes after the P1 list. New architecture choices in that order (ADR-026 deployment, ADR-027 sign-in, ADR-028 SARIF) are Draft until the engineer accepts them, and their items do not start before that.
 - B-008 (incremental scanning) is deferred by user decision; do not start without re-confirming, and rebase it on the coverage ledger first (see its note).
 - B-006 was superseded by B-018; B-010 is pending supersession by B-030 (ADR-018 approval).
 - B-019 (attack chain memory) and B-017 (cross-customer patterns) need a privacy review and an ADR extending ADR-005 before implementation.
