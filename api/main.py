@@ -7,9 +7,14 @@ Start with:
 OpenAPI docs: http://localhost:8000/docs
 """
 
+import logging
+import os
 import threading
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import eval as eval_router
@@ -26,9 +31,11 @@ def _bg_refresh_pricing() -> None:
         pass
 
 
+from core.version import APP_VERSION
+
 app = FastAPI(
     title="FMEA Platform API",
-    version="1.0.0",
+    version=APP_VERSION,
     description="AI-native continuous Failure Mode & Effects Analysis for software teams.",
 )
 
@@ -57,10 +64,52 @@ app.include_router(chat_router.router)
 
 @app.on_event("startup")
 async def startup() -> None:
+    from core.secrets import encrypt_stored_keys
+    from core.retention import purge_now, start_background_purge
+    encrypt_stored_keys()                       # raises with a clear message if FMEA_SECRET_KEY is invalid
+    try:
+        purge_now()
+    except Exception:
+        logging.getLogger(__name__).warning("startup source purge failed", exc_info=True)
+    start_background_purge()
     threading.Thread(target=_bg_refresh_pricing, daemon=True).start()
 
 
 @app.get("/api/health")
 async def health():
-    """Liveness probe."""
-    return {"status": "ok"}
+    """Liveness and readiness: version, database status and how provider keys are stored (B-042)."""
+    import memory.db as db
+    from core.secrets import key_storage, undecryptable_providers
+    try:
+        conn = db.get_db()
+        try:
+            conn.execute("SELECT 1")
+        finally:
+            conn.close()
+        database = "ok"
+    except Exception:
+        database = "error"
+    body = {"status": "ok" if database == "ok" else "degraded", "version": APP_VERSION,
+            "database": database, "key_storage": key_storage(),
+            "undecryptable_keys": undecryptable_providers()}
+    return JSONResponse(body, status_code=200 if database == "ok" else 503)
+
+
+# Built frontend (container image): FMEA_STATIC_DIR points at frontend/dist. API routes above win.
+_static = os.environ.get("FMEA_STATIC_DIR", "").strip()
+if _static and (Path(_static) / "index.html").is_file():
+    _static_root = Path(_static).resolve()
+    if (_static_root / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=_static_root / "assets"), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def spa(path: str):
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        try:
+            candidate = (_static_root / path).resolve()
+            if path and candidate.is_file() and candidate.is_relative_to(_static_root):
+                return FileResponse(candidate)
+        except (ValueError, OSError):
+            pass                                  # odd paths fall through to the app shell
+        return FileResponse(_static_root / "index.html")

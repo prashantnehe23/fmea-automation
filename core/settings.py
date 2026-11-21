@@ -15,7 +15,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
-_SETTINGS_PATH = Path(__file__).resolve().parent / "settings.json"
+from core.paths import data_dir
+
+_SETTINGS_PATH = data_dir(Path(__file__).resolve().parent) / "settings.json"
 _lock = threading.Lock()
 
 _DEFAULTS: dict[str, Any] = {
@@ -23,7 +25,8 @@ _DEFAULTS: dict[str, Any] = {
     "pricing_cache":     {},
     "pricing_cached_at": None,
     "reasoning_level":   "off",   # B-023: off | low | medium | high
-    "api_keys":          {},   # {provider_id: key} — B-022; file is gitignored
+    "api_keys":          {},   # {provider_id: key} — B-022; file is gitignored; encrypted when FMEA_SECRET_KEY is set (B-042)
+    "source_retention_days": 30,   # B-042: days scanned source is kept; FMEA_SOURCE_RETENTION_DAYS overrides
 }
 
 

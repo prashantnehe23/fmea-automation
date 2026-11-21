@@ -1,6 +1,6 @@
 # ADR-026: Deployment Model — Single-Tenant Self-Hosted Container with the Customer's Own Model Key
 
-**Status:** Draft — needs the engineer's decision on the points marked **DECIDE**  **Date:** 2026-11-21  **Backlog:** B-042 (blocks B-015, B-043)
+**Status:** Accepted (engineer, 2026-11-21) with the proposed options: SQLite for v1, `cryptography` for key encryption, 30-day default retention. The licence (point 8) was not chosen; it must be chosen before an image is given to anyone outside the company and does not block implementation  **Date:** 2026-11-21  **Backlog:** B-042 (blocks B-015, B-043)
 
 ## Context
 There is no way to install the product for a customer: no container, no licence, SQLite as the only store, per-scan counters held in module globals (`core/llm.py`: `_call_count`, `_prompt_tokens`, `_completion_tokens`, reset at the start of each scan in `workflows/fmea_pipeline.py`) so two scans in one process corrupt each other's counts and costs, customer code stored unencrypted (`scan_sources`), provider keys stored unencrypted (`core/settings.json`), and no retention or deletion controls. The deployment model decides how much of that the product must solve itself (discovery report A4, A5, A7). Customer source code is the most sensitive thing the product handles.

@@ -31,12 +31,12 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-016](ADR-016-root-cause-taxonomy.md) | Root-Cause Classification: Security, Architectural, Engineering, Operational | Draft | 2026-10-19 |
 | [ADR-017](ADR-017-business-profile-system-map.md) | Business Profile and System Map; Untrusted README | Draft | 2026-10-19 |
 | [ADR-018](ADR-018-corrective-preventive-remediation.md) | Remediation Split: Corrective and Preventive; No Time-Boxed Roadmap | Draft | 2026-10-19 |
-| [ADR-019](ADR-019-finding-identity-and-locks.md) | Finding Identity, Lifecycle and Lock Semantics | Draft | 2026-10-19 |
+| [ADR-019](ADR-019-finding-identity-and-locks.md) | Finding Identity, Lifecycle and Lock Semantics | Accepted | 2026-10-19 |
 | [ADR-020](ADR-020-severity-aware-prioritisation.md) | Severity-Aware Prioritisation and Catastrophic Guardrails | Accepted | 2026-10-24 |
 | [ADR-021](ADR-021-scan-scope-and-secrets.md) | Scan Scope Transparency, Infrastructure Files and Secret Handling | Draft | 2026-10-24 |
 | [ADR-022](ADR-022-agent-roster-after-goal-based-discovery.md) | Agent Roster After Goal-Based Discovery | Draft | 2026-10-24 |
 | [ADR-023](ADR-023-benchmark-methodology.md) | Scan Effectiveness Benchmark Methodology | Draft | 2026-10-24 |
-| [ADR-024](ADR-024-defensive-framing-and-provider-blocks.md) | Defensive-Purpose Framing Across Providers, and Handling of Provider Blocks | Draft | 2026-11-09 |
+| [ADR-024](ADR-024-defensive-framing-and-provider-blocks.md) | Defensive-Purpose Framing Across Providers, and Handling of Provider Blocks | Accepted | 2026-11-09 |
 | [ADR-025](ADR-025-code-index-build-vs-adopt.md) | Code Index: Build a Thin Tree-sitter Index, Do Not Embed Graphify or CodeGraph | Accepted | 2026-11-09 |
-| [ADR-026](ADR-026-deployment-model.md) | Deployment Model: Single-Tenant Self-Hosted Container with the Customer's Own Model Key | Draft | 2026-11-21 |
-| [ADR-027](ADR-027-authentication-roles-and-repository-access.md) | Authentication, Roles, Server-Side Results and Repository Credentials | Draft | 2026-11-21 |
+| [ADR-026](ADR-026-deployment-model.md) | Deployment Model: Single-Tenant Self-Hosted Container with the Customer's Own Model Key | Accepted | 2026-11-21 |
+| [ADR-027](ADR-027-authentication-roles-and-repository-access.md) | Authentication, Roles, Server-Side Results and Repository Credentials | Accepted | 2026-11-21 |

@@ -1,0 +1,21 @@
+# B-042 / ADR-026: single-tenant install with the customer's own model key.
+#   1. python -m core.secrets            (prints a new FMEA_SECRET_KEY; keep it: without it stored keys cannot be read)
+#   2. set FMEA_SECRET_KEY and OPENAI_API_KEY and/or MISTRAL_API_KEY in the environment or a .env file
+#   3. docker compose up --build         then open http://localhost:8000
+# The port is bound to localhost only: there is no sign-in until B-015, so do not publish it to a network.
+services:
+  fmea:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      FMEA_SECRET_KEY: ${FMEA_SECRET_KEY:?Set FMEA_SECRET_KEY (python -m core.secrets prints a new one)}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      FMEA_SOURCE_RETENTION_DAYS: ${FMEA_SOURCE_RETENTION_DAYS:-30}
+    volumes:
+      - fmea-data:/data
+    restart: unless-stopped
+
+volumes:
+  fmea-data:

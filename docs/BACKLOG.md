@@ -25,7 +25,7 @@
 
 Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 
-**Awaiting the engineer (2026-11-21):** every remaining item in this order either starts with an ADR the engineer must accept or depends on one, so no further implementation can start until then. Draft ADRs ready to review: [ADR-026](decisions/ADR-026-deployment-model.md) (B-042; four DECIDE points: SQLite for v1, `cryptography` dependency, default retention, licence), [ADR-027](decisions/ADR-027-authentication-roles-and-repository-access.md) (B-015, B-043; DECIDE points: OIDC library, password hashing, repository credential type), [ADR-019](decisions/ADR-019-finding-identity-and-locks.md) (B-031, unblocks B-028 phase 0, B-012, B-045, B-011, B-016), [ADR-024](decisions/ADR-024-defensive-framing-and-provider-blocks.md) (B-040). ADR-028 (B-045) is written when B-031 is done. Only B-047 (more providers) is free to start now; its criteria for a live hosted-provider check and a local endpoint need a valid key and a running endpoint.
+**ADRs accepted 2026-11-21:** ADR-019, 024, 026 and 027 (the last two with the recommended options). Licence choice (ADR-026 point 8) is still open and must be made before an image goes outside the company. ADR-028 (B-045) is written when B-031 is done. Build order from here: B-042, B-015, B-043, then the P1 list.
 
 ### Next — P1: credible in an evaluation and part of the team's workflow
 
@@ -68,7 +68,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-042 · Deployment Model and Container Packaging `[ ]` APPROVED — P0 — *ADR first (ADR-026: Draft written 2026-11-21, awaiting acceptance)*
+### B-042 · Deployment Model and Container Packaging `[~]` IMPLEMENTED 2026-11-21, 1 criterion unverified — P0 — *ADR-026 accepted 2026-11-21*
 
 **Why:** There is no way to install the product for a customer: no container, no licence, SQLite, scans serialised by global call counters, customer code and keys stored unencrypted. The deployment model decides how much of A5 and A7 in the discovery report the product must solve itself.
 
@@ -77,16 +77,18 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 **Scope:** ADR-026; `Dockerfile` and compose file; configuration by environment variables; database location on a mounted volume; provider keys encrypted at rest (key from the environment); scan source retention setting with delete; per-scan state instead of global call counters so two scans can run at once; health and version endpoint; licence file chosen by the engineer.
 
 **Acceptance criteria:**
-- [ ] ADR-026 accepted by the engineer before any other scope starts
-- [ ] `docker compose up` on a clean machine serves the app and runs a scan on a benchmark repository (recorded)
-- [ ] Provider keys are not readable in plain text on disk (test)
-- [ ] Stored scan sources are deleted after the configured retention, and on request per project (test)
-- [ ] Two scans run concurrently with correct, separate call counts and costs (test)
-- [ ] `/api/health` reports version and database status
+- [x] ADR-026 accepted by the engineer before any other scope starts (2026-11-21, with SQLite for v1, `cryptography`, 30-day retention)
+- [ ] `docker compose up` on a clean machine serves the app and runs a scan on a benchmark repository (recorded). **Unverified:** Docker Desktop failed to start on the dev machine (stale `dockerInference` socket error), so the image was never built; no valid provider key was available for a scan. Checked instead: the API run from a temp data dir with `FMEA_DATA_DIR`, `FMEA_STATIC_DIR` and `FMEA_SECRET_KEY` served the built UI, `/api/health`, SPA routes and a 404 for unknown API routes, and created its database and settings in the data dir; `test_container_files_follow_the_adr` checks the Dockerfile and compose file
+- [x] Provider keys are not readable in plain text on disk (test: `test_key_is_not_readable_on_disk_but_round_trips`; needs `FMEA_SECRET_KEY`, health reports `key_storage`)
+- [x] Stored scan sources are deleted after the configured retention, and on request per project (tests: purge, `DELETE /api/workspace/{id}/sources`, zero retention)
+- [x] Two scans run concurrently with correct, separate call counts and costs (tests: thread-local usage in `core/llm.py`; costs derive from those counts)
+- [x] `/api/health` reports version and database status (test; 503 when the database fails)
+
+**Done 2026-11-21 (design: ADR-026; plan and report in `docs/harness/B-042/`):** `FMEA_DATA_DIR` moves every runtime file to one volume (`core/paths.py`); provider keys encrypted with `FMEA_SECRET_KEY` via Fernet (`core/secrets.py`, plain text without it, `/api/health` reports `key_storage` and `undecryptable_keys`); per-scan usage counters in a `ContextVar` (`core/llm.py`); source retention (`core/retention.py`: default 30 days, startup and 6-hourly purge, purge after each scan, `0` stores nothing) and `DELETE /api/workspace/{id}/sources`; `/api/health`; `FMEA_STATIC_DIR` serves the built frontend; `Dockerfile`, `docker-compose.yml` (localhost only, requires `FMEA_SECRET_KEY`), `.dockerignore`. **Open:** the container build and `docker compose up` run, plus a benchmark scan (above); the licence file (engineer's choice); a copy of each finished scan stays in the API's in-memory `scan_store` until restart, so retention `0` does not cover process memory; whether `analysis_cache.json` or per-workspace output hold code was not checked; the delete endpoint is unauthenticated like every route until B-015; the results chat with no stored source was not exercised (it receives an empty file list); rotating `FMEA_SECRET_KEY` has no re-encryption path (keys must be re-entered; health shows `undecryptable_keys`). `cryptography` is unpinned (`>=42`).
 
 ---
 
-### B-015 · Sign-in, Roles and Server-Side Results `[ ]` APPROVED — P0 (moved from P3 on 2026-11-21) — *ADR first (ADR-027: Draft written 2026-11-21, awaiting acceptance; needs ADR-026)*
+### B-015 · Sign-in, Roles and Server-Side Results `[ ]` APPROVED — P0 (moved from P3 on 2026-11-21) — *ADR-027 accepted 2026-11-21*
 
 **Why:** Every endpoint is open, including those that set provider keys and delete scenarios; personas are a dropdown; scan results live in browser localStorage, so a teammate or a second browser sees "No scan data" for a project that has scans. No team can share or trust results without this.
 

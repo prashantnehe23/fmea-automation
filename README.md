@@ -68,10 +68,19 @@ The SQLite database (`memory/fmea.db`) and the scan caches are created automatic
 
 Production build of the frontend: `cd frontend && npm run build` (output in `frontend/dist/`).
 
+### Container (single-tenant install, ADR-026)
+
+```bash
+python -m core.secrets          # prints a new FMEA_SECRET_KEY; keep it, stored keys cannot be read without it
+docker compose up --build       # then open http://localhost:8000
+```
+
+Set `FMEA_SECRET_KEY` and `OPENAI_API_KEY` and/or `MISTRAL_API_KEY` in the environment or a `.env` file. All runtime data lives in one volume (`FMEA_DATA_DIR`, `/data` in the container). `FMEA_SOURCE_RETENTION_DAYS` (default 30, `0` keeps no scanned code) controls how long scanned source is stored; findings are kept. `GET /api/health` reports the version and database status. The compose file binds to localhost only. **The container build has not yet been run on a clean machine.**
+
 ### Tests
 
 ```bash
-python -m pytest tests/ -v            # 439 passing on 2026-11-21
+python -m pytest tests/ -v            # 492 passing on 2026-11-21
 ```
 
 `make test`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
@@ -99,11 +108,11 @@ Priority also depends on severity, so a catastrophic item cannot be hidden by a 
 Read these before a pilot.
 
 - **Public GitHub repositories only.** There is no private-repository access, GitLab or Bitbucket.
-- **No sign-in or access control.** Every API route is open, including the one that sets provider keys. The five "personas" in the UI are a role-play switch, not security roles. Do not expose the API to a network you do not control.
+- **No sign-in or access control.** Every API route is open, including the one that sets provider keys. The five "personas" in the UI are a role-play switch, not security roles. That includes the endpoints that delete stored source code. Do not expose the API to a network you do not control.
 - **Results are held in the browser.** A second browser or user does not see a project's scan results.
-- **Keys and scanned code are stored unencrypted** on the machine that runs the API (`core/settings.json`, SQLite).
+- **Keys are encrypted at rest only when `FMEA_SECRET_KEY` is set** (always in the container); otherwise they are plain text in `core/settings.json`. Scanned code is stored in SQLite until the retention period ends, and a copy of each finished scan is kept in the API process's memory until restart.
 - **At most seven findings per scan**, and repositories above about 300 KB of code are sampled rather than read in full.
-- **No deployment package.** There is no container image, and scans run one at a time per process.
+- **The container is untested on a clean machine**, and there is no licence file yet.
 - **Not yet measured on real code.** The benchmark is six small repositories with in-house labels. The false-positive rate is unknown.
 - **Provider guardrails can block scans.** In testing, about half of Mistral Large 4 scans were refused by the provider ([ADR-024](docs/decisions/ADR-024-defensive-framing-and-provider-blocks.md), Draft).
 - **No pull-request check, ticketing, SARIF or report export.** Fixes are never opened as pull requests.

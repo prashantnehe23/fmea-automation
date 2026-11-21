@@ -24,15 +24,16 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from core.paths import data_dir
 from core.priority import lowers_catastrophic_severity
 
-_DB_PATH = Path(__file__).resolve().parent / "fmea.db"
+_DB_PATH = data_dir(Path(__file__).resolve().parent) / "fmea.db"
 _lock = threading.Lock()
 
 # ── Schema ─────────────────────────────────────────────────────────────────────
@@ -672,6 +673,45 @@ def save_scan_snapshot(
             return snapshot_id  # type: ignore[return-value]
         finally:
             conn.close()
+
+
+def purge_expired_sources(days: int) -> int:
+    """Delete scanned source files of snapshots older than *days* (B-042). Findings are kept. Returns files deleted."""
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                "DELETE FROM scan_sources WHERE snapshot_id IN (SELECT id FROM scan_snapshots WHERE created_at < ?)",
+                (cutoff,),
+            )
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
+
+def delete_sources_for_workspace(workspace_id: int) -> int:
+    """Delete every stored source file of a project (B-042). Returns files deleted."""
+    with _lock:
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                "DELETE FROM scan_sources WHERE snapshot_id IN (SELECT id FROM scan_snapshots WHERE workspace_id=?)",
+                (workspace_id,),
+            )
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
+
+def workspace_exists(workspace_id: int) -> bool:
+    conn = get_db()
+    try:
+        return conn.execute("SELECT 1 FROM workspaces WHERE id=?", (workspace_id,)).fetchone() is not None
+    finally:
+        conn.close()
 
 
 def get_latest_snapshot(workspace_id: int) -> dict | None:

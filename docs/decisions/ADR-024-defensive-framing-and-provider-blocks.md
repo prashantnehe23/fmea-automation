@@ -1,6 +1,6 @@
 # ADR-024: Defensive-Purpose Framing Across Providers, and Handling of Provider Blocks
 
-**Status:** Draft (awaiting engineer approval)  **Date:** 2026-11-09  **Backlog:** B-040
+**Status:** Accepted (engineer, 2026-11-21; the authorisation-confirmation question stays open and deferred)  **Date:** 2026-11-09  **Backlog:** B-040
 
 ## Context
 The first live benchmark run (B-026) showed that Mistral Large 4 blocked 8 of 18 scans with `403 Request blocked by guardrail policy` (code 1920). The provider's stated policy blocks offensive use but allows defensive use; this product is defensive: it analyses code the user owns or is authorised to assess in order to prioritise and fix weaknesses. Several of our prompts nevertheless read as offensive. The surveyor-to-saboteur persona is "an elite red team operative ... who reasons like an attacker planning a real attack on a live production system", the verifier design asks for exploit construction (ADR-015), and the results chat explains how something is exploited. Other providers apply similar policies, so the issue is not specific to Mistral.

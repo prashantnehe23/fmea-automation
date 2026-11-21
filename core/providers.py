@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 
 import openai
 
+from core.secrets import decrypt, encrypt
 from core.settings import get_setting, set_setting
 
 PROVIDERS: dict[str, dict] = {
@@ -70,13 +71,14 @@ def model_supports_tools(model_id: str) -> bool:
 def get_api_key(provider_id: str) -> str | None:
     """Return the user-entered key, falling back to the provider's env var."""
     stored = (get_setting("api_keys") or {}).get(provider_id)
+    stored = decrypt(stored) if stored else None
     return stored or os.environ.get(get_provider(provider_id)["env_var"]) or None
 
 
 def set_api_key(provider_id: str, key: str) -> None:
     get_provider(provider_id)
     keys = dict(get_setting("api_keys") or {})
-    keys[provider_id] = key.strip()
+    keys[provider_id] = encrypt(key.strip())
     set_setting("api_keys", keys)
 
 

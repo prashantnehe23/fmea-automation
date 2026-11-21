@@ -9,9 +9,11 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
+
+from core.paths import data_dir
 from typing import Any
 
-CACHE_PATH = Path(__file__).parent / "analysis_cache.json"
+CACHE_PATH = data_dir(Path(__file__).parent) / "analysis_cache.json"
 
 
 # ── Fingerprinting ──────────────────────────────────────────────────────────────

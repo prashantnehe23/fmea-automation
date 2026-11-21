@@ -1,6 +1,6 @@
 # ADR-027: Authentication, Roles, Server-Side Results and Repository Credentials
 
-**Status:** Draft — needs the engineer's decision on the points marked **DECIDE**; depends on ADR-026 being accepted  **Date:** 2026-11-21  **Backlog:** B-015 (also covers the credential part of B-043)
+**Status:** Accepted (engineer, 2026-11-21) with the proposed options: Authlib for OIDC, standard-library scrypt for local passwords, fine-grained token first for repository access (GitHub App when B-012 starts)  **Date:** 2026-11-21  **Backlog:** B-015 (also covers the credential part of B-043)
 
 ## Context
 Every API route is open, including those that set provider keys and delete scenarios. The "personas" are a dropdown (Developer, Risk Manager, SRE, Security Engineer, Executive). Scan results live in browser `localStorage` (the server keeps `scan_snapshots`, but the UI reads the browser copy), so a teammate sees "No scan data" for a project that has scans. Adjustments record `source` (manual or chat) but not the person. Only public GitHub repositories can be scanned (`core/github_fetcher.py`). ADR-026 proposes one organisation per install, which shapes the choices below.

@@ -12,10 +12,12 @@ Exports:
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
 import re
+import threading
 
 import openai
 
@@ -35,9 +37,34 @@ def _get_model() -> str:
 def get_model_name() -> str:
     """Return the currently configured model ID."""
     return _get_model()
-_call_count: int = 0
-_prompt_tokens: int = 0
-_completion_tokens: int = 0
+# Per-scan usage (B-042, ADR-026): one mutable counter object per scan, held in a ContextVar. A scan runs
+# in one executor thread, so scans never mix; work handed on with asyncio.to_thread or contextvars.copy_context()
+# keeps adding to the same scan's counters.
+class _Usage:
+    __slots__ = ("calls", "prompt", "completion")
+
+    def __init__(self) -> None:
+        self.calls = self.prompt = self.completion = 0
+
+
+_usage_var: contextvars.ContextVar[_Usage | None] = contextvars.ContextVar("fmea_scan_usage", default=None)
+_usage_lock = threading.Lock()
+
+
+def _current_usage() -> _Usage:
+    usage = _usage_var.get()
+    if usage is None:
+        usage = _Usage()
+        _usage_var.set(usage)
+    return usage
+
+
+def _add_usage(calls: int = 0, prompt: int = 0, completion: int = 0) -> None:
+    usage = _current_usage()
+    with _usage_lock:
+        usage.calls += calls
+        usage.prompt += prompt
+        usage.completion += completion
 
 
 class MissingApiKeyError(RuntimeError):
@@ -63,20 +90,18 @@ def _get_client(provider_id: str) -> openai.OpenAI:
 
 def reset_call_count() -> None:
     """Reset the per-run LLM call counter and token accumulators."""
-    global _call_count, _prompt_tokens, _completion_tokens
-    _call_count = 0
-    _prompt_tokens = 0
-    _completion_tokens = 0
+    _usage_var.set(_Usage())
 
 
 def get_call_count() -> int:
     """Return the number of LLM calls made since the last reset."""
-    return _call_count
+    return _current_usage().calls
 
 
 def get_token_usage() -> tuple[int, int]:
     """Return (prompt_tokens, completion_tokens) accumulated since last reset."""
-    return _prompt_tokens, _completion_tokens
+    usage = _current_usage()
+    return usage.prompt, usage.completion
 
 
 def _content_text(content) -> str:
@@ -178,7 +203,6 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
          back and the model is asked for just the JSON.
       4. As a last resort a truncated JSON is closed, keeping every completed item.
     """
-    global _call_count, _prompt_tokens, _completion_tokens
     from core.providers import get_provider, provider_for_model
     from core.reasoning import DEFAULT_LEVEL, request_params
     from core.settings import get_setting
@@ -190,7 +214,6 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     first_budget = min(max(int(max_tokens * multiplier), FIRST_ATTEMPT_FLOOR), cap)
 
     def complete(messages: list[dict], budget: int) -> tuple[str, str]:
-        global _call_count, _prompt_tokens, _completion_tokens
         response = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -198,10 +221,9 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
             **{provider["max_tokens_param"]: budget},
             **params,
         )
-        _call_count += 1
+        _add_usage(calls=1)
         if response.usage:
-            _prompt_tokens     += response.usage.prompt_tokens or 0
-            _completion_tokens += response.usage.completion_tokens or 0
+            _add_usage(prompt=response.usage.prompt_tokens or 0, completion=response.usage.completion_tokens or 0)
         choice = response.choices[0]
         return _content_text(choice.message.content), choice.finish_reason
 
@@ -265,7 +287,6 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
     Returns {"message": assistant message in OpenAI format (content, tool_calls?),
              "prompt_tokens": int, "completion_tokens": int}.
     """
-    global _call_count, _prompt_tokens, _completion_tokens
     from core.providers import get_provider, provider_for_model
     from core.reasoning import DEFAULT_LEVEL, request_params
     from core.settings import get_setting
@@ -278,7 +299,6 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
     prompt_total = completion_total = 0
 
     def complete(msgs: list[dict], limit: int):
-        global _call_count, _prompt_tokens, _completion_tokens
         nonlocal prompt_total, completion_total
         extra = {"tools": tools} if tools else {}
         response = client.chat.completions.create(
@@ -289,11 +309,10 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
             **extra,
             **params,
         )
-        _call_count += 1
+        _add_usage(calls=1)
         if response.usage:
             p, c = response.usage.prompt_tokens or 0, response.usage.completion_tokens or 0
-            _prompt_tokens += p
-            _completion_tokens += c
+            _add_usage(prompt=p, completion=c)
             prompt_total += p
             completion_total += c
         return response.choices[0]
@@ -336,7 +355,6 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
     from core.providers import get_provider, provider_for_model
     from core.reasoning import DEFAULT_LEVEL, request_params
     from core.settings import get_setting
-    global _call_count, _prompt_tokens, _completion_tokens
     model = _get_model()
     provider_id = provider_for_model(model)
     provider = get_provider(provider_id)
@@ -347,7 +365,6 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
 
     def one_stream(msgs: list[dict], limit: int):
         """Yield ("token", text); return (text, tool_calls, finish_reason)."""
-        global _call_count, _prompt_tokens, _completion_tokens
         extra: dict = {"tools": tools} if tools else {}
         if provider.get("stream_usage"):
             extra["stream_options"] = {"include_usage": True}
@@ -386,14 +403,13 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
             close = getattr(stream, "close", None)
             if close:
                 close()
-        _call_count += 1
+        _add_usage(calls=1)
         prompt_used = getattr(usage, "prompt_tokens", None) if usage else None
         completion_used = getattr(usage, "completion_tokens", None) if usage else None
         if prompt_used is None:      # provider sent no usage: estimate (~4 chars per token)
             prompt_used = len(json.dumps(msgs, default=str)) // 4
             completion_used = (len(text) + sum(len(c["arguments"]) for c in slots)) // 4
-        _prompt_tokens += prompt_used
-        _completion_tokens += completion_used or 0
+        _add_usage(prompt=prompt_used, completion=completion_used or 0)
         usage_totals["prompt"] += prompt_used
         usage_totals["completion"] += completion_used or 0
         return text, [c for c in slots if c["name"]], finish
