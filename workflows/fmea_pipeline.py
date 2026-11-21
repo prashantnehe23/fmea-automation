@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from agents.actuary import score_all_failures
 from agents.controls_assessor import run_controls_assessor
 from agents.evaluator import evaluate_pipeline
@@ -17,8 +19,13 @@ from memory import eval_store, workspace_store
 import memory.db as _db
 from memory.scenario_registry import (
     clear_registry,
+    expected_names,
+    find_by_identity,
     find_matching_scenario,
+    fix_candidates,
     get_locked_scenarios,
+    previous_names,
+    record_scan_outcome,
     register_new_scenarios,
     scenario_count,
 )
@@ -34,6 +41,21 @@ def apply_validation(risk, validation):
         "severity": adj_s, "occurrence": adj_o, "detection": adj_d,
         "rpn": adj_s * adj_o * adj_d, "priority": priority, "priority_reason": reason,
     })
+
+
+def _refresh_lifecycle(cached: dict, workspace) -> None:
+    """A cached scan is shown again, possibly after people decided things or the code was reverted: apply the
+    lifecycle rules to the registry and replace the stale lifecycle fields stored with the cached result."""
+    cached["lifecycle_changes"], cached["fix_candidates"] = {}, []
+    if workspace is None:
+        return
+    try:
+        workspace_id = _db.upsert_workspace(workspace)
+        cached["lifecycle_changes"] = record_scan_outcome(
+            workspace_id, None, list(cached.get("failures") or []), get_locked_scenarios(workspace_id), confirm_new=False)
+        cached["fix_candidates"] = fix_candidates(workspace_id)
+    except Exception:
+        logging.getLogger(__name__).warning("finding lifecycle refresh failed", exc_info=True)
 
 
 # Demo / predictable billing: at most this many failure modes (2 + 2*N API calls).
@@ -75,6 +97,7 @@ def run_fmea(
         if cached is not None:
             cached["memory_stats"] = get_memory_stats(workspace)
             cached["scope"] = scope
+            _refresh_lifecycle(cached, workspace)
             return cached
 
     # ── Reset call counter for this run ───────────────────────────────────────
@@ -90,7 +113,9 @@ def run_fmea(
 
     # ── Scenario registry: load locked scenarios for this workspace ───────────
     locked: list[dict] = get_locked_scenarios(workspace_id) if workspace_id else []
-    locked_names: list[str] = [row["failure_mode"] for row in locked]
+    locked_names: list[str] = expected_names(locked)         # fixed findings and fix candidates may stay out (B-031)
+    # Locked findings never take a new finding's place: they do not count against the cap (ADR-019)
+    cap = max_failure_modes + len(locked_names)
     locked_rpn: dict[str, dict] = {row["failure_mode"]: row for row in locked}
 
     # ── Learning context injection ─────────────────────────────────────────────
@@ -111,11 +136,12 @@ def run_fmea(
     with agent_span("saboteur"):
         failures = run_saboteur(
             prompt_code, context,
-            max_scenarios=max_failure_modes,
+            max_scenarios=cap,
             learning_context=learning_ctx,
             locked_names=locked_names if locked_names else None,
+            previous_names=previous_names(locked) or None,
         )
-    failures = failures[:max_failure_modes]
+    failures = failures[:cap]
 
     if on_progress: on_progress("controls")
     with agent_span("controls"):
@@ -152,11 +178,13 @@ def run_fmea(
 
     # ── Semantic deduplication: fix any LLM renames despite constraint ────────
     if locked and workspace_id:
+        claimed = {f.failure_mode for f in failures if f.failure_mode in locked_rpn}     # one finding, one result
         for i, (f, r) in enumerate(zip(failures, risks)):
             if f.failure_mode not in locked_rpn:
-                match = find_matching_scenario(f.failure_mode, list(f.attack_chain), locked)
-                if match:
+                match = find_by_identity(f, locked) or find_matching_scenario(f.failure_mode, list(f.attack_chain), locked)
+                if match and match["failure_mode"] not in claimed:
                     canonical = match["failure_mode"]
+                    claimed.add(canonical)
                     failures[i] = f.model_copy(update={"failure_mode": canonical})
                     m_s, m_o, m_d = match["severity"], match["occurrence"], match["detection"]
                     priority, reason = priority_for(m_s, m_o, m_d)
@@ -203,6 +231,8 @@ def run_fmea(
 
     # ── Scenario registry: persist new scenarios + save scan to DB ─────────────
     db_scan_id: int | None = None
+    lifecycle_changes: dict = {}
+    pending_fixes: list[dict] = []
     if workspace_id:
         if on_progress: on_progress("registry")
         register_new_scenarios(workspace_id, fingerprint, failures, risks, locked)
@@ -227,6 +257,12 @@ def run_fmea(
                 _db.save_eval(workspace_id, db_scan_id, evaluation.__dict__)
         except Exception:
             pass
+        try:
+            lifecycle_changes = record_scan_outcome(workspace_id, db_scan_id, failures, locked)
+            pending_fixes = fix_candidates(workspace_id)
+        except Exception:
+            logging.getLogger(__name__).warning("finding lifecycle bookkeeping failed", exc_info=True)
+            lifecycle_changes, pending_fixes = {}, []     # lifecycle bookkeeping must never fail a scan
 
     if on_progress: on_progress("eval")
 
@@ -249,6 +285,8 @@ def run_fmea(
         "from_cache": False,
         "registry_locked": bool(locked),
         "new_scenarios": new_scenario_names,
+        "lifecycle_changes": lifecycle_changes,   # B-031: what this scan changed (new, regressed, fix candidates)
+        "fix_candidates": pending_fixes,           # B-031: findings waiting for a person to confirm they are fixed
         "scope": scope,                    # B-033: what was examined and what was not
     }
 

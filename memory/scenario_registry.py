@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 import memory.db as db
+from core.findings import EXPECTED_STATES, FIXABLE_BY_SCAN, finding_identity
 
 if TYPE_CHECKING:
     from core.models import FailureMode, RiskScore
@@ -92,6 +93,74 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
             scenario["detection"]  = adj["new_d"]
             scenario["rpn"]        = adj["new_rpn"]
     return scenarios
+
+
+def expected_names(locked: list[dict]) -> list[str]:
+    """Names the saboteur is asked to reproduce: findings whose weakness should still be in the code (B-031).
+    Fixed findings and fix candidates may stay out; they remain in `locked` for matching and regression."""
+    return [r["failure_mode"] for r in locked if r.get("state", "confirmed") in EXPECTED_STATES]
+
+
+def previous_names(locked: list[dict]) -> list[str]:
+    """Names of findings that were fixed or may be: offered to the saboteur as anchors, to report only if present again."""
+    return [r["failure_mode"] for r in locked if r.get("state", "confirmed") in ("fixed", "fix_candidate")]
+
+
+def find_by_identity(failure: "FailureMode", locked: list[dict]) -> dict | None:
+    """The registry row whose identity (code quote, not name) equals the failure's. Only an unambiguous match
+    counts: when several rows share the quote, nothing is guessed."""
+    key = finding_identity(failure.evidence)
+    if key is None:
+        return None
+    rows = [row for row in locked if row.get("identity_key") == key]
+    return rows[0] if len(rows) == 1 else None
+
+
+def record_scan_outcome(workspace_id: int, scan_id: int | None, failures: list["FailureMode"],
+                        locked_before: list[dict], confirm_new: bool = True) -> dict:
+    """
+    Apply the lifecycle rules after a scan (ADR-019). `failures` carry canonical names.
+
+      seen again:  new -> confirmed · fix_candidate -> confirmed · fixed -> regressed
+      not seen:    new / confirmed / regressed -> fix_candidate (shown for confirmation, scores kept)
+    Each move applies only if the finding is still in the state the scan started from, so a person's decision
+    made while the scan ran is never overwritten. `confirm_new=False` (a repeat display of a cached scan) does
+    not count as seeing a new finding again.
+    Returns {"new": [...], "confirmed": [...], "regressed": [...], "reconfirmed": [...], "fix_candidates": [...]}.
+    """
+    before = {row["failure_mode"]: row for row in locked_before}
+    seen = {f.failure_mode for f in failures}
+    changes: dict[str, list[str]] = {"new": [], "confirmed": [], "regressed": [], "reconfirmed": [], "fix_candidates": []}
+
+    for f in failures:
+        row = before.get(f.failure_mode)
+        if row is None:
+            changes["new"].append(f.failure_mode)
+            continue
+        key = finding_identity(f.evidence)
+        if key and not row.get("identity_key"):
+            db.set_identity_key(workspace_id, f.failure_mode, key)             # learn the identity of older rows
+        state = row.get("state", "confirmed")
+        rule = {"new": ("confirmed", "seen again", "confirmed"), "fix_candidate": ("confirmed", "reappeared", "reconfirmed"),
+                "fixed": ("regressed", "reported again after a fix", "regressed")}.get(state)
+        if rule is None or (state == "new" and not confirm_new):
+            continue
+        if db.set_scenario_state(workspace_id, f.failure_mode, rule[0], scan_id, note=rule[1], only_if_state=state):
+            changes[rule[2]].append(f.failure_mode)
+
+    for name, row in before.items():
+        state = row.get("state", "confirmed")
+        if name not in seen and state in FIXABLE_BY_SCAN and db.set_scenario_state(
+                workspace_id, name, "fix_candidate", scan_id, note="not reproduced by this scan", only_if_state=state):
+            changes["fix_candidates"].append(name)
+    return changes
+
+
+def fix_candidates(workspace_id: int) -> list[dict]:
+    """Findings waiting for a person to confirm that they are fixed."""
+    return [{"failure_mode": r["failure_mode"], "severity": r["severity"], "occurrence": r["occurrence"],
+             "detection": r["detection"], "rpn": r["rpn"], "since_scan": r["state_scan_id"]}
+            for r in db.get_locked_scenarios(workspace_id) if r["state"] == "fix_candidate"]
 
 
 def find_matching_scenario(
@@ -176,6 +245,7 @@ def register_new_scenarios(
             rpn=risk.rpn,
             embedding=embedding_bytes,
             embed_model=embed_model if embedding_bytes else "",
+            identity_key=finding_identity(failure.evidence),
         )
 
 

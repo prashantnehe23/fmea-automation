@@ -203,6 +203,19 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS finding_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    scenario_id  INTEGER,
+    failure_mode TEXT    NOT NULL,
+    from_state   TEXT,
+    to_state     TEXT    NOT NULL,
+    scan_id      INTEGER,
+    actor        TEXT,
+    note         TEXT,
+    at           TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     ts       TEXT    NOT NULL,
@@ -236,6 +249,10 @@ def get_db() -> sqlite3.Connection:
         "ALTER TABLE adjustments ADD COLUMN source TEXT DEFAULT 'manual'",
         "ALTER TABLE adjustments ADD COLUMN flagged INTEGER DEFAULT 0",
         "ALTER TABLE adjustments ADD COLUMN adjusted_by TEXT",
+        "ALTER TABLE scenarios ADD COLUMN identity_key TEXT",
+        "ALTER TABLE scenarios ADD COLUMN state TEXT DEFAULT 'confirmed'",     # B-031: existing rows count as confirmed
+        "ALTER TABLE scenarios ADD COLUMN state_scan_id INTEGER",
+        "ALTER TABLE scenarios ADD COLUMN state_changed_at TEXT",
         "ALTER TABLE chat_proposals ADD COLUMN decided_by TEXT",
     ):
         try:
@@ -376,20 +393,25 @@ def upsert_scenario(
     rpn: int,
     embedding: bytes,
     embed_model: str = "",
+    identity_key: str | None = None,
 ) -> None:
     """
-    Insert scenario if not present (keyed on workspace_id + failure_mode).
+    Insert scenario if not present (keyed on workspace_id + failure_mode), as a `new` finding (B-031).
     Does NOT update on conflict — the first scan's scores are the canonical ones.
     """
     with _lock:
         conn = get_db()
         try:
-            conn.execute(
+            if identity_key and conn.execute("SELECT 1 FROM scenarios WHERE workspace_id=? AND identity_key=?",
+                                             (workspace_id, identity_key)).fetchone():
+                identity_key = None        # another finding already owns this quote: do not let two share an identity
+            cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO scenarios
                     (workspace_id, first_fingerprint, failure_mode, attack_chain_json,
-                     severity, occurrence, detection, rpn, embedding, embed_model, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     severity, occurrence, detection, rpn, embedding, embed_model, created_at,
+                     identity_key, state, state_changed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)
                 """,
                 (
                     workspace_id,
@@ -403,8 +425,14 @@ def upsert_scenario(
                     embedding,
                     embed_model,
                     datetime.now().isoformat(),
+                    identity_key,
+                    datetime.now().isoformat(),
                 ),
             )
+            if cur.rowcount == 1:
+                conn.execute("INSERT INTO finding_events (workspace_id, scenario_id, failure_mode, from_state, to_state,"
+                             " note, at) VALUES (?, ?, ?, NULL, 'new', 'first reported', ?)",
+                             (workspace_id, cur.lastrowid, failure_mode, datetime.now().isoformat()))
             conn.commit()
         finally:
             conn.close()
@@ -419,7 +447,8 @@ def get_locked_scenarios(workspace_id: int) -> list[dict]:
     try:
         rows = conn.execute(
             """
-            SELECT failure_mode, attack_chain_json, severity, occurrence, detection, rpn, embedding, embed_model
+            SELECT id, failure_mode, attack_chain_json, severity, occurrence, detection, rpn, embedding, embed_model,
+                   identity_key, COALESCE(state, 'confirmed') AS state, state_scan_id, state_changed_at
             FROM scenarios WHERE workspace_id=?
             ORDER BY rpn DESC
             """,
@@ -461,11 +490,67 @@ def update_scenario_embedding(
             conn.close()
 
 
+def set_scenario_state(workspace_id: int, failure_mode: str, state: str, scan_id: int | None = None,
+                       actor: str | None = None, note: str = "", only_if_state: str | None = None) -> bool:
+    """Move a finding to a new lifecycle state and record who or which scan caused it (B-031).
+
+    With only_if_state the move happens only if the finding is still in that state, so a scan working from an
+    earlier snapshot never overwrites a decision a person made meanwhile, and two scans never both apply it."""
+    with _lock:
+        conn = get_db()
+        try:
+            row = conn.execute("SELECT id, COALESCE(state, 'confirmed') AS state FROM scenarios"
+                               " WHERE workspace_id=? AND failure_mode=?", (workspace_id, failure_mode)).fetchone()
+            if row is None or (only_if_state is not None and row["state"] != only_if_state):
+                return False
+            now = datetime.now().isoformat()
+            conn.execute("UPDATE scenarios SET state=?, state_scan_id=?, state_changed_at=? WHERE id=?",
+                         (state, scan_id, now, row["id"]))
+            conn.execute("INSERT INTO finding_events (workspace_id, scenario_id, failure_mode, from_state, to_state,"
+                         " scan_id, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                         (workspace_id, row["id"], failure_mode, row["state"], state, scan_id, actor, note, now))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
+def set_identity_key(workspace_id: int, failure_mode: str, identity_key: str) -> None:
+    """Record the identity of an existing finding (rows saved before B-031 have none). Never gives two
+    findings of a project the same identity."""
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("UPDATE scenarios SET identity_key=? WHERE workspace_id=? AND failure_mode=?"
+                         " AND identity_key IS NULL AND NOT EXISTS"
+                         " (SELECT 1 FROM scenarios WHERE workspace_id=? AND identity_key=?)",
+                         (identity_key, workspace_id, failure_mode, workspace_id, identity_key))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def list_finding_events(workspace_id: int, limit: int = 500) -> list[dict]:
+    """State history of a project's findings, oldest first."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT failure_mode, from_state, to_state, scan_id, actor, note, at FROM finding_events"
+            " WHERE workspace_id=? ORDER BY id DESC LIMIT ?", (workspace_id, limit)).fetchall()
+        return [dict(r) for r in reversed(rows)]
+    finally:
+        conn.close()
+
+
 def delete_scenarios(workspace_id: int) -> None:
     """Wipe all locked scenarios for this workspace (user-triggered unlock)."""
     with _lock:
         conn = get_db()
         try:
+            now = datetime.now().isoformat()
+            conn.execute("INSERT INTO finding_events (workspace_id, scenario_id, failure_mode, from_state, to_state, note, at)"
+                         " SELECT workspace_id, id, failure_mode, COALESCE(state, 'confirmed'), 'removed', 'unlocked', ?"
+                         " FROM scenarios WHERE workspace_id=?", (now, workspace_id))
             conn.execute("DELETE FROM scenarios WHERE workspace_id=?", (workspace_id,))
             conn.commit()
         finally:
@@ -478,6 +563,10 @@ def delete_scenario(workspace_id: int, failure_mode: str) -> bool:
     with _lock:
         conn = get_db()
         try:
+            conn.execute("INSERT INTO finding_events (workspace_id, scenario_id, failure_mode, from_state, to_state, note, at)"
+                         " SELECT workspace_id, id, failure_mode, COALESCE(state, 'confirmed'), 'removed', 'unlocked', ?"
+                         " FROM scenarios WHERE workspace_id=? AND failure_mode=?",
+                         (datetime.now().isoformat(), workspace_id, failure_mode))
             cur = conn.execute(
                 "DELETE FROM scenarios WHERE workspace_id=? AND failure_mode=?",
                 (workspace_id, failure_mode),

@@ -394,6 +394,7 @@ function Workspace({ user, status, onLogout }) {
             scope={pageScope}
             settingsOpen={settingsOpen}
             onOpenSettings={() => setSettingsOpen(true)}
+            canDecideFindings={['admin', 'security_engineer'].includes(user.role)}
             hierarchy={hierarchy}
             scanHistory={scanHistory}
             liveRisks={liveRisks}

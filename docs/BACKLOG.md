@@ -31,7 +31,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 
 | Order | Item | Title | ADR first | Depends on |
 |---|---|---|---|---|
-| 6 | B-031 | Finding identity, lifecycle and lock semantics (moved up) | ADR-019 to accept | none |
+| 6 | B-031 — **done 2026-11-21** | Finding identity, lifecycle and lock semantics (moved up) | ADR-019 accepted | none |
 | 7 | B-028 phase 0 | Remove the 7-finding cap; prioritised handling of large repositories (pulled forward) | no | B-031 |
 | 8 | B-012 | Pull-request check (moved from P3) | no | B-015, B-031, B-043 |
 | 9 | B-040 | Defensive framing and provider-block handling (P2 to P1: before any pilot) | ADR-024 to accept | none |
@@ -1061,7 +1061,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-031 · Finding Identity, Lifecycle and Lock Semantics `[ ]` APPROVED — P1, order 6 (moved up 2026-11-21: needed by B-012, B-028 phase 0, B-045, B-011)
+### B-031 · Finding Identity, Lifecycle and Lock Semantics `[x]` DONE 2026-11-21 (see open points) — P1, order 6 (moved up 2026-11-21: needed by B-012, B-028 phase 0, B-045, B-011)
 
 **Decision:** [ADR-019](decisions/ADR-019-finding-identity-and-locks.md). **Revises:** parts of ADR-003 and B-001.
 
@@ -1070,12 +1070,14 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **Scope:** stable finding identity (threat class + surface + sink anchors, embedding fallback); lifecycle states (new, confirmed, fixed, regressed, accepted, unresolved) with the causing scan; locked findings keep scores but never limit discovery; "locked but now refuted" shown for confirmation; migration of existing registry rows; chat tool and dashboard for "what changed since last scan".
 
 **Acceptance criteria:**
-- [ ] 7 locked findings plus a newly introduced vulnerability: the new one is reported (regression test for today's cap problem)
-- [ ] Same code returns identical results from the cache; changed code keeps locked scores and expert adjustments (existing behaviour tests stay green)
-- [ ] A finding refuted after a code fix becomes a `fixed` candidate shown for confirmation, not silently dropped or kept
-- [ ] A fixed finding that returns becomes `regressed`
-- [ ] Migration maps existing registry rows without losing locked scores (test on a copy of a real DB)
-- [ ] Identity survives a pure rename of the scenario text and a file move (tests)
+- [x] 7 locked findings plus a newly introduced vulnerability: the new one is reported (`tests/test_finding_lifecycle.py::test_seven_locked_findings_plus_a_new_vulnerability_reports_the_new_one`; the real run_fmea with scripted agents)
+- [x] Same code returns identical results from the cache; changed code keeps locked scores and expert adjustments (existing tests green; `test_changed_code_keeps_locked_scores_and_expert_adjustments`; a cache hit also applies the lifecycle rules and refreshes the stale lifecycle fields)
+- [x] A finding refuted after a code fix becomes a `fixed` candidate shown for confirmation, not silently dropped or kept (tests; browser check: the panel on the scan page lists it with Confirm fixed / Still present, and the history records who confirmed). **Caveat:** "refuted" means the single-pass scan did not reproduce it; no real model was run, so how reliably the new prompt keeps still-present findings is unmeasured (B-026 benchmark re-run needed)
+- [x] A fixed finding that returns becomes `regressed` (tests, including a revert served from the cache)
+- [x] Migration maps existing registry rows without losing locked scores (test on a hand-built old-schema database. **Not proven on a copy of a real database:** the real `fmea.db` has no scenario rows, so migrating a copy was vacuous; old rows count as `confirmed` and learn their identity when a scan reproduces them)
+- [x] Identity survives a pure rename of the scenario text and a file move (tests; ambiguous or generic quotes are never matched)
+
+**Done 2026-11-21 (plan and report in `docs/harness/B-031/`; ADR-019 amended):** `core/findings.py` (identity, states); lifecycle columns and `finding_events` history in `memory/db.py`; `memory/scenario_registry.py` (identity match, guarded transitions, fix candidates); saboteur prompt and cap (locked findings do not count against it); `workflows/fmea_pipeline.py`; `GET /api/workspace/{id}/findings`, `POST …/findings/state` (security engineers and admins, actor recorded); "changes since the last scan" panel with Confirm fixed on the scan page. **Open:** chat tool for "what changed" (not built); a dashboard view beyond the scan-page panel; identity from threat class and anchors (B-028); behaviour with a real model not measured; `regressed` stays until a person acts; prompt text includes finding names that come from model output on scanned code (existing injection route, names not sanitised); unlock keeps history but starts a fresh `new` finding.
 
 ---
 
