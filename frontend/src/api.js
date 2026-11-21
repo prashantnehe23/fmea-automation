@@ -67,8 +67,7 @@ export async function previewGithubRepo(repoUrl) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ repo_url: repoUrl }),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-  return res.json();
+  return _json(res, `Could not read the repository (HTTP ${res.status}).`);
 }
 
 /**
@@ -700,4 +699,22 @@ export async function logout() {
 export async function getProjectScan(projectId) {
   const res = await apiFetch(`${BASE}/api/projects/${projectId}/latest-scan`);
   return res.ok ? res.json() : null;
+}
+
+// ── Private repository access (B-043) ────────────────────────────────────────
+
+/** GET /api/settings/repo-credentials — owners with a stored token: [{provider, owner, hint}]. Never the token. */
+export async function listRepoCredentials() {
+  return _json(await apiFetch(`${BASE}/api/settings/repo-credentials`), 'Could not load repository access.');
+}
+/** PUT /api/settings/repo-credentials — validates the token with GitHub, then stores it encrypted. */
+export async function saveRepoCredential(owner, token) {
+  const res = await apiFetch(`${BASE}/api/settings/repo-credentials`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner, token }),
+  });
+  return _json(res, 'Could not save the token.');
+}
+export async function deleteRepoCredential(owner) {
+  return _json(await apiFetch(`${BASE}/api/settings/repo-credentials?owner=${encodeURIComponent(owner)}`, { method: 'DELETE' }),
+               'Could not remove the token.');
 }

@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import queue
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -23,14 +23,22 @@ from api.schemas import WorkspaceIn, serialize_result
 from api.sse import sse_event
 from core.llm_errors import scan_error_event
 from api.store import build_workspace, next_scan_id, scan_store
+from core import auth, repo_credentials
 from core.chat import persist_scan_for_chat
 from core.untrusted import sanitize_text
-from core.github_fetcher import fetch_contents, fetch_readme, list_repo, scan_repo
+from core.github_fetcher import RepoAccessError, fetch_contents, fetch_readme, list_repo, scan_repo
 from core.scan_scope import build_scan_input, choose_within_budget, summarise_manifest
 from core.workspace import WorkspaceContext
 from workflows.fmea_pipeline import run_fmea
 
 router = APIRouter()
+
+
+def _repo_error_event(exc: Exception, prefix: str = "") -> dict:
+    """SSE error payload: a plain message (with a Settings action) for access problems, else the text as before."""
+    if isinstance(exc, RepoAccessError):
+        return {"stage": "error", "msg": exc.message, "code": exc.code, "action": "open_settings"}
+    return {"stage": "error", "msg": prefix + str(exc)}
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -50,7 +58,7 @@ class GithubPreviewRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/api/github/scan")
-async def github_scan(req: GithubScanRequest):
+async def github_scan(req: GithubScanRequest, request: Request):
     """
     Full GitHub-repo FMEA scan delivered as an SSE stream.
 
@@ -72,8 +80,11 @@ async def github_scan(req: GithubScanRequest):
         try:
             ref, entries, readme_path = await asyncio.to_thread(list_repo, req.repo_url)
         except Exception as exc:
-            yield sse_event({"stage": "error", "msg": str(exc)}, event="error")
+            yield sse_event(_repo_error_event(exc), event="error")
             return
+
+        if repo_credentials.token_for(ref.owner):     # whoever scans can read what the stored token reaches
+            auth.record_event(getattr(request.state, "user", None), "scan_with_stored_token", f"{ref.owner}/{ref.repo}")
 
         files = sorted(e.path for e in entries if e.included)
         not_selected: set[str] = set()
@@ -130,10 +141,7 @@ async def github_scan(req: GithubScanRequest):
             chosen, _ = choose_within_budget([e for e in entries if e.path in wanted])
             contents, _errors = await asyncio.to_thread(fetch_contents, ref, [e.path for e in chosen])
         except Exception as exc:
-            yield sse_event(
-                {"stage": "error", "msg": f"File download failed: {exc}"},
-                event="error",
-            )
+            yield sse_event(_repo_error_event(exc, "File download failed: "), event="error")
             return
         scan_input = build_scan_input(contents, entries, not_selected=not_selected)
         code, fetched = scan_input.code, scan_input.examined
@@ -213,11 +221,13 @@ async def github_scan(req: GithubScanRequest):
 @router.post("/api/github/preview")
 async def github_preview(req: GithubPreviewRequest):
     """
-    Return the file listing for a public GitHub repo without running any analysis.
+    Return the file listing for a GitHub repo (private ones use the owner's stored token) without running any analysis.
     Used by the UI to let the user confirm what will be scanned.
     """
     try:
         ref, files, readme_path = await asyncio.to_thread(scan_repo, req.repo_url)
+    except RepoAccessError as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

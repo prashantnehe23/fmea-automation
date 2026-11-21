@@ -13,11 +13,13 @@ Endpoints:
   DELETE /api/settings/providers/{id}/key — remove a stored key (B-022)
 """
 
+import re
+
 from fastapi import APIRouter, HTTPException, Request
 
-from api.schemas import ApiKeyBody, ModelPatch, ReasoningPatch
+from api.schemas import ApiKeyBody, ModelPatch, ReasoningPatch, RepoCredentialBody
 from core.costs import AVAILABLE_MODELS, FALLBACK_RATES, get_rates, refresh_pricing
-from core import auth, providers
+from core import auth, providers, repo_credentials
 from core.secrets import decrypt
 from core.providers import (
     PROVIDERS, clear_api_key, get_api_key, key_status, mask_key, provider_for_model, set_api_key,
@@ -156,6 +158,41 @@ async def delete_provider_key(provider_id: str, request: Request):
     clear_api_key(provider_id)
     auth.record_event(request.state.user, "provider_key_removed", provider_id)
     return {"id": provider_id, "key_set": bool(get_api_key(provider_id))}
+
+
+_OWNER = re.compile(r"^(\*|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))?$")
+
+
+@router.get("/api/settings/repo-credentials")
+async def list_repo_credentials():
+    """Owners that have a stored repository token, with a masked hint. Never the token."""
+    return repo_credentials.list_credentials()
+
+
+@router.put("/api/settings/repo-credentials")
+async def put_repo_credential(body: RepoCredentialBody, request: Request):
+    owner = body.owner.strip()
+    if not owner or not _OWNER.match(owner):
+        raise HTTPException(status_code=422, detail="Enter the GitHub user or organisation the token belongs to, "
+                                                    "or * to use it for every owner (wider: anyone who can scan can then read every private repository it reaches).")
+    token = body.token.strip()
+    if not repo_credentials.valid_token_shape(token):
+        raise HTTPException(status_code=422, detail="That does not look like a GitHub token: it must be 10 to 255 printable "
+                                                    "characters without spaces or line breaks.")
+    status = repo_credentials.verify_token(token)
+    if status == "invalid":
+        raise HTTPException(status_code=422, detail="GitHub rejected this token. Check it and try again.")
+    key = repo_credentials.set_token(owner, token)
+    auth.record_event(request.state.user, "repo_credential_set", f"github {key}")
+    return {"provider": "github", "owner": key, "hint": mask_key(token), "status": status}
+
+
+@router.delete("/api/settings/repo-credentials")
+async def delete_repo_credential(request: Request, owner: str = ""):
+    removed = repo_credentials.remove(owner)
+    if removed:
+        auth.record_event(request.state.user, "repo_credential_removed", f"github {repo_credentials.normalise_owner(owner)}")
+    return {"removed": removed}
 
 
 @router.post("/api/settings/pricing/refresh")
