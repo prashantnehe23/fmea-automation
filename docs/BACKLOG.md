@@ -33,7 +33,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 |---|---|---|---|---|
 | 6 | B-031 — **done 2026-11-21** | Finding identity, lifecycle and lock semantics (moved up) | ADR-019 accepted | none |
 | 7 | B-028 phase 0 — **implemented 2026-11-21, benchmark re-run open** | Remove the 7-finding cap; prioritised handling of large repositories (pulled forward) | no | B-031 |
-| 8 | B-012 | Pull-request check (moved from P3) | no | B-015, B-031, B-043 |
+| 8 | B-012 — **implemented 2026-11-21, real-repository run open** | Pull-request check (moved from P3) | ADR-029 (Draft) | B-015, B-031, B-043 |
 | 9 | B-040 | Defensive framing and provider-block handling (P2 to P1: before any pilot) | ADR-024 to accept | none |
 | 10 | B-047 | More model providers: Azure OpenAI, AWS Bedrock, Anthropic, local endpoint | no (extends ADR-011) | none |
 | 11 | B-045 | SARIF import and export; CWE on every finding | **yes** (ADR-028) | B-031 |
@@ -224,17 +224,19 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-012 · Pull-Request Check `[ ]` APPROVED — P1, order 8 (moved from P3 on 2026-11-21)
+### B-012 · Pull-Request Check `[~]` IMPLEMENTED 2026-11-21, real-repository run open — P1, order 8 (moved from P3 on 2026-11-21) — *design: ADR-029 (Draft, CI-invoked instead of a GitHub App)*
 
 **Why:** Risk is only seen when someone opens the app. Teams need it on the pull request, before merge.
 
 **Scope:** GitHub check run (via the B-043 GitHub App) on pull requests: comment listing new and regressed findings with evidence links; fail on new or regressed severity 9+ findings (B-034) and, once B-028 phases exist, on unresolved catastrophic cells; Quick depth by default with a USD budget per check; configurable per workspace.
 
 **Acceptance criteria:**
-- [ ] A pull request that introduces a catastrophic finding fails the check with a comment naming file and line (recorded on a test repository)
-- [ ] A pull request with no new or regressed findings passes and comments nothing, or one summary line (test)
-- [ ] Unchanged findings are not reported again (uses B-031 identity; test)
-- [ ] The check never exceeds its USD budget; reaching it passes with a "budget reached" notice rather than failing silently (test)
+- [ ] A pull request that introduces a catastrophic finding fails the check with a comment naming file and line (recorded on a test repository). **Logic proven with scripted agents** (`tests/test_pr_check.py`: verdict fail, comment with the file, line and a link to that line at the commit); **not run on a real repository with a real model** (no key, no test repository): open until the Mistral/OpenAI run
+- [x] A pull request with no new or regressed findings passes and comments nothing, or one summary line (test: empty comment text and the summary "No new or regressed findings.")
+- [x] Unchanged findings are not reported again (uses B-031 identity; tests: renamed, moved, and old rows without a stored identity matched through the baseline snapshot)
+- [x] The check never exceeds its USD budget; reaching it passes with a "budget reached" notice rather than failing silently (tests: the call that crosses the limit stops the work, no further call starts, so the limit is exceeded by at most that one call; a stop inside the validator still ends the check with the notice; agents that fall back on errors cannot swallow it; a request can only lower the project's budget. Embedding calls are not priced but are refused once the limit is reached)
+
+**Done 2026-11-21 (plan and report in `docs/harness/B-012/`):** `POST /api/pr-check` and the verdict logic (`core/pr_check.py`); `run_fmea(persist=False)` so a branch scan changes nothing on record; API tokens for CI, optionally limited to one repository (`core/auth.py`, `api/routers/ci.py`); per-project settings (enabled, failure severity, budget) via `GET/PUT /api/projects/{id}/pr-check`; spend limit (`core/budget.py`); changed files scanned first; sanitised comment; GitHub Actions template `docs/ci/fmea-pr-check.yml`. **Open:** a run on a real test repository with a real model; screens for tokens and per-project settings (API only); the check in a GitHub App form (webhooks) if a customer can expose the install; failing on unresolved catastrophic coverage cells (needs B-028 later phases); telemetry rows of checks still land in the project's cost view; the failure verdict depends on model-assigned severity and a determined author could steer it (ADR-029); fork pull requests fail; a pull request can edit the workflow unless a required workflow or ruleset enforces it; matching of renamed old findings is heuristic and can wrongly block at severity 9 or more.
 
 ---
 

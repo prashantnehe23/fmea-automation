@@ -247,6 +247,59 @@ def setup_token_required() -> bool:
     return bool(os.environ.get("FMEA_SETUP_TOKEN", "").strip())
 
 
+def create_api_token(name: str, created_by: str, repo: str | None = None) -> dict:
+    """A token for CI: shown once, stored only as a hash. It may call the pull-request check and nothing else."""
+    token = "fmea_" + secrets.token_urlsafe(32)
+    with db._lock:
+        conn = db.get_db()
+        try:
+            cur = conn.execute("INSERT INTO api_tokens (name, token_hash, hint, created_by, created_at, scope_repo)"
+                               " VALUES (?, ?, ?, ?, ?, ?)",
+                               (name, _hash(token), "••••" + token[-4:], created_by, datetime.now().isoformat(),
+                                repo.lower() if repo else None))
+            conn.commit()
+            token_id = cur.lastrowid
+        finally:
+            conn.close()
+    return {"id": token_id, "name": name, "token": token, "hint": "••••" + token[-4:], "repo": repo.lower() if repo else None}
+
+
+def api_token_user(token: str) -> dict | None:
+    rows = _query("SELECT id, name, scope_repo FROM api_tokens WHERE token_hash=? AND revoked=0", (_hash(token),))
+    if not rows:
+        return None
+    try:
+        with db._lock:
+            conn = db.get_db()
+            try:
+                conn.execute("UPDATE api_tokens SET last_used_at=? WHERE id=?", (datetime.now().isoformat(), rows[0]["id"]))
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception:
+        pass
+    return {"id": None, "username": f"token:{rows[0]['name']}", "display_name": rows[0]["name"], "role": "ci",
+            "token_id": rows[0]["id"], "scope_repo": rows[0]["scope_repo"]}
+
+
+def list_api_tokens() -> list[dict]:
+    return [{"id": r["id"], "name": r["name"], "hint": r["hint"], "created_by": r["created_by"],
+             "created_at": r["created_at"], "last_used_at": r["last_used_at"], "revoked": bool(r["revoked"]),
+             "repo": r["scope_repo"]}
+            for r in _query("SELECT * FROM api_tokens ORDER BY id")]
+
+
+def revoke_api_token(token_id: int) -> bool:
+    with db._lock:
+        conn = db.get_db()
+        try:
+            cur = conn.execute("UPDATE api_tokens SET revoked=1 WHERE id=? AND revoked=0", (token_id,))
+            conn.commit()
+            return cur.rowcount == 1
+        finally:
+            conn.close()
+
+
 def bootstrap_admin_from_env() -> None:
     """Create the first administrator from FMEA_ADMIN_USER / FMEA_ADMIN_PASSWORD when none exists."""
     username, password = os.environ.get("FMEA_ADMIN_USER", "").strip(), os.environ.get("FMEA_ADMIN_PASSWORD", "")

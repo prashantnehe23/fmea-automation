@@ -216,6 +216,26 @@ CREATE TABLE IF NOT EXISTS finding_events (
     at           TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL,
+    token_hash   TEXT    NOT NULL UNIQUE,
+    hint         TEXT    NOT NULL,
+    created_by   TEXT,
+    created_at   TEXT    NOT NULL,
+    last_used_at TEXT,
+    revoked      INTEGER NOT NULL DEFAULT 0,
+    scope_repo   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pr_check_config (
+    project_id    INTEGER PRIMARY KEY,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    fail_severity INTEGER NOT NULL DEFAULT 9,
+    budget_usd    REAL    NOT NULL DEFAULT 1.0,
+    updated_at    TEXT
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     ts       TEXT    NOT NULL,
@@ -829,6 +849,64 @@ def get_project_scan(project_id: int) -> dict | None:
         "registry_locked": bool(result.get("registry_locked", False)),
         "locked_count": len(risks) - len(new), "workspace_id": row["workspace_id"], "result": result,
     }
+
+
+def project_exists(project_id: int) -> bool:
+    conn = get_db()
+    try:
+        return conn.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def find_project_by_repo(owner: str, repo: str) -> dict | None:
+    """The project whose repository is github.com/owner/repo (case-insensitive), with its workspace id if it has one."""
+    wanted = f"{owner}/{repo}".lower().removesuffix(".git")
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT pr.id, pr.name, pr.repo_url, pr.business_tier, pr.user_type, po.name AS portfolio_name,
+                      (SELECT w.id FROM workspaces w WHERE w.customer = po.name AND w.project = pr.name) AS workspace_id
+               FROM projects pr JOIN portfolios po ON po.id = pr.portfolio_id WHERE pr.repo_url IS NOT NULL""").fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        url = (r["repo_url"] or "").strip().rstrip("/").lower().removesuffix(".git")
+        for prefix in ("https://github.com/", "http://github.com/"):
+            if url.startswith(prefix) and url[len(prefix):].split("/tree/")[0] == wanted:
+                return dict(r)
+    return None
+
+
+def get_pr_check_config(project_id: int) -> dict:
+    """Pull-request check settings of a project; defaults when none were saved (B-012)."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT enabled, fail_severity, budget_usd FROM pr_check_config WHERE project_id=?",
+                           (project_id,)).fetchone()
+    finally:
+        conn.close()
+    return {"enabled": bool(row["enabled"]), "fail_severity": row["fail_severity"], "budget_usd": row["budget_usd"]} \
+        if row else {"enabled": True, "fail_severity": 9, "budget_usd": 1.0}
+
+
+def set_pr_check_config(project_id: int, enabled: bool | None = None, fail_severity: int | None = None,
+                        budget_usd: float | None = None) -> dict:
+    current = get_pr_check_config(project_id)
+    new = {"enabled": current["enabled"] if enabled is None else enabled,
+           "fail_severity": current["fail_severity"] if fail_severity is None else fail_severity,
+           "budget_usd": current["budget_usd"] if budget_usd is None else budget_usd}
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute("INSERT INTO pr_check_config (project_id, enabled, fail_severity, budget_usd, updated_at)"
+                         " VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET enabled=excluded.enabled,"
+                         " fail_severity=excluded.fail_severity, budget_usd=excluded.budget_usd, updated_at=excluded.updated_at",
+                         (project_id, int(new["enabled"]), new["fail_severity"], new["budget_usd"], datetime.now().isoformat()))
+            conn.commit()
+        finally:
+            conn.close()
+    return new
 
 
 def purge_expired_sources(days: int) -> int:

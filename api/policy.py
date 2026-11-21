@@ -16,12 +16,13 @@ from core import auth
 SESSION_COOKIE = "fmea_session"
 CSRF_HEADER, CSRF_VALUE = "x-requested-with", "fmea"
 
-ALL = {"read", "scan", "chat", "score", "hierarchy", "hierarchy_delete", "settings", "users"}
+ALL = {"read", "scan", "chat", "score", "hierarchy", "hierarchy_delete", "settings", "users", "pr_check", "ci_config"}
+TOKEN_PERMISSIONS = {"pr_check"}          # what an API token (CI) may do, and nothing else
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin":             ALL,
-    "security_engineer": {"read", "scan", "chat", "score", "hierarchy", "hierarchy_delete"},
+    "security_engineer": {"read", "scan", "chat", "score", "hierarchy", "hierarchy_delete", "pr_check", "ci_config"},
     "risk_manager":      {"read", "chat", "hierarchy", "hierarchy_delete"},
-    "developer":         {"read", "scan", "chat", "hierarchy"},
+    "developer":         {"read", "scan", "chat", "hierarchy", "pr_check"},
     "viewer":            {"read"},
 }
 
@@ -85,6 +86,13 @@ POLICY: dict[tuple[str, str], str] = {
     ("PUT", "/api/settings/repo-credentials"): "settings",
     ("DELETE", "/api/settings/repo-credentials"): "settings",
     ("POST", "/api/settings/pricing/refresh"): "settings",
+    # pull-request check and the tokens CI uses (B-012)
+    ("POST", "/api/pr-check"): "pr_check",
+    ("GET", "/api/projects/{project_id}/pr-check"): "read",
+    ("PUT", "/api/projects/{project_id}/pr-check"): "ci_config",
+    ("GET", "/api/tokens"): "settings",
+    ("POST", "/api/tokens"): "settings",
+    ("DELETE", "/api/tokens/{token_id}"): "settings",
     # users
     ("GET", "/api/users"): "users",
     ("POST", "/api/users"): "users",
@@ -101,6 +109,15 @@ def enforce(request: Request):
         raise HTTPException(403, "This route has no access policy.")
     if permission == "public":
         return None
+    bearer = request.headers.get("authorization", "")
+    if bearer.lower().startswith("bearer "):
+        token_user = auth.api_token_user(bearer[7:].strip())          # CI: no cookie, no CSRF header
+        if token_user is None:
+            raise HTTPException(401, "Invalid or revoked token.")
+        if permission not in TOKEN_PERMISSIONS:
+            raise HTTPException(403, "A token may only run the pull-request check.")
+        request.state.user = token_user
+        return token_user
     user = auth.session_user(request.cookies.get(SESSION_COOKIE))
     if user is None:
         raise HTTPException(401, "Sign in to continue.")

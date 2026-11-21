@@ -163,18 +163,18 @@ def choose_within_budget(entries: list[ScopeEntry], budget: int = MAX_BYTES) -> 
 
 
 def plan_batches(entries: list[ScopeEntry], budget: int = MAX_BYTES,
-                 max_batches: int = DEFAULT_MAX_BATCHES) -> tuple[list[list[ScopeEntry]], list[ScopeEntry]]:
+                 max_batches: int = DEFAULT_MAX_BATCHES, boost: set[str] | frozenset = frozenset()) -> tuple[list[list[ScopeEntry]], list[ScopeEntry]]:
     """
     Split the included entries into batches of at most `budget` bytes, highest priority first (B-028 phase 0).
 
     Files go into the first batch with room; a new batch is opened while fewer than `max_batches` exist; a file
     bigger than the budget gets a batch of its own. Whatever does not fit is returned as `over` and is listed as
-    not examined. Unknown sizes count as 0.
+    not examined. Unknown sizes count as 0. Paths in `boost` (the files a pull request changed) go first.
     """
     batches: list[list[ScopeEntry]] = []
     used: list[int] = []
     over: list[ScopeEntry] = []
-    for e in sorted((e for e in entries if e.included), key=priority):
+    for e in sorted((e for e in entries if e.included), key=lambda e: (e.path not in boost, priority(e))):
         size = e.size or 0
         slot = next((i for i, u in enumerate(used) if u + size <= budget), None)
         if slot is None and len(batches) < max_batches:
@@ -234,7 +234,8 @@ class ScanInput:
 
 def build_scan_input(contents: dict[str, str], entries: list[ScopeEntry] | None = None,
                      skip_tests: bool = True, budget: int = MAX_BYTES,
-                     not_selected: set[str] = frozenset(), max_batches: int = 1) -> ScanInput:
+                     not_selected: set[str] = frozenset(), max_batches: int = 1,
+                     boost: set[str] | frozenset = frozenset()) -> ScanInput:
     """
     Turn fetched file contents into the code the agents see plus a scope manifest.
 
@@ -253,7 +254,7 @@ def build_scan_input(contents: dict[str, str], entries: list[ScopeEntry] | None 
                               len(contents[e.path].encode("utf-8")) if e.path in contents else e.size)
                    for e in entries]
     candidates = [e for e in entries if e.included and e.path not in not_selected]
-    planned, over = plan_batches(candidates, budget, max_batches)
+    planned, over = plan_batches(candidates, budget, max_batches, boost)
     chosen = [e for b in planned for e in b]
     missing = {e.path for e in chosen if e.path not in contents}
     examined = sorted(e.path for e in chosen if e.path not in missing)

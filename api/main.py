@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.policy import enforce
 from api.routers import auth as auth_router
+from api.routers import ci as ci_router
 from api.routers import eval as eval_router
 from api.routers import findings as findings_router
 from api.routers import github as github_router
@@ -61,6 +62,7 @@ app.add_middleware(
 
 app.include_router(auth_router.router)
 app.include_router(scan.router)
+app.include_router(ci_router.router)
 app.include_router(findings_router.router)
 app.include_router(workspace.router)
 app.include_router(remediation.router)
