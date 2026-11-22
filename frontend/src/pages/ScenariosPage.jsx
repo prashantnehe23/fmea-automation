@@ -22,7 +22,8 @@ function stripHtml(str) {
 }
 import KpiRow from '../components/KpiRow';
 import AggTable from '../components/AggTable';
-import { PChip, DomainChip, domainLabel } from '../components/Chip';
+import { PChip, DomainChip, CweChip, domainLabel } from '../components/Chip';
+import { importSarif, sarifExportUrl } from '../api';
 import { SCOPE_LABEL } from '../data';
 import { getSelectionLabel, aggregateBy, PRI } from '../helpers';
 
@@ -218,6 +219,15 @@ function ScenarioDetail({ r, onClose }) {
           <div className="flex items-center gap-2 mb-1">
             <PChip p={r.priority} />
             <DomainChip d={r.root_cause} />
+            <CweChip cwe={r.cwe} />
+            {r.source && r.source !== 'fmea' && (
+              <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700" title="Reported by another tool and scored here; not independently verified">
+                Imported · {r.source.replace('import:', '')}
+              </span>
+            )}
+            {r.also_reported_by?.length > 0 && (
+              <span className="text-xs text-gray-400">also {r.also_reported_by.join(', ')}</span>
+            )}
             <span className="text-xs font-mono text-gray-400">{r.comp}</span>
             <ValidatorBadge r={r} />
           </div>
@@ -336,7 +346,7 @@ function ScenarioTable({ risks }) {
                     <td key={j} className="px-3 py-3 text-center text-sm font-semibold text-gray-600">{v}</td>
                   ))}
                   <td className="px-3 py-3 font-bold text-gray-900">{r.rpn}</td>
-                  <td className="px-3 py-3"><DomainChip d={r.root_cause} /></td>
+                  <td className="px-3 py-3"><div className="flex flex-col items-start gap-1"><DomainChip d={r.root_cause} /><CweChip cwe={r.cwe} /></div></td>
                   <td className="px-3 py-3"><PChip p={r.priority} /></td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">
@@ -370,7 +380,32 @@ function EmptyState({ message }) {
   );
 }
 
-export default function ScenariosPage({ persona, sel, scope, liveRisks, liveContext, hierarchy = [] }) {
+function SarifTools({ workspaceId, projectId }) {
+  const [msg, setMsg] = useState('');
+  const onFile = async e => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const r = await importSarif(workspaceId, file);
+      setMsg(`${r.read} results read from ${r.tools.join(', ')}: ${r.added} new, ${r.duplicates} already imported. ${r.note}`);
+    } catch (err) { setMsg(err.message); }
+  };
+  return (
+    <div className="flex items-center gap-3 text-xs mb-3">
+      {workspaceId && (
+        <label className="px-2 py-1 rounded-lg bg-blue-50 text-blue-700 font-semibold cursor-pointer">
+          Import SARIF
+          <input type="file" accept=".sarif,.json,application/json" className="hidden" onChange={onFile} />
+        </label>
+      )}
+      {projectId && <a href={sarifExportUrl(projectId)} className="px-2 py-1 rounded-lg bg-gray-50 text-gray-700 font-semibold">Export SARIF</a>}
+      {msg && <span className="text-gray-500">{msg}</span>}
+    </div>
+  );
+}
+
+export default function ScenariosPage({ persona, sel, scope, liveRisks, liveContext, hierarchy = [], workspaceId }) {
   const risks = liveRisks ?? [];
   const label = getSelectionLabel(sel, scope, hierarchy);
 
@@ -401,6 +436,7 @@ export default function ScenariosPage({ persona, sel, scope, liveRisks, liveCont
           : 'No scan data for this project yet'}
       />
       <KpiRow risks={risks} />
+      <SarifTools workspaceId={workspaceId} projectId={sel?.projectId} />
       {risks.length === 0
         ? <EmptyState message="Run a scan on this project to see failure scenarios." />
         : <>

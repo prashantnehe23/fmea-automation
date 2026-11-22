@@ -463,6 +463,19 @@ export async function deleteCustomModel(id) {
   return _json(res, `Could not remove the model (HTTP ${res.status}).`);
 }
 
+/** POST /api/import/sarif — add the findings of a SARIF file; they are scored by the project's next scan (B-045). */
+export async function importSarif(workspaceId, file) {
+  const res = await apiFetch(`${BASE}/api/import/sarif?workspace_id=${workspaceId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: await file.text(),
+  });
+  return _json(res, `Could not import the file (HTTP ${res.status}).`);
+}
+
+/** The URL that downloads a project's latest scan as SARIF 2.1.0. */
+export const sarifExportUrl = projectId => `${BASE}/api/projects/${projectId}/sarif`;
+
 /** POST /api/settings/providers/{id}/verify — re-check the key in use; returns {id, status}. */
 export async function verifyProviderKey(providerId) {
   const res = await apiFetch(`${BASE}/api/settings/providers/${providerId}/verify`, { method: 'POST' });
@@ -635,6 +648,10 @@ export function normalizeScanResult(apiResult, sel) {
       root_cause:          rootCauseMap[risk.failure_mode]?.primary ?? 'unclassified',
       root_cause_also:     rootCauseMap[risk.failure_mode]?.contributing ?? [],
       root_cause_chain:    rootCauseMap[risk.failure_mode] ?? null,
+      // ── Source and CWE (B-045) ───────────────────────────────────────────
+      cwe:                 f.cwe ?? 'unmapped',
+      source:              f.source ?? 'fmea',
+      also_reported_by:    f.also_reported_by ?? [],
       // ── Scoring rationales ────────────────────────────────────────────────
       justification:         risk.justification          ?? '',
       severity_rationale:    risk.severity_rationale     ?? '',

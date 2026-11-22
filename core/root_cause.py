@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from core.cwe import normalise_cwe
 from core.models import RootCause
 
 REGISTRY_PATH = Path(__file__).with_name("root_cause_domains.json")
@@ -64,9 +65,10 @@ def coerce_root_cause(raw: Any, failure_mode: str) -> RootCause:
     """An unusable answer, or an unknown primary domain, is 'unclassified' with no confidence; it never raises."""
     if not isinstance(raw, dict):
         return unclassified(failure_mode)
+    cwe = normalise_cwe(raw.get("cwe"))
     primary = _domain_id(raw.get("primary") or raw.get("primary_domain") or raw.get("domain"))
     if primary is None:
-        return unclassified(failure_mode)
+        return RootCause(failure_mode=failure_mode, cwe=cwe)
     others = raw.get("contributing") or raw.get("contributing_domains") or []
     contributing: list[str] = []
     for value in others if isinstance(others, list) else []:
@@ -79,4 +81,4 @@ def coerce_root_cause(raw: Any, failure_mode: str) -> RootCause:
         confidence = 0.0
     return RootCause(failure_mode=failure_mode, primary=primary, contributing=contributing,
                      symptom=_text(raw.get("symptom")), proximate_cause=_text(raw.get("proximate_cause")),
-                     root_cause=_text(raw.get("root_cause")), confidence=round(confidence, 2))
+                     root_cause=_text(raw.get("root_cause")), confidence=round(confidence, 2), cwe=cwe)

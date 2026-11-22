@@ -90,6 +90,8 @@ POLICY: dict[tuple[str, str], str] = {
     ("DELETE", "/api/settings/repo-credentials"): "settings",
     ("POST", "/api/settings/pricing/refresh"): "settings",
     # pull-request check and the tokens CI uses (B-012)
+    ("POST", "/api/import/sarif"): "scan",
+    ("GET", "/api/projects/{project_id}/sarif"): "read",
     ("POST", "/api/pr-check"): "pr_check",
     ("GET", "/api/projects/{project_id}/pr-check"): "read",
     ("PUT", "/api/projects/{project_id}/pr-check"): "ci_config",
