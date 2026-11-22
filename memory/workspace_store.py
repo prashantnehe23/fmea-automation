@@ -167,19 +167,19 @@ _EMPTY_MEMORY: dict = {
 
 _AGGRESSION_DESCRIPTIONS = {
     1: "Be thorough and systematic. Cover all standard OWASP categories.",
-    2: "Be thorough. Probe for non-obvious chained attacks across boundaries.",
+    2: "Be thorough. Probe for non-obvious chained weaknesses across boundaries.",
     3: (
-        "Be aggressive. Challenge every assumption about trust and input validation. "
-        "Look for multi-step exploit chains that combine several weaknesses."
+        "Be rigorous. Challenge every assumption about trust and input validation. "
+        "Look for combinations of weaknesses that together lead to a larger impact."
     ),
     4: (
-        "Be highly adversarial. Think like an advanced attacker who has studied the codebase. "
-        "Target race conditions, state corruption, and privilege escalation chains."
+        "Be highly rigorous. Consider how an informed user with bad intent could misuse the system. "
+        "Examine race conditions, state corruption, and privilege escalation paths."
     ),
     5: (
-        "Be maximally adversarial — act as an APT-level red team operator. "
-        "Find edge cases others miss. Chain low-severity issues into critical exploits. "
-        "No assumption is safe."
+        "Be exhaustive. Look for edge cases others miss. "
+        "Consider how low-severity weaknesses combine into severe impacts. "
+        "Treat no assumption as safe."
     ),
 }
 
@@ -304,17 +304,17 @@ def get_learning_context(ws=None) -> str:
 === LEARNING CONTEXT (from {memory['total_analyses']} prior analyses) ===
 Aggression level: {aggression}/5 \u2014 {aggression_desc}
 
-High-frequency vulnerability categories to probe aggressively:
+High-frequency vulnerability categories to examine closely:
 {pattern_lines if pattern_lines else '  (no patterns yet)'}
 
-Known attack chain patterns to extend and chain with new findings:
+Known abuse-path patterns to extend with new findings:
 {chain_lines}
 
 Instructions:
 - FIRST verify whether any of the above categories appear in this code.
 - THEN look for NEW, novel failure modes not seen before.
-- If aggression >= 3: Chain multiple low-severity issues into a single high-impact exploit.
-- If aggression >= 4: Assume all default configurations are misconfigured.
+- If aggression >= 3: Consider how several low-severity weaknesses combine into one high-impact failure.
+- If aggression >= 4: Check whether each default configuration is safe.
 - Do NOT duplicate failure modes that are trivially identical to known patterns;
   instead EXTEND them with code-specific details.
 === END LEARNING CONTEXT ===

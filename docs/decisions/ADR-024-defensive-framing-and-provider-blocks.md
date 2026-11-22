@@ -24,3 +24,10 @@ The first live benchmark run (B-026) showed that Mistral Large 4 blocked 8 of 18
 - The claim "authorised to assess" is only as true as the user's use. Whether to ask the user for an explicit confirmation before scanning a repository is an open question for the engineer.
 - New agents from B-028 should adopt the preamble from the start, so B-040 is best done before B-028 phase B even though it is not P1.
 - Verification of each provider's defensive-use route has to come from the provider's own documentation or account; it is not assumed here.
+
+## As built (2026-11-22, B-040)
+- The preamble (`core/prompt_context.py`) is added in the model layer (`core/llm.py`) to every single-turn prompt and to the system message of every chat call, so no agent can omit it. It states the purpose and forbids working exploit code and ready-made payloads; test inputs that demonstrate a flaw to verify a fix are allowed. Embeddings do not carry it.
+- Persona and aggression wording is analyst-style in the saboteur prompt, the chat system prompt and both learning-context tables (`memory/learning_memory.py` and `memory/workspace_store.py`, the one the pipeline actually uses). A test scans the templates and both tables for banned wording.
+- `ProviderBlocked` is a `BaseException` so that agents which fall back on errors cannot swallow it and ask again; scan, GitHub scan, remediation, chat, the pull-request check and the benchmark handle it explicitly. Classification covers Mistral's guardrail 403, OpenAI's content filter, `invalid_prompt`, refusals, `finish_reason: content_filter` and error events in the middle of a stream.
+- Results record the model and provider that produced them. A blocked call's usage is still counted.
+- Not done: the legacy Streamlit dashboard and `app.py` show a raw error on a block; a refusal returned as a normal answer is not detected; the stage is blank outside the pipeline's agent spans (chat); the remediator aborts at the first blocked fix.

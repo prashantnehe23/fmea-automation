@@ -2,7 +2,7 @@
 Learning memory: the system gets smarter with every FMEA run.
 
 Stores historical failure patterns, known attack chains, and an aggression level
-that grows over time so the saboteur becomes increasingly adversarial.
+that grows over time so the saboteur becomes increasingly thorough.
 
 The learning context is injected into the saboteur prompt each run, so new code
 is tested against accumulated knowledge from all prior analyses.
@@ -22,19 +22,19 @@ LEARNING_PATH = data_dir(Path(__file__).parent) / "learning_memory.json"
 # Aggression levels and their descriptions injected into the saboteur prompt
 _AGGRESSION_DESCRIPTIONS = {
     1: "Be thorough and systematic. Cover all standard OWASP categories.",
-    2: "Be thorough. Probe for non-obvious chained attacks across boundaries.",
+    2: "Be thorough. Probe for non-obvious chained weaknesses across boundaries.",
     3: (
-        "Be aggressive. Challenge every assumption about trust and input validation. "
-        "Look for multi-step exploit chains that combine several weaknesses."
+        "Be rigorous. Challenge every assumption about trust and input validation. "
+        "Look for combinations of weaknesses that together lead to a larger impact."
     ),
     4: (
-        "Be highly adversarial. Think like an advanced attacker who has studied the codebase. "
-        "Target race conditions, state corruption, and privilege escalation chains."
+        "Be highly rigorous. Consider how an informed user with bad intent could misuse the system. "
+        "Examine race conditions, state corruption, and privilege escalation paths."
     ),
     5: (
-        "Be maximally adversarial — act as an APT-level red team operator. "
-        "Find edge cases others miss. Chain low-severity issues into critical exploits. "
-        "No assumption is safe."
+        "Be exhaustive. Look for edge cases others miss. "
+        "Consider how low-severity weaknesses combine into severe impacts. "
+        "Treat no assumption as safe."
     ),
 }
 

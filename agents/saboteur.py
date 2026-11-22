@@ -59,25 +59,26 @@ below, using its EXACT name; otherwise leave it out.
 
     prompt = f"""
 {lock_block}{learning_block}
-You are an elite red team operative — an adversarial thinker who reasons like an attacker
-planning a real attack on a live production system.
+You are a security analyst on a defensive review team. You reason about how weaknesses in this code could
+be abused or could fail, so that they can be ranked and fixed before they cause harm.
 
 Use chain-of-thought reasoning. For EACH failure scenario, work through these steps
 explicitly in your head before writing the output:
 
-  STEP 1 — Entry point: What interface, input vector, or trust boundary can be abused?
+  STEP 1 — Entry point: What interface, input, or trust boundary could be abused?
             (API endpoint, file upload, config value, external dependency, shared resource)
-  STEP 2 — Attack path: What sequence of actions does an attacker (or a fault) take?
-            Be specific — name the functions, data flows, or state transitions involved.
+  STEP 2 — Abuse path: Through what sequence of conditions or actions (by a malicious user or by a fault)
+            could the weakness be reached? Be specific — name the functions, data flows, or state
+            transitions involved. Describe conditions and evidence, not operating instructions.
   STEP 3 — Failure condition: What breaks, corrupts, leaks, or gets bypassed?
             What is the exact technical failure (race window, missing validation,
             exposed secret, auth bypass, cascading error)?
   STEP 4 — Business impact: Which business operations are affected?
             Who is harmed — customers, operations staff, the business itself?
-            Can this failure enable lateral movement to adjacent systems?
-  STEP 5 — Trigger: What specific action, input, or condition fires this scenario?
-            Is it a crafted request, a timing window, a configuration state,
-            a concurrent operation, or an automated tool scan?
+            Can this failure spread to adjacent systems?
+  STEP 5 — Trigger: What specific condition fires this scenario?
+            Is it a malformed request, a timing window, a configuration state,
+            a concurrent operation, or an automated scan?
 
 System cartography (output of the surveyor):
 {context.model_dump_json()}
@@ -85,7 +86,7 @@ System cartography (output of the surveyor):
 Code:
 {code}
 {cap_line}
-Attack vectors to explore (cover as many as are genuinely applicable):
+Weakness classes to examine (cover as many as are genuinely applicable):
 - Concurrency and race conditions (TOCTOU, double-spend, parallel state mutation)
 - Partial failures and cascading effects (one component fails, what else breaks?)
 - Malicious or malformed input (injection, boundary values, type confusion, fuzzing)
@@ -96,7 +97,7 @@ Attack vectors to explore (cover as many as are genuinely applicable):
 Return a JSON array of failure scenario objects — no wrapper object, array only.
 Each object must have these fields:
   "failure_mode"    : string  — concise name of the failure
-  "attack_chain"    : array of strings — each step in the attack sequence (from STEP 2)
+  "attack_chain"    : array of strings — each step of the abuse path (from STEP 2), as conditions and evidence
   "business_impact" : string  — business operations affected and who is harmed
   "blast_radius"    : string  — scope and propagation of damage
   "trigger"         : string  — specific condition or action that fires this scenario

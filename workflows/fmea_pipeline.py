@@ -13,7 +13,8 @@ from agents.surveyor import run_surveyor
 from agents.validator import run_validator
 from core.line_numbers import number_lines
 from core.batch_merge import merge_contexts, merge_failures, merge_linkage
-from core.llm import get_call_count, reset_call_count
+from core.llm import get_call_count, get_model_name, reset_call_count
+from core.providers import provider_for_model
 from core.models import ControlAssessment, RemediationPlan
 from core.priority import exploit_confirmed_from, guarded_severity, priority_for
 from core.telemetry import agent_span, clear_scan_context, get_run_id, set_scan_context
@@ -368,6 +369,8 @@ def run_fmea(
         "fix_candidates": pending_fixes,           # B-031: findings waiting for a person to confirm they are fixed
         "scope": scope,                    # B-033: what was examined and what was not
         "batches": len(parts),             # B-028 phase 0: passes over the code
+        "model": get_model_name(),         # B-040: the model that produced this result (never switched silently)
+        "provider": provider_for_model(get_model_name()),
         "remediation_limit": {"limit": MAX_REMEDIATION_PLANS, "skipped": skipped_plans},   # spend guard (placeholders)
     }
 

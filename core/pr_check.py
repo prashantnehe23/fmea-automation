@@ -16,6 +16,7 @@ import urllib.parse
 
 import memory.db as db
 from core import budget
+from core.provider_block import ProviderBlocked, blocked_message
 from core.findings import finding_identity
 from core.github_fetcher import RepoAccessError, fetch_contents, fetch_pr_changes, list_repo
 from core.scan_scope import MAX_BYTES, build_scan_input, plan_batches, summarise_manifest
@@ -182,6 +183,8 @@ def _run(owner, repo, head_sha, pr_number, project, config, limit, states, known
                               scope=scope, persist=False)
         except budget.BudgetReached:
             result = None
+        except ProviderBlocked as exc:
+            raise PrCheckError(blocked_message(exc, "check"), 502) from None
     out = _result("pass", "", budget_usd=limit, cost_usd=round(tracker.spent_usd, 4), budget_reached=tracker.reached,
                   examined=scope["summary"]["examined"], not_examined=scope["summary"]["not_examined"])
     if skipped:

@@ -248,6 +248,7 @@ function ScanComplete({ result, repo }) {
     <div className="mt-5 p-5 rounded-2xl border border-green-200 bg-green-50 space-y-3">
       {/* Source + registry badges */}
       <div className="flex flex-wrap items-center gap-2">
+        {result?.model && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white border border-green-200 text-green-700" title="The model that produced this result">{result.model}</span>}
         <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
           fromCache
             ? 'bg-blue-50 border-blue-200 text-blue-700'
@@ -347,6 +348,7 @@ function LastScanCard({ history }) {
               🔒 {history.locked_count ?? history.risk_count} locked
             </span>
           )}
+          {history.result?.model && <span className="text-xs text-gray-400" title="The model that produced this scan">{history.result.model}</span>}
           <span className="text-xs text-gray-400">{date}</span>
         </div>
       </div>
@@ -847,9 +849,9 @@ export default function ScanPage({
           <div className="mt-5 p-4 rounded-2xl border border-red-200 bg-red-50 text-sm text-red-700">
             <p className="font-bold mb-1">⚠ Scan failed</p>
             <p className="text-xs">{scanError}</p>
-            {scanErrorAction === 'open_settings' ? (
+            {scanErrorAction === 'open_settings' || scanErrorAction === 'choose_model' ? (
               <button onClick={onOpenSettings} className="mt-3 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700">
-                Open Settings
+                {scanErrorAction === 'choose_model' ? 'Choose another model' : 'Open Settings'}
               </button>
             ) : (
               <p className="text-xs mt-2 text-red-500">
