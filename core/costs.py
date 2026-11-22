@@ -18,6 +18,10 @@ import urllib.error
 from datetime import datetime
 
 AVAILABLE_MODELS: list[dict] = [
+    # No built-in price for the 6.2 models (none was given): the live LiteLLM refresh fills it when listed, until then the
+    # cost is an estimate and the interface says so.
+    {"id": "gpt-6.2-astra",         "provider": "openai",  "display": "GPT-6.2 Astra",  "tier": "Power",    "priced": False},
+    {"id": "gpt-6.2-sol",           "provider": "openai",  "display": "GPT-6.2 Sol",    "tier": "Standard", "priced": False},
     {"id": "gpt-6-astra",           "provider": "openai",  "display": "GPT-6 Astra",    "tier": "Power"},
     {"id": "gpt-5.6-sol",           "provider": "openai",  "display": "GPT-5.6 Sol",    "tier": "Standard"},
     {"id": "gpt-5.6-luna",          "provider": "openai",  "display": "GPT-5.6 Luna",   "tier": "Fast"},
