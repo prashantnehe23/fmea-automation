@@ -694,7 +694,7 @@ export default function ScanPage({
                 {showPaste ? 'Hide' : 'Or paste code directly (no repo needed)'}
               </button>
             </div>
-            {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} />}
+            {showPaste && <CodePastePanel code={pasteCode} onChange={setPasteCode} onRun={runCodeScan} deepScan={deepScan} onDeepScan={setDeepScan} />}
           </div>
         )}
 
@@ -713,10 +713,7 @@ export default function ScanPage({
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-xs text-gray-600 mb-3">
-              <input type="checkbox" checked={deepScan} onChange={e => setDeepScan(e.target.checked)} />
-              Deep scan: hunt exploit paths across components and verify each against the code (slower, uses more of the model)
-            </label>
+            <DeepScanOption checked={deepScan} onChange={setDeepScan} />
             <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={() => runGithubScan(project.repoUrl)}
@@ -782,6 +779,7 @@ export default function ScanPage({
                 </p>
               )}
 
+              <DeepScanOption checked={deepScan} onChange={setDeepScan} />
               <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={() => runGithubScan(project.repoUrl, true)}
@@ -888,7 +886,16 @@ export default function ScanPage({
 
 // ── Code paste fallback panel ─────────────────────────────────────────────────
 
-function CodePastePanel({ code, onChange, onRun }) {
+function DeepScanOption({ checked, onChange }) {
+  return (
+    <label className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+      Deep scan: hunt exploit paths across components and verify each against the code (slower, uses more of the model)
+    </label>
+  );
+}
+
+function CodePastePanel({ code, onChange, onRun, deepScan, onDeepScan }) {
   return (
     <div className="p-4 rounded-2xl border border-gray-200 bg-gray-50 space-y-3">
       <p className="text-xs text-gray-500 font-semibold">Paste code to scan directly</p>
@@ -898,6 +905,7 @@ function CodePastePanel({ code, onChange, onRun }) {
         value={code}
         onChange={e => onChange(e.target.value)}
       />
+      {onDeepScan && <DeepScanOption checked={deepScan} onChange={onDeepScan} />}
       <button
         onClick={onRun}
         disabled={!code.trim()}

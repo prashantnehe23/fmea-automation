@@ -1152,6 +1152,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - [x] On the seeded `chain-api` repository (an SSRF in a public service that reaches an unauthenticated localhost-only admin service), a Large 4 scan reports the whole chain as one confirmed Critical finding with both steps cited (two live runs: the first, before the network-position link existed, reported only the SSRF; the second found the chain; about $0.04 and one minute)
 - [ ] Measured on the real-code set against the earlier workflow with the same model (runs held back with the B-046 results; to be re-run with the other models under B-052)
 - [x] A library with no routes, sinks or guard-like names is read in packets of connected files, every code file a seed (2026-11-22, library mode; test in `tests/test_component_map.py`)
+- [x] The Deep scan option is offered in every state where a scan can start (never scanned, scanned before, pasted code without a repository); it was first only on the never-scanned state, so a project with earlier scans had no way to tick it (found by the engineer, 2026-11-22; `frontend/src/__tests__/ScanPage.test.jsx`)
 - [ ] Locked findings carried across scans in this mode; hunts for guard-like files wired only through configuration tables beyond the file-level link
 
 **Acceptance criteria:**
