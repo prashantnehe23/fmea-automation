@@ -972,8 +972,10 @@ def get_latest_snapshot(workspace_id: int) -> dict | None:
         ).fetchone()
         if not row:
             return None
+        from core.priority import refresh_bands
         item = dict(row)
-        item["findings"] = json.loads(item.pop("findings_json"))
+        # every reader (UI, chat, PR check, SARIF export) sees today's bands for scans stored before them (B-048)
+        item["findings"] = refresh_bands(json.loads(item.pop("findings_json")))
         return item
     finally:
         conn.close()

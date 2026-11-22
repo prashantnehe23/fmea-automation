@@ -29,6 +29,9 @@ frontend:
 test:
 	python -m pytest tests/ -v
 
+test-ui:
+	cd frontend && npm test
+
 build:
 	cd frontend && npm run build
 
