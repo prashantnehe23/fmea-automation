@@ -17,7 +17,7 @@ import urllib.parse
 import memory.db as db
 from core import budget
 from core.findings import finding_identity
-from core.github_fetcher import RepoAccessError, fetch_contents, fetch_pr_files, list_repo
+from core.github_fetcher import RepoAccessError, fetch_contents, fetch_pr_changes, list_repo
 from core.scan_scope import MAX_BYTES, build_scan_input, plan_batches, summarise_manifest
 from core.untrusted import sanitize_text
 from core.workspace import WorkspaceContext
@@ -67,6 +67,20 @@ def _known_elsewhere(f, snapshot_failures: list[dict]) -> bool:
     return False
 
 
+DIFF_MARGIN = 3        # lines around a changed range that still count as touched by the pull request
+
+
+def _in_diff(item: dict, changes: dict) -> bool:
+    """Does a finding sit in code the pull request changed? Without diff information everything counts."""
+    if not changes or not item["file"] or not item["line"]:
+        return True
+    key = next((p for p in changes if p == item["file"] or p.endswith("/" + item["file"]) or item["file"].endswith("/" + p)), None)
+    if key is None:
+        return False
+    ranges = changes[key]
+    return ranges is None or any(a - DIFF_MARGIN <= item["line"] <= b + DIFF_MARGIN for a, b in ranges)
+
+
 def _finding(f, risk, owner: str, repo: str, sha: str) -> dict:
     path, line = _location(f.evidence)
     url = (f"https://github.com/{owner}/{repo}/blob/{urllib.parse.quote(sha)}/{urllib.parse.quote(path)}#L{line}"
@@ -100,7 +114,7 @@ def _comment(out: dict) -> str:
 
 
 def _result(verdict: str, summary: str, **extra) -> dict:
-    base = {"verdict": verdict, "summary": summary, "new": [], "regressed": [], "notices": [], "comment_markdown": "",
+    base = {"verdict": verdict, "summary": summary, "new": [], "regressed": [], "notices": [], "outside_changes": 0, "comment_markdown": "",
             "budget_reached": False, "budget_usd": None, "cost_usd": 0.0, "examined": 0, "not_examined": 0}
     return {**base, **extra}
 
@@ -141,9 +155,10 @@ def _run(owner, repo, head_sha, pr_number, project, config, limit, states, known
     try:
         _, entries, _ = list_repo(f"https://github.com/{owner}/{repo}/tree/{head_sha}")
         try:
-            changed = set(fetch_pr_files(owner, repo, pr_number)) if pr_number else set()
+            changes = fetch_pr_changes(owner, repo, pr_number) if pr_number else {}
         except Exception:
-            changed = set()                                   # prioritising changed files is an optimisation only
+            changes = {}                                      # without the diff every finding is reported
+        changed = set(changes)
         included = [e for e in entries if e.included]
         planned, _ = plan_batches(included, MAX_BYTES, 1, boost=changed)
         ref = _ref(owner, repo, head_sha)
@@ -182,8 +197,13 @@ def _run(owner, repo, head_sha, pr_number, project, config, limit, states, known
     by_name = {f.failure_mode: f for f in result["failures"]}
     new_names = [n for n in result["new_scenarios"] if n in by_name and not _known_elsewhere(by_name[n], known)]
     regressed_names = [n for n in by_name if states.get(n) == "fixed"]
-    out["new"] = [_finding(by_name[n], risks[n], owner, repo, head_sha) for n in new_names if n in by_name and n in risks]
-    out["regressed"] = [_finding(by_name[n], risks[n], owner, repo, head_sha) for n in regressed_names if n in risks]
+    candidates_new = [_finding(by_name[n], risks[n], owner, repo, head_sha) for n in new_names if n in by_name and n in risks]
+    candidates_regressed = [_finding(by_name[n], risks[n], owner, repo, head_sha) for n in regressed_names if n in risks]
+    # A model reads the whole head and finds things the baseline run did not mention under that name. Only
+    # findings in code this pull request touched are the pull request's: the rest are counted, not reported.
+    out["new"] = [i for i in candidates_new if _in_diff(i, changes)]
+    out["regressed"] = [i for i in candidates_regressed if _in_diff(i, changes)]
+    out["outside_changes"] = len(candidates_new) + len(candidates_regressed) - len(out["new"]) - len(out["regressed"])
     blocking = [i for i in out["new"] + out["regressed"] if i["severity"] >= config["fail_severity"]]
     out["verdict"] = "fail" if blocking else "pass"
     if blocking:
@@ -192,6 +212,8 @@ def _run(owner, repo, head_sha, pr_number, project, config, limit, states, known
         out["summary"] = "New or regressed findings below the failure threshold."
     else:
         out["summary"] = "No new or regressed findings."
+    if out["outside_changes"]:
+        out["summary"] += f" {out['outside_changes']} other new-looking finding(s) outside the changed lines were not reported."
     if tracker.reached:
         out["summary"] += " Budget reached: the result may be incomplete."
     out["comment_markdown"] = _comment(out)

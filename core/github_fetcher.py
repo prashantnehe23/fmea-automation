@@ -257,6 +257,44 @@ def select_paths(paths: list[str], skip_tests: bool = True) -> tuple[list[str], 
 
 # ── File content fetch ───────────────────────────────────────────────────────────
 
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def changed_ranges(patch: str) -> list[tuple[int, int]]:
+    """Line ranges of the new file that a unified-diff patch adds or changes."""
+    ranges: list[tuple[int, int]] = []
+    line = 0
+    for row in patch.split("\n"):
+        m = _HUNK.match(row)
+        if m:
+            line = int(m.group(1))
+        elif row.startswith("+") and not row.startswith("+++"):
+            if ranges and ranges[-1][1] == line - 1:
+                ranges[-1] = (ranges[-1][0], line)
+            else:
+                ranges.append((line, line))
+            line += 1
+        elif row.startswith(" "):
+            line += 1
+    return ranges
+
+
+def fetch_pr_changes(owner: str, repo: str, number: int) -> dict[str, list[tuple[int, int]] | None]:
+    """{path: changed line ranges} for a pull request (up to 300 files). None means the whole file counts as
+    changed (GitHub gave no patch: a binary or very large file)."""
+    changes: dict[str, list[tuple[int, int]] | None] = {}
+    for page in (1, 2, 3):
+        data = _get_json(f"https://api.github.com/repos/{owner}/{repo}/pulls/{int(number)}/files?per_page=100&page={page}",
+                         owner, repo)
+        rows = data if isinstance(data, list) else []
+        for f in rows:
+            if isinstance(f, dict) and f.get("status") != "removed" and f.get("filename"):
+                changes[f["filename"]] = changed_ranges(f["patch"]) if f.get("patch") else None
+        if len(rows) < 100:
+            break
+    return changes
+
+
 def fetch_pr_files(owner: str, repo: str, number: int) -> list[str]:
     """Paths a pull request adds or changes (up to 300), so a check can examine them first (B-012)."""
     paths: list[str] = []
