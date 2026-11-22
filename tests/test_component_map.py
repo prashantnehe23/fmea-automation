@@ -124,3 +124,15 @@ def test_a_file_is_never_linked_to_itself_and_clients_are_detected_in_javascript
     cmap = build_component_map({"web.js": js, "api.js": other})
     assert cmap.files["web.js"].outbound and cmap.files["web.js"].listens == ["3000"]
     assert set(cmap.service_edges) == {("web.js", "api.js")}
+
+
+def test_a_library_with_no_routes_sinks_or_guard_names_is_still_read_in_packets():
+    nl = chr(10)
+    lib = {"lib/keys.py": nl.join(["from lib import codec", "", "def load(raw):", "    return codec.decode(raw)", ""]),
+           "lib/codec.py": nl.join(["def decode(raw):", "    return raw.strip()", ""]),
+           "tests/test_keys.py": nl.join(["def test_x():", "    assert True", ""]),
+           "src/lib.rs": "pub fn parse() {}" + nl}
+    packets, uncovered = make_packets(build_component_map(lib), lib, budget_bytes=100_000)
+    assert packets and {"lib/keys.py", "lib/codec.py"} <= {f for p in packets for f in p.files}
+    assert "tests/test_keys.py" not in uncovered and all("tests/test_keys.py" not in p.files for p in packets)
+    assert make_packets(build_component_map({}), {}, 1000) == ([], [])          # nothing at all still means nothing to hunt

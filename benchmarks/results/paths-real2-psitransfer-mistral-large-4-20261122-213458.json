@@ -1,0 +1,433 @@
+{
+  "findings": [
+    {
+      "failure_mode": "Tus-Resumable version guard is a no-op, so the protocol-version check never rejects any client",
+      "trigger": "An attacker sends any arbitrary value in the Tus-Resumable header (e.g. a bogus or future version string) with POST /, HEAD /:uploadId or PATCH /:uploadId; the guard passes and the request reaches the upload handlers as if it were a supported client.",
+      "evidence": "lib/tusboy/index.js:39 `const versionSupported = (/* versionStr */) => true`",
+      "business_impact": "Any client, including non-conforming or malicious ones, is accepted by the upload API; version-based protocol assumptions in downstream handlers (offset accounting, extension negotiation) cannot be relied on, affecting all users of the upload service.",
+      "blast_radius": "Components on the path: lib/tusboy/index.js",
+      "attack_chain": [
+        "All tus routes mounted by lib/tusboy/index.js: POST /, HEAD /:uploadId, PATCH /:uploadId: attacker-controlled input arrives",
+        "lib/tusboy/index.js:39 - The version predicate used by the guard is hard-coded to always return true, so no version string is ever rejected.",
+        "lib/tusboy/index.js:49-58 - assertTusResumableHeader is applied to every request entering nextRouter, but its only rejection branch depends on versionSupported, which can never fail; only a completely missing header is rejected.",
+        "lib/tusboy/index.js:69-73 - The guard is wired in front of all state-changing handlers (post/head/patch), so every one of them trusts that the version was validated when it effectively was not.",
+        "Fails here: versionSupported is stubbed to always return true, so the 'Tus-Resumable version not supported' branch in assertTusResumableHeader is unreachable; the router assumes version negotiation happened but it never does."
+      ],
+      "severity": 4,
+      "occurrence": 8,
+      "detection": 3,
+      "rpn": 96,
+      "priority": "Medium",
+      "validator_confidence": 0.95,
+      "root_cause": "security",
+      "exploit_path": [
+        {
+          "file": "lib/tusboy/index.js",
+          "lines": "39",
+          "action": "The version predicate used by the guard is hard-coded to always return true, so no version string is ever rejected.",
+          "quote": "const versionSupported = (/* versionStr */) => true"
+        },
+        {
+          "file": "lib/tusboy/index.js",
+          "lines": "49-58",
+          "action": "assertTusResumableHeader is applied to every request entering nextRouter, but its only rejection branch depends on versionSupported, which can never fail; only a completely missing header is rejected.",
+          "quote": "const assertTusResumableHeader = (req, res, next) => {\n  if (!('tusResumable' in req.tus)) {\n    res.set('Tus-Version', constants.TUS_VERSION)\n    return next(errors.preconditionError('Tus-Resumable header missing'))\n  } else if (!versionSupported(req.tus.tusResumable)) {\n    res.set('Tus-Version', constants.TUS_VERSION)\n    return next(errors.preconditionError('Tus-Resumable version not supported'))\n  }\n  next()\n}"
+        },
+        {
+          "file": "lib/tusboy/index.js",
+          "lines": "69-73",
+          "action": "The guard is wired in front of all state-changing handlers (post/head/patch), so every one of them trusts that the version was validated when it effectively was not.",
+          "quote": "const nextRouter = new Router({ mergeParams: true })\n    .use(assertTusResumableHeader)\n    .post('/', w(post(store, opts)))\n    .head('/:uploadId', w(head(store, opts)))\n    .patch('/:uploadId', w(patch(store, opts)))"
+        }
+      ],
+      "path_status": "confirmed"
+    },
+    {
+      "failure_mode": "CORS reflects any origin on the upload API while the web client authenticates with a custom x-passwd header",
+      "trigger": "A malicious web page opened by a user issues fetch()/XHR calls to the tus endpoints (POST / to create uploads, PATCH /:uploadId to write chunks) with the browser automatically attaching the permissive CORS response; because Access-Control-Allow-Origin echoes the attacker's origin, the page can also read responses such as Upload-Offset and Upload-Length.",
+      "evidence": "lib/tusboy/index.js:60-63 `const setCorsHeaders = cors({\n  origin: true,\n  exposedHeaders: constants.EXPOSED_HEADERS,\n})`",
+      "business_impact": "Any website can silently create and modify uploads on the service from a visitor's browser and read upload state, enabling cross-site file injection/abuse against the service and its users; the x-passwd protection only helps if the password is required, and the CORS policy does not restrict who may attempt the API.",
+      "blast_radius": "Components on the path: lib/tusboy/index.js, app/src/Upload/store/config.js",
+      "attack_chain": [
+        "lib/tusboy/index.js router (POST /, HEAD /:uploadId, PATCH /:uploadId, OPTIONS *) reached cross-origin from any website: attacker-controlled input arrives",
+        "lib/tusboy/index.js:60-63 - CORS is configured with origin: true, which reflects any requesting Origin back in Access-Control-Allow-Origin, and exposes tus protocol headers to the browser.",
+        "lib/tusboy/index.js:78-83 - setCorsHeaders is applied to every request before the tus handlers, so cross-origin browser requests from any site are permitted and their responses (including exposed tus headers) are readable by the calling page.",
+        "app/src/Upload/store/config.js:24-25 - The legitimate client authenticates to the same API surface using a custom x-passwd header, showing the API is intended to be protected by that secret; a reflected-origin CORS policy lets any third-party page drive the same endpoints from a victim's browser.",
+        "Fails here: cors({ origin: true }) reflects every Origin instead of restricting to trusted origins, so the tus upload API is callable and readable cross-origin from any website, with no allowlist anywhere in the shown routing code."
+      ],
+      "severity": 7,
+      "occurrence": 8,
+      "detection": 4,
+      "rpn": 224,
+      "priority": "High",
+      "validator_confidence": 0.88,
+      "root_cause": "security",
+      "exploit_path": [
+        {
+          "file": "lib/tusboy/index.js",
+          "lines": "60-63",
+          "action": "CORS is configured with origin: true, which reflects any requesting Origin back in Access-Control-Allow-Origin, and exposes tus protocol headers to the browser.",
+          "quote": "const setCorsHeaders = cors({\n  origin: true,\n  exposedHeaders: constants.EXPOSED_HEADERS,\n})"
+        },
+        {
+          "file": "lib/tusboy/index.js",
+          "lines": "78-83",
+          "action": "setCorsHeaders is applied to every request before the tus handlers, so cross-origin browser requests from any site are permitted and their responses (including exposed tus headers) are readable by the calling page.",
+          "quote": "router\n    .use(methodOverride('X-HTTP-Method-Override'))\n    .use(tusHeaderParser())\n    .options('*', options(extensions, opts.extraCorsMethods))\n    .use(setCorsHeaders)\n    .use(setTusResumableHeader)"
+        },
+        {
+          "file": "app/src/Upload/store/config.js",
+          "lines": "24-25",
+          "action": "The legitimate client authenticates to the same API surface using a custom x-passwd header, showing the API is intended to be protected by that secret; a reflected-origin CORS policy lets any third-party page drive the same endpoints from a victim's browser.",
+          "quote": "xhr.open('GET', 'config.json');\n        state.uploadPass && xhr.setRequestHeader('x-passwd', state.uploadPass);"
+        }
+      ],
+      "path_status": "uncertain"
+    },
+    {
+      "failure_mode": "Attacker-controlled upload metadata is forwarded verbatim to the configured webhook endpoint",
+      "trigger": "An attacker uploads a file via the tus endpoint with arbitrary Upload-Metadata (or an arbitrary filename); when the fileUploaded event fires, the server sends that fully attacker-controlled JSON body to config.fileUploadedWebhook, and on download the file record is sent to config.fileDownloadedWebhook \u2014 allowing crafted payloads to be delivered to whatever internal endpoint the webhook targets.",
+      "evidence": "plugins/file-uploaded-webhook.js:11-19 `function downloadWebook({ metadata }) {\n    debug('Trigger: ' + config.fileUploadedWebhook);\n    axios.post(config.fileUploadedWebhook, {\n      metadata,\n      date: Date.now()\n    }).catch(err => console.error(err));\n  }\n\n  eventBus.on('fileUploaded', downloadWebook);`",
+      "business_impact": "Attacker-controlled content is relayed by the server to the webhook destination (potential internal/localhost service), enabling data injection into internal consumers of the webhook and abuse of the server as an outbound request proxy for the metadata it carries; harm falls on the webhook receiver and the service operator.",
+      "blast_radius": "Components on the path: plugins/file-uploaded-webhook.js, plugins/file-downloaded-webhook.js",
+      "attack_chain": [
+        "tus POST / (upload creation) -> 'fileUploaded' event -> plugins/file-uploaded-webhook.js outbound HTTP POST: attacker-controlled input arrives",
+        "plugins/file-uploaded-webhook.js:11-19 - The plugin subscribes to the fileUploaded event and posts the event's metadata field, which originates from the uploader's request, to the configured webhook URL with no validation or sanitisation.",
+        "plugins/file-downloaded-webhook.js:12-22 - The sibling plugin does the same for download events, forwarding the whole file record (including attacker-supplied name/metadata) to the configured URL.",
+        "Fails here: The webhook plugins assume the event payload is trusted server-side data; nothing validates that metadata/file fields are safe before they are serialised into an outbound HTTP request to a URL that may be an internal service."
+      ],
+      "severity": 6,
+      "occurrence": 5,
+      "detection": 7,
+      "rpn": 210,
+      "priority": "High",
+      "validator_confidence": 0.85,
+      "root_cause": "security",
+      "exploit_path": [
+        {
+          "file": "plugins/file-uploaded-webhook.js",
+          "lines": "11-19",
+          "action": "The plugin subscribes to the fileUploaded event and posts the event's metadata field, which originates from the uploader's request, to the configured webhook URL with no validation or sanitisation.",
+          "quote": "function downloadWebook({ metadata }) {\n    debug('Trigger: ' + config.fileUploadedWebhook);\n    axios.post(config.fileUploadedWebhook, {\n      metadata,\n      date: Date.now()\n    }).catch(err => console.error(err));\n  }\n\n  eventBus.on('fileUploaded', downloadWebook);"
+        },
+        {
+          "file": "plugins/file-downloaded-webhook.js",
+          "lines": "12-22",
+          "action": "The sibling plugin does the same for download events, forwarding the whole file record (including attacker-supplied name/metadata) to the configured URL.",
+          "quote": "function downloadWebook({ sid, file }) {\n    debug('Trigger: ' + config.fileDownloadedWebhook);\n    axios.post(config.fileDownloadedWebhook, {\n      fid: sid,\n      file,\n      date: Date.now()\n    }).catch(err => console.error(err));\n  }\n\n  eventBus.on('archiveDownloaded', downloadWebook);\n  eventBus.on('fileDownloaded', downloadWebook);"
+        }
+      ],
+      "path_status": "confirmed"
+    },
+    {
+      "failure_mode": "Path-jail bypass in Store.getFilename via prefix-confused startsWith check, reachable from both upload and download routes",
+      "trigger": "1) Send POST to the files endpoint with Upload-Metadata containing sid = '../<uploadDirName><suffix>' (e.g. '../uploads-backup'); the assert only checks presence, and req.FID becomes '../uploads-backup++<uuid>'. 2) store.getFilename resolves this to '<parent-of-uploadDir>/uploads-backup/<uuid>', which passes the startsWith check, so the uploaded bytes and the .json metadata are written outside the upload jail. 3) The same bypass works for reads: GET /files/..++<uploadDirName><suffix> resolves to a sibling path that passes the prefix check, and store.info()/res.download() serve it (info requires a matching '.json' sidecar, which the write path above creates).",
+      "evidence": "lib/endpoints.js:196-246 `const meta = tusMeta.decode(req.get('Upload-Metadata'));\n        assert(meta.name, 'tus meta prop missing: name');\n        assert(meta.sid, 'tus meta prop missing: sid');\n        ...\n        req.FID = meta.sid + '++' + meta.key;`",
+      "business_impact": "Arbitrary file write (attacker-controlled content plus a JSON sidecar) and read of any path on the filesystem whose absolute path begins with the configured uploadDir string, e.g. sibling directories like '<uploadDir>-backup' or files such as '<uploadDir>base.json'. This can overwrite application data/config sidecars and exfiltrate files outside the upload jail; harm falls on the server operator and on users whose files are stored next to the upload directory.",
+      "blast_radius": "Components on the path: lib/endpoints.js, lib/store.js",
+      "attack_chain": [
+        "POST {uploadAppPath}files (Upload-Metadata header controls sid) and GET {baseUrl}files/:fid (URL param controls fid): attacker-controlled input arrives",
+        "lib/endpoints.js:196-246 - Upload middleware decodes attacker-controlled Upload-Metadata and only asserts that sid is present (no charset/format validation); it then builds the storage key as meta.sid + '++' + meta.key and hands it to tusboy via req.FID.",
+        "lib/endpoints.js:285-286 - The single-file download route passes the raw URL parameter straight into the store with no validation of its shape or membership in a known bucket.",
+        "lib/store.js:29-35 - getFilename converts the first '++' to '/' and resolves against the upload dir, then 'jails' the result with a string-prefix check that does not require a path-separator boundary.",
+        "lib/store.js:40-43 - create()/update()/append() all write through getFilename, so an upload whose sid escapes the jail prefix is persisted outside the intended directory (both the data file and its .json sidecar).",
+        "Fails here: The jail check `p.startsWith(this.dir)` compares a resolved absolute path against the upload-dir string without a trailing path separator, so any sibling path whose name merely begins with the upload-dir name (e.g. dir '/srv/uploads' vs '/srv/uploadsX/...') is accepted. Additionally, only the first '++' is replaced, and neither the upload middleware nor the download route validates the sid/fid format before it reaches the store."
+      ],
+      "severity": 10,
+      "occurrence": 8,
+      "detection": 5,
+      "rpn": 400,
+      "priority": "High",
+      "validator_confidence": 0.96,
+      "root_cause": "security",
+      "exploit_path": [
+        {
+          "file": "lib/endpoints.js",
+          "lines": "196-246",
+          "action": "Upload middleware decodes attacker-controlled Upload-Metadata and only asserts that sid is present (no charset/format validation); it then builds the storage key as meta.sid + '++' + meta.key and hands it to tusboy via req.FID.",
+          "quote": "const meta = tusMeta.decode(req.get('Upload-Metadata'));\n        assert(meta.name, 'tus meta prop missing: name');\n        assert(meta.sid, 'tus meta prop missing: sid');\n        ...\n        req.FID = meta.sid + '++' + meta.key;"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "285-286",
+          "action": "The single-file download route passes the raw URL parameter straight into the store with no validation of its shape or membership in a known bucket.",
+          "quote": "const info = await store.info(req.params.fid); // throws on 404\n    res.download(store.getFilename(req.params.fid), info.metadata.name);"
+        },
+        {
+          "file": "lib/store.js",
+          "lines": "29-35",
+          "action": "getFilename converts the first '++' to '/' and resolves against the upload dir, then 'jails' the result with a string-prefix check that does not require a path-separator boundary.",
+          "quote": "getFilename(fid) {\n    let p = path.resolve(this.dir, fid.replace('++', '/'));\n    if(!p.startsWith(this.dir)) {\n      throw new Error('file name not in jail path. aborting');\n    }\n    return p;\n  }"
+        },
+        {
+          "file": "lib/store.js",
+          "lines": "40-43",
+          "action": "create()/update()/append() all write through getFilename, so an upload whose sid escapes the jail prefix is persisted outside the intended directory (both the data file and its .json sidecar).",
+          "quote": "await fsp.ensureDir(path.dirname(this.getFilename(fid)));\n    await fsp.writeJson(this.getFilename(fid) + '.json', Object.assign(opts, {\n      isPartial: true\n    }));"
+        }
+      ],
+      "path_status": "confirmed"
+    },
+    {
+      "failure_mode": "Bucket download password enforced only on the listing route, bypassed by direct file and archive download URLs",
+      "trigger": "An attacker who obtains any single file URL (sid++uuid key) or the archive link \u2014 e.g. from the fileUploaded/fileDownloaded webhook plugins (plugins/file-uploaded-webhook.js, plugins/file-downloaded-webhook.js emit the URL), server logs, browser history, or a referrer \u2014 can GET /files/<sid>++<key> directly and receive the file with no password prompt, even though the bucket is password-protected and the listing endpoint correctly returns 401.",
+      "evidence": "lib/endpoints.js:170-173 `if(items.some(item => item.metadata.password && item.metadata.password !== downloadPassword)) {\n      setTimeout(() => res.status(401).send('Unauthorized'), 500);\n      return;\n    }`",
+      "business_impact": "Complete bypass of per-bucket download passwords; all files in a protected bucket (including archives of the whole bucket) are readable by anyone holding or leaking a file URL. Harms every uploader who relied on the password option.",
+      "blast_radius": "Components on the path: lib/endpoints.js",
+      "attack_chain": [
+        "GET {baseUrl}files/:fid (single file) and GET {baseUrl}files/:fid.tar.gz|.zip (archive): attacker-controlled input arrives",
+        "lib/endpoints.js:170-173 - The bucket listing route is the ONLY place a per-bucket download password is checked: it compares the x-download-pass header against item.metadata.password before returning item URLs.",
+        "lib/endpoints.js:285-286 - The direct download route takes req.params.fid (sid++key), calls store.info() and res.download() with no x-download-pass check and no db lookup of the bucket password. The guard defined in the sibling route is never applied here.",
+        "lib/endpoints.js:archive branch of the same /files/:fid route - The tar.gz/zip archive download validates only that the filename matches MD5(bucket keys), never the bucket password, then streams every file in the bucket.",
+        "Fails here: The password check for password-protected buckets exists only in the `/:sid.json` listing handler; the `/files/:fid` handlers assume the unguessable URL is itself the secret and never re-validate x-download-pass against db metadata."
+      ],
+      "severity": 8,
+      "occurrence": 7,
+      "detection": 4,
+      "rpn": 224,
+      "priority": "High",
+      "validator_confidence": 0.94,
+      "root_cause": "security",
+      "exploit_path": [
+        {
+          "file": "lib/endpoints.js",
+          "lines": "170-173",
+          "action": "The bucket listing route is the ONLY place a per-bucket download password is checked: it compares the x-download-pass header against item.metadata.password before returning item URLs.",
+          "quote": "if(items.some(item => item.metadata.password && item.metadata.password !== downloadPassword)) {\n      setTimeout(() => res.status(401).send('Unauthorized'), 500);\n      return;\n    }"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "285-286",
+          "action": "The direct download route takes req.params.fid (sid++key), calls store.info() and res.download() with no x-download-pass check and no db lookup of the bucket password. The guard defined in the sibling route is never applied here.",
+          "quote": "const info = await store.info(req.params.fid); // throws on 404\n    res.download(store.getFilename(req.params.fid), info.metadata.name);"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "archive branch of the same /files/:fid route",
+          "action": "The tar.gz/zip archive download validates only that the filename matches MD5(bucket keys), never the bucket password, then streams every file in the bucket.",
+          "quote": "if (req.params.fid !== sid + '++' + MD5(bucket.map(f => f.key).join()).toString() + '.' + format) {\n      res.status(404).send(errorPage({ ...pugVars, error: 'Invalid link', ... }));\n      return;\n    }"
+        }
+      ],
+      "path_status": "confirmed"
+    },
+    {
+      "failure_mode": "Path jail check uses startsWith without a trailing separator, allowing reads/writes into sibling directories sharing the uploadDir prefix",
+      "trigger": "With uploadDir e.g. /srv/uploads, an attacker sets Upload-Metadata sid to `../uploadsX` (or requests /files/..++uploadsX++knownfile): getFilename resolves to /srv/uploadsX/... which startsWith('/srv/uploads') and is accepted, so store.create/append write outside the upload jail into any sibling path sharing the prefix, and the download route reads files from those locations.",
+      "evidence": "lib/endpoints.js:POST middleware on `${ config.uploadAppPath }files` `const meta = tusMeta.decode(req.get('Upload-Metadata'));\n        ...\n        assert(meta.sid, 'tus meta prop missing: sid');\n        ...\n        req.FID = meta.sid + '++' + meta.key;`",
+      "business_impact": "Arbitrary file write (via tus upload) and arbitrary file read (via /files/:fid) outside the configured upload directory into any directory whose absolute path shares the uploadDir string prefix, e.g. sibling app/data directories. Harms the host system and all users of the service.",
+      "blast_radius": "Components on the path: lib/endpoints.js, lib/tusboy/handlers/post.js, lib/store.js",
+      "attack_chain": [
+        "POST {uploadAppPath}files (attacker-controlled Upload-Metadata sid) and GET {baseUrl}files/:fid: attacker-controlled input arrives",
+        "lib/endpoints.js:POST middleware on `${ config.uploadAppPath }files` - The sid is taken verbatim from the attacker-supplied Upload-Metadata header and concatenated into the storage key with no character validation (only presence is asserted).",
+        "lib/tusboy/handlers/post.js:94-99 - tusboy passes the attacker-influenced key straight into store.create(), which writes <fid>.json and later the file body via getFilename().",
+        "lib/store.js:29-35 - The jail check resolves the path but compares with startsWith(this.dir) where this.dir has no trailing path separator, so any resolved path whose string begins with the upload directory prefix passes \u2014 including sibling directories like <parent>/<dir>-evil. Additionally fid.replace('++','/') replaces only the first occurrence.",
+        "lib/endpoints.js:285-286 - The same getFilename is used for reads on the download route, so a crafted :fid (e.g. `..++<dirName>-sibling++<file>`) resolves to a path outside uploadDir that still passes the prefix check and is served via res.download.",
+        "Fails here: Store.getFilename's containment check `p.startsWith(this.dir)` is a string-prefix test without a path-separator boundary, and the sid component of the fid is never validated for '..' or separator characters at the entry point."
+      ],
+      "severity": 10,
+      "occurrence": 8,
+      "detection": 5,
+      "rpn": 400,
+      "priority": "High",
+      "validator_confidence": 0.96,
+      "exploit_path": [
+        {
+          "file": "lib/endpoints.js",
+          "lines": "POST middleware on `${ config.uploadAppPath }files`",
+          "action": "The sid is taken verbatim from the attacker-supplied Upload-Metadata header and concatenated into the storage key with no character validation (only presence is asserted).",
+          "quote": "const meta = tusMeta.decode(req.get('Upload-Metadata'));\n        ...\n        assert(meta.sid, 'tus meta prop missing: sid');\n        ...\n        req.FID = meta.sid + '++' + meta.key;"
+        },
+        {
+          "file": "lib/tusboy/handlers/post.js",
+          "lines": "94-99",
+          "action": "tusboy passes the attacker-influenced key straight into store.create(), which writes <fid>.json and later the file body via getFilename().",
+          "quote": "const key = await getKey(req)\n  const metadata = req.tus.uploadMetadata\n  const { uploadId } = await store.create(key, {\n    uploadLength,\n    metadata,\n  })"
+        },
+        {
+          "file": "lib/store.js",
+          "lines": "29-35",
+          "action": "The jail check resolves the path but compares with startsWith(this.dir) where this.dir has no trailing path separator, so any resolved path whose string begins with the upload directory prefix passes \u2014 including sibling directories like <parent>/<dir>-evil. Additionally fid.replace('++','/') replaces only the first occurrence.",
+          "quote": "getFilename(fid) {\n    let p = path.resolve(this.dir, fid.replace('++', '/'));\n    if(!p.startsWith(this.dir)) {\n      throw new Error('file name not in jail path. aborting');\n    }\n    return p;\n  }"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "285-286",
+          "action": "The same getFilename is used for reads on the download route, so a crafted :fid (e.g. `..++<dirName>-sibling++<file>`) resolves to a path outside uploadDir that still passes the prefix check and is served via res.download.",
+          "quote": "const info = await store.info(req.params.fid); // throws on 404\n    res.download(store.getFilename(req.params.fid), info.metadata.name);"
+        }
+      ],
+      "path_status": "confirmed"
+    },
+    {
+      "failure_mode": "Download-password guard enforced only on bucket listing, not on direct file/archive download routes",
+      "trigger": "An attacker who obtains or guesses a file link of the form {sid}++{key} (e.g. from a shared link, a webhook payload, logs, or the archive URL) sends GET {baseUrl}files/{sid}++{key} (or the .zip/.tar.gz variant) without any x-download-pass header and receives the file, even though the bucket is password-protected and the listing endpoint would return 401.",
+      "evidence": "lib/endpoints.js:170-173 `if(items.some(item => item.metadata.password && item.metadata.password !== downloadPassword)) {\n      setTimeout(() => res.status(401).send('Unauthorized'), 500);\n      return;\n    }`",
+      "business_impact": "Unauthorized disclosure of password-protected uploads to anyone holding the file identifier; the password protection advertised to uploaders is ineffective on the actual download path.",
+      "blast_radius": "Components on the path: lib/endpoints.js, lib/store.js",
+      "attack_chain": [
+        "GET {baseUrl}files/:fid (lib/endpoints.js download route): attacker-controlled input arrives",
+        "lib/endpoints.js:170-173 - The bucket listing route /:sid.json is the only place that checks the per-file download password before revealing file URLs: it compares the x-download-pass header against item.metadata.password.",
+        "lib/endpoints.js:285-286 - The /files/:fid route reaches the exact same stored data (store.info / store.getFilename) but performs no password check at all \u2014 neither for single-file downloads nor for the .zip/.tar.gz bucket archive.",
+        "lib/store.js:57 - store.info reads the same .json metadata (including the password field) that the listing route protects, confirming both routes serve the same underlying records.",
+        "Fails here: The x-download-pass verification is defined in the /:sid.json listing handler but is never applied in the /files/:fid handler (single file and bucket archive), which reads the same store records \u2014 a guard placed in the wrong component."
+      ],
+      "severity": 8,
+      "occurrence": 7,
+      "detection": 4,
+      "rpn": 224,
+      "priority": "High",
+      "validator_confidence": 0.94,
+      "exploit_path": [
+        {
+          "file": "lib/endpoints.js",
+          "lines": "170-173",
+          "action": "The bucket listing route /:sid.json is the only place that checks the per-file download password before revealing file URLs: it compares the x-download-pass header against item.metadata.password.",
+          "quote": "if(items.some(item => item.metadata.password && item.metadata.password !== downloadPassword)) {\n      setTimeout(() => res.status(401).send('Unauthorized'), 500);\n      return;\n    }"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "285-286",
+          "action": "The /files/:fid route reaches the exact same stored data (store.info / store.getFilename) but performs no password check at all \u2014 neither for single-file downloads nor for the .zip/.tar.gz bucket archive.",
+          "quote": "const info = await store.info(req.params.fid); // throws on 404\n    res.download(store.getFilename(req.params.fid), info.metadata.name);"
+        },
+        {
+          "file": "lib/store.js",
+          "lines": "57",
+          "action": "store.info reads the same .json metadata (including the password field) that the listing route protects, confirming both routes serve the same underlying records.",
+          "quote": "const info = await fsp.readJson(this.getFilename(fid) + '.json');"
+        }
+      ],
+      "path_status": "confirmed"
+    },
+    {
+      "failure_mode": "Upload-dir jail check is a string-prefix test without a path separator, allowing escape to prefix-sharing sibling directories",
+      "trigger": "Send GET {baseUrl}files/..%2F<uploadDirBasename>-sibling++<file> (or upload with Upload-Metadata sid = '../<uploadDirBasename>-sibling') so that path.resolve produces <parent-of-uploadDir>/<uploadDirBasename>-sibling/<file>, which starts with the uploadDir string and therefore passes startsWith; store.info/createReadStream/append/del then read, write or delete that file outside the intended upload jail.",
+      "evidence": "lib/endpoints.js:285-286 `const info = await store.info(req.params.fid); // throws on 404\n    res.download(store.getFilename(req.params.fid), info.metadata.name);`",
+      "business_impact": "Arbitrary file read, overwrite and delete outside the configured upload directory in any sibling location whose name shares the upload-dir prefix (e.g. backups, other app data), compromising files the service account can access.",
+      "blast_radius": "Components on the path: lib/endpoints.js, lib/store.js",
+      "attack_chain": [
+        "GET {baseUrl}files/:fid and POST {uploadAppPath}files (attacker-controlled fid / Upload-Metadata sid): attacker-controlled input arrives",
+        "lib/endpoints.js:285-286 - The download route passes the raw URL parameter straight into the store: req.params.fid is used for both metadata lookup and file streaming.",
+        "lib/endpoints.js:366 - On upload, the attacker-controlled sid from Upload-Metadata is concatenated into the file id: req.FID = meta.sid + '++' + meta.key, which becomes the store key for create/append.",
+        "lib/store.js:30-34 - getFilename is the single jail guard for every read/write/delete. It replaces only the FIRST '++' and then checks the resolved path with a bare string prefix comparison against this.dir, with no trailing path separator.",
+        "Fails here: The path-containment check `p.startsWith(this.dir)` compares against the normalized upload directory without a trailing path separator, so any resolved path whose textual form begins with the upload-dir string (e.g. a sibling directory named uploads-backup next to uploads) is accepted; combined with the single '++' replacement, '../<sibling>++x' style ids resolve outside the jail yet pass the check."
+      ],
+      "severity": 10,
+      "occurrence": 8,
+      "detection": 5,
+      "rpn": 400,
+      "priority": "High",
+      "validator_confidence": 0.96,
+      "exploit_path": [
+        {
+          "file": "lib/endpoints.js",
+          "lines": "285-286",
+          "action": "The download route passes the raw URL parameter straight into the store: req.params.fid is used for both metadata lookup and file streaming.",
+          "quote": "const info = await store.info(req.params.fid); // throws on 404\n    res.download(store.getFilename(req.params.fid), info.metadata.name);"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "366",
+          "action": "On upload, the attacker-controlled sid from Upload-Metadata is concatenated into the file id: req.FID = meta.sid + '++' + meta.key, which becomes the store key for create/append.",
+          "quote": "req.FID = meta.sid + '++' + meta.key;"
+        },
+        {
+          "file": "lib/store.js",
+          "lines": "30-34",
+          "action": "getFilename is the single jail guard for every read/write/delete. It replaces only the FIRST '++' and then checks the resolved path with a bare string prefix comparison against this.dir, with no trailing path separator.",
+          "quote": "let p = path.resolve(this.dir, fid.replace('++', '/'));\n    if(!p.startsWith(this.dir)) {\n      throw new Error('file name not in jail path. aborting');\n    }\n    return p;"
+        }
+      ],
+      "path_status": "confirmed"
+    },
+    {
+      "failure_mode": "Attacker-controlled upload name used unsanitized as archive entry path (zip-slip / tar-slip)",
+      "trigger": "Upload a file with Upload-Metadata name = '../../evil.sh' (base64-encoded per the tus metadata format), wait for the bucket archive link {sid}++{md5}.zip / .tar.gz to be shared, and when a victim extracts the archive, the entry is written outside the extraction directory.",
+      "evidence": "lib/endpoints.js:339 `assert(meta.name, 'tus meta prop missing: name');`",
+      "business_impact": "Arbitrary file write on the machine of any user who downloads and extracts a bucket archive (zip-slip/tar-slip), potentially overwriting configs, startup scripts or other files with attacker-chosen content.",
+      "blast_radius": "Components on the path: lib/endpoints.js",
+      "attack_chain": [
+        "POST {uploadAppPath}files with Upload-Metadata header (name field): attacker-controlled input arrives",
+        "lib/endpoints.js:339 - The upload middleware validates only that meta.name exists \u2014 no character or path validation \u2014 then persists it as file metadata via db.add and the tus store.",
+        "lib/endpoints.js:254-256 - The bucket-archive download route feeds the stored metadata name directly into archiver (zip) and tar-stream as the entry name, with no sanitization.",
+        "lib/endpoints.js:269 - The tar.gz branch does the same: the raw metadata name becomes the tar entry path.",
+        "Fails here: The upload path asserts only the presence of meta.name; no component strips '../', absolute paths or drive letters before the name is reused as an archive entry path in the download component."
+      ],
+      "severity": 7,
+      "occurrence": 4,
+      "detection": 6,
+      "rpn": 168,
+      "priority": "Medium",
+      "validator_confidence": 0.86,
+      "exploit_path": [
+        {
+          "file": "lib/endpoints.js",
+          "lines": "339",
+          "action": "The upload middleware validates only that meta.name exists \u2014 no character or path validation \u2014 then persists it as file metadata via db.add and the tus store.",
+          "quote": "assert(meta.name, 'tus meta prop missing: name');"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "254-256",
+          "action": "The bucket-archive download route feeds the stored metadata name directly into archiver (zip) and tar-stream as the entry name, with no sanitization.",
+          "quote": "const stream = fs.createReadStream(store.getFilename(info.metadata.sid + '++' + info.key));\n          stream.on('end', resolve);\n          archive.append(stream, { name: info.metadata.name });"
+        },
+        {
+          "file": "lib/endpoints.js",
+          "lines": "269",
+          "action": "The tar.gz branch does the same: the raw metadata name becomes the tar entry path.",
+          "quote": "const entry = pack.entry({ name: info.metadata.name, size: info.size });"
+        }
+      ],
+      "path_status": "confirmed"
+    }
+  ],
+  "error": null,
+  "blocked": false,
+  "discovery": {
+    "mode": "paths",
+    "packets": 6,
+    "found": 10,
+    "confirmed": 8,
+    "refuted": 1,
+    "uncertain": 1,
+    "uncovered": [
+      "app/src/Upload/store/upload.js",
+      "app/src/admin.js",
+      "app/src/common/util.js",
+      "app/src/download.js",
+      "app/src/upload.js",
+      "cli.js",
+      "config.dev.js",
+      "config.js",
+      "lang/de.js",
+      "lang/en.js",
+      "lang/es.js",
+      "lang/fr.js",
+      "lang/ja.js",
+      "lang/ko.js",
+      "lang/nl.js",
+      "lang/pl.js",
+      "lang/pt.js",
+      "lang/ru.js",
+      "lang/sv.js",
+      "lang/zh-tw.js",
+      "lang/zh.js",
+      "lib/eventBus.js",
+      "lib/tusboy/constants.js",
+      "lib/tusboy/errors.js",
+      "lib/tusboy/handlers/error.js",
+      "lib/tusboy/store/errors.js",
+      "lib/tusboy/tus-header-parser.js",
+      "lib/tusboy/tus-metadata.js",
+      "public/assets/polyfill.js"
+    ]
+  },
+  "model_replies_cut": 0,
+  "cost_usd": 1.1507,
+  "seconds": 1975.2,
+  "llm_calls": 51,
+  "model": "mistral-large-4",
+  "created": "2026-11-22T21:34:58",
+  "project": "psitransfer"
+}

@@ -140,6 +140,8 @@ def make_packets(cmap: ComponentMap, files: dict[str, str], budget_bytes: int = 
         return (-len(i.routes), -len(i.sinks), not i.policy, path)
 
     seeds = [p for p, i in cmap.files.items() if i.routes or i.sinks or i.policy]
+    if not seeds:                  # a library: no routes, sinks or guard-like names, so every code file is read, in packets
+        seeds = list(cmap.files)
     packets: list[Packet] = []
     for seed in sorted(seeds, key=rank):
         used = cmap.files[seed].size
