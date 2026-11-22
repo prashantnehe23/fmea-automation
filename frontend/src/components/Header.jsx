@@ -29,6 +29,7 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
   const [providers, setProviders]       = useState([]);
   const [keyInput, setKeyInput]         = useState('');
   const [keyError, setKeyError]         = useState('');
+  const [replacingKey, setReplacingKey]  = useState(false);   // show the key box for a key that is already set
   const [reasoning, setReasoningState]  = useState('off');
   const [conn, setConn]                 = useState({ provider: 'local', endpoint: '', model: '', key: '' });   // B-047
   const [connError, setConnError]       = useState('');
@@ -67,6 +68,7 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
   const handleModelChange = async (modelId) => {
     setActiveModelState(modelId);
     setKeyInput('');
+    setReplacingKey(false);
     setKeyError('');
     const m = models.find(x => x.id === modelId);
     if (!m?.key_set) return;  // key input shown; model activates once a key is saved
@@ -79,6 +81,7 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
       await setProviderKey(selected.provider, keyInput);
       await setActiveModel(selected.id);
       setKeyInput('');
+      setReplacingKey(false);
       await refreshModels();
     } catch (e) { setKeyError(e.message); }
   };
@@ -333,13 +336,14 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
                               </p>
                               <span className="flex gap-2">
                                 <button onClick={handleCheckKey} className="text-xs text-blue-600 font-semibold hover:text-blue-800">Check</button>
+                                <button onClick={() => { setReplacingKey(true); setKeyError(''); }} className="text-xs text-blue-600 font-semibold hover:text-blue-800">Replace</button>
                                 {selectedProvider?.source === 'settings' && (
                                   <button onClick={handleRemoveKey} className="text-xs text-red-500 font-semibold hover:text-red-700">Remove</button>
                                 )}
                               </span>
                             </div>
                           )}
-                          {(!selected.key_set || selectedProvider?.status === 'invalid' || (selectedProvider?.key_optional && !selectedProvider?.key_hint)) && (
+                          {(replacingKey || !selected.key_set || selectedProvider?.status === 'invalid' || (selectedProvider?.key_optional && !selectedProvider?.key_hint)) && (
                             <div className="flex gap-1">
                               <input
                                 type="password"
@@ -354,6 +358,10 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
                                 disabled={!keyInput.trim()}
                                 className="text-xs font-semibold px-2 py-1 rounded-lg bg-blue-50 text-blue-700 disabled:opacity-40"
                               >Save</button>
+                              {replacingKey && (
+                                <button onClick={() => { setReplacingKey(false); setKeyInput(''); setKeyError(''); }}
+                                        className="text-xs font-semibold px-2 py-1 rounded-lg text-gray-500 hover:bg-gray-50">Cancel</button>
+                              )}
                             </div>
                           )}
                           {keyError && <p className="text-xs text-red-500 mt-1">{keyError}</p>}

@@ -43,6 +43,10 @@ def scan_error_event(exc: BaseException) -> dict:
     elif isinstance(exc, openai.RateLimitError):
         code = "rate_limited"
         msg = f"{name} is limiting requests, or your quota is used up. Wait a minute and try again, or check your plan with {name}."
+    elif isinstance(exc, openai.APIStatusError) and exc.status_code == 402:      # payment required: the provider's own spend limit or balance
+        code, action = "billing_limit", "open_settings"
+        msg = (f"{name} refused the request because the account's spending limit or balance is used up. "
+               f"Raise the limit with {name}, or add a different key or choose another model in Settings.")
     elif isinstance(exc, (openai.APIConnectionError, openai.APITimeoutError)):
         code = "provider_unreachable"
         msg = f"Could not reach {name}. Check your network connection and try again."
