@@ -95,20 +95,29 @@ class MissingApiKeyError(RuntimeError):
 
 def _get_client(provider_id: str) -> openai.OpenAI:
     """Return a client for the provider using its current key (rebuilt if the key changes)."""
-    from core.providers import get_api_key, get_provider
+    from core.providers import get_api_key, get_endpoint, get_provider
     budget.check_before_call()
-    api_key = get_api_key(provider_id)
+    cfg = get_provider(provider_id)
+    endpoint = get_endpoint(provider_id)
+    if cfg.get("endpoint_required") and not endpoint:
+        raise MissingApiKeyError(
+            f"No endpoint for {cfg['display']}. Enter its URL in Settings or set {cfg['endpoint_env']}."
+        )
+    api_key = get_api_key(provider_id) or ("not-needed" if cfg.get("key_optional") else None)   # the SDK wants some value
     if not api_key:
-        cfg = get_provider(provider_id)
         raise MissingApiKeyError(
             f"No API key for {cfg['display']}. Enter one in Settings or set {cfg['env_var']}."
         )
     cached = _clients.get(provider_id)
-    if cached is None or cached[0] != api_key:
-        cfg = get_provider(provider_id)
-        cached = (api_key, openai.OpenAI(api_key=api_key, base_url=cfg["base_url"]))
+    if cached is None or cached[0] != (api_key, endpoint):
+        cached = ((api_key, endpoint), openai.OpenAI(api_key=api_key, base_url=endpoint))
         _clients[provider_id] = cached
     return cached[1]
+
+
+def _sampling(provider: dict) -> dict:
+    """Sampling parameters for a request. Some providers reject a temperature (registry: omit_temperature)."""
+    return {} if provider.get("omit_temperature") else {"temperature": 0.2}
 
 
 def reset_call_count() -> None:
@@ -242,7 +251,7 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
             client, provider_id,
             model=model,
             messages=messages,
-            temperature=0.2,
+            **_sampling(provider),
             **{provider["max_tokens_param"]: budget},
             **params,
         )
@@ -332,7 +341,7 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
             client, provider_id,
             model=model,
             messages=msgs,
-            temperature=0.2,
+            **_sampling(provider),
             **{provider["max_tokens_param"]: limit},
             **extra,
             **params,
@@ -401,7 +410,7 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
             extra["stream_options"] = {"include_usage": True}
         stream = _create(
             client, provider_id,
-            model=model, messages=msgs, temperature=0.2, stream=True,
+            model=model, messages=msgs, stream=True, **_sampling(provider),
             **{provider["max_tokens_param"]: limit}, **extra, **params,
         )
         text, finish, usage, slots, refused = "", None, None, [], False

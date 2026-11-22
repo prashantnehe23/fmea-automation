@@ -196,17 +196,21 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-047 · More Model Providers `[ ]` APPROVED — P1
+### B-047 · More Model Providers `[~]` PHASE 1 IMPLEMENTED 2026-11-22 (Anthropic, Azure OpenAI, local endpoint; live checks and Bedrock open) — P1
 
 **Why:** Enterprises commonly require Azure OpenAI, AWS Bedrock, Anthropic or a self-hosted model; today only OpenAI and Mistral are registered (ADR-011).
 
+**Decision:** [ADR-030](decisions/ADR-030-more-model-providers.md) (accepted 2026-11-22: OpenAI-protocol providers first, Bedrock later).
+
 **Scope:** registry entries and request adapters for Azure OpenAI (deployment names, API version), AWS Bedrock, Anthropic, and any OpenAI-compatible local endpoint (base URL configurable); prices and reasoning capabilities taken from provider documentation at implementation time; embeddings per provider.
 
+**Done 2026-11-22 (plan and report in `docs/harness/B-047/`):** registry entries for Anthropic (fixed models, no built-in price), Azure OpenAI and a local endpoint (user-set URL and model names); endpoint and custom-model settings with validation and the `settings` role; `omit_temperature` for Anthropic; unknown prices estimated conservatively and flagged; scenario matching without embeddings; a settings-panel block "Your own endpoint". **Not done:** AWS Bedrock (native adapter, later phase); the Azure token parameter and stream usage are unverified against a live resource; provider-block shapes for the new providers are not classified (B-040); not checked in a browser; the Anthropic layer is documented by Anthropic as not production-ready.
+
 **Acceptance criteria:**
-- [ ] Each new provider passes the existing provider tests with a fake client (request shape, keys, token parameter)
-- [ ] A local OpenAI-compatible endpoint runs a full scan (recorded)
-- [ ] At least one new hosted provider verified live on the benchmark, block rate recorded (B-040)
-- [ ] Adding a provider still needs only registry entries plus an adapter where the protocol differs (test)
+- [x] Each new provider passes the existing provider tests with a fake client (request shape, keys, token parameter) (`tests/test_more_providers.py`: Anthropic, Azure, local; **Bedrock is not built**, so this holds for three of the four providers)
+- [ ] A local OpenAI-compatible endpoint runs a full scan (recorded). **Open:** configuration and request shape are tested with a fake client; no local model server was run
+- [ ] At least one new hosted provider verified live on the benchmark, block rate recorded (B-040). **Open:** needs a key for Anthropic or Azure and a spend decision
+- [x] Adding a provider still needs only registry entries plus an adapter where the protocol differs (test: `tests/test_providers.py` AC5 still passes; the three new providers are registry entries, with per-provider flags for endpoint, optional key, token parameter and temperature)
 
 ---
 

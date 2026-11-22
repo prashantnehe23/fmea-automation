@@ -2,7 +2,8 @@
 core/costs.py — LLM cost tracking for B-021.
 
 Provides per-model pricing ($/1M tokens) with:
-- AVAILABLE_MODELS: supported models (id, provider, display, tier, optional reasoning — see core/reasoning.py)
+- AVAILABLE_MODELS: built-in models; all_models() adds the user's own (B-047)
+- AVAILABLE_MODELS (built-in): supported models (id, provider, display, tier, optional reasoning — see core/reasoning.py)
 - FALLBACK_RATES:   hardcoded baseline rates in case live fetch fails
 - refresh_pricing(): fetch live rates from LiteLLM's public price JSON
 - get_rates(model):  return rates from cache, fall back to FALLBACK_RATES
@@ -30,6 +31,11 @@ AVAILABLE_MODELS: list[dict] = [
                    "levels": {"low": "low", "medium": "medium", "high": "high"}}},   # B-037: API rejects "none"
     {"id": "mistral-medium-latest", "provider": "mistral", "display": "Mistral Medium", "tier": "Standard"},
     {"id": "mistral-small-latest",  "provider": "mistral", "display": "Mistral Small",  "tier": "Fast"},
+    # B-047 (ADR-030). No built-in price: the live LiteLLM refresh fills it when the model is listed there;
+    # until then the cost is a conservative estimate and the interface says so.
+    {"id": "claude-opus-5-5",       "provider": "anthropic", "display": "Claude Opus 5.5",   "tier": "Power",    "priced": False},
+    {"id": "claude-sonnet-5-5",     "provider": "anthropic", "display": "Claude Sonnet 5.5", "tier": "Standard", "priced": False},
+    {"id": "claude-haiku-5-5",      "provider": "anthropic", "display": "Claude Haiku 5.5",  "tier": "Fast",     "priced": False},
 ]
 
 # $/1M tokens — used when LiteLLM fetch fails or model not found in its JSON
@@ -68,7 +74,7 @@ def refresh_pricing() -> dict[str, dict[str, float]]:
                 "prompt":     round(entry["input_cost_per_token"]  * 1_000_000, 4),
                 "completion": round(entry["output_cost_per_token"] * 1_000_000, 4),
             }
-        else:
+        elif mid in FALLBACK_RATES:
             rates[mid] = FALLBACK_RATES[mid]
 
     try:
@@ -81,8 +87,43 @@ def refresh_pricing() -> dict[str, dict[str, float]]:
     return rates
 
 
+def custom_models() -> list[dict]:
+    """Models the user added for providers whose model names are their own (Azure deployments, local models)."""
+    try:
+        from core.settings import get_setting
+        return list(get_setting("custom_models") or [])
+    except Exception:
+        return []
+
+
+def all_models() -> list[dict]:
+    return AVAILABLE_MODELS + custom_models()
+
+
+def _custom_rates(model: str) -> dict[str, float] | None:
+    for m in custom_models():
+        if m["id"] == model:
+            if m.get("prompt_per_1m") is not None and m.get("completion_per_1m") is not None:
+                return {"prompt": float(m["prompt_per_1m"]), "completion": float(m["completion_per_1m"])}
+            if m["provider"] == "local":
+                return {"prompt": 0.0, "completion": 0.0}        # your own hardware: no per-token price
+    return None
+
+
+def rates_known(model: str) -> bool:
+    """False when the price is an assumption (no listed rate, no rate entered by the user)."""
+    try:
+        from core.settings import get_setting
+        if model in (get_setting("pricing_cache") or {}):
+            return True
+    except Exception:
+        pass
+    return model in FALLBACK_RATES or _custom_rates(model) is not None
+
+
 def get_rates(model: str) -> dict[str, float]:
-    """Return {prompt: $/1M, completion: $/1M} from cache or FALLBACK_RATES."""
+    """Return {prompt: $/1M, completion: $/1M} from cache, the user's own entry, or FALLBACK_RATES.
+    An unknown model gets the gpt-5.1 rate, so that a spend limit still bites."""
     try:
         from core.settings import get_setting
         cache: dict = get_setting("pricing_cache") or {}
@@ -90,7 +131,7 @@ def get_rates(model: str) -> dict[str, float]:
             return cache[model]
     except Exception:
         pass
-    return FALLBACK_RATES.get(model, FALLBACK_RATES["gpt-5.1"])
+    return _custom_rates(model) or FALLBACK_RATES.get(model, FALLBACK_RATES["gpt-5.1"])
 
 
 def compute_cost(model: str, prompt_tok: int, completion_tok: int) -> float:

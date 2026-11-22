@@ -36,7 +36,7 @@ from core.llm import call_chat, get_model_name, stream_chat
 from core.priority import priority_for
 from core.models import RemediationPlan
 from core.untrusted import as_data_block
-from core.providers import get_api_key, model_supports_tools, provider_for_model
+from core.providers import is_configured, model_supports_tools, provider_for_model
 from core.provider_block import ProviderBlocked, blocked_message
 from core.retention import retention_days
 
@@ -657,7 +657,7 @@ def prepare_turn(workspace_id: int, user_text: str) -> TurnContext:
     if snapshot is None:
         raise ChatError("no_scan", "There is no scan for this project yet. Run a scan first, then ask questions.")
     model = get_model_name()
-    if not get_api_key(provider_for_model(model)):
+    if not is_configured(provider_for_model(model)):
         raise ChatError("no_api_key", "No API key for the selected model's provider. Add one in Settings.")
 
     tools_enabled = model_supports_tools(model)

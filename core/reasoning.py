@@ -27,8 +27,8 @@ DEFAULT_MAX_OUTPUT_TOKENS = 32768
 
 
 def _model(model_id: str) -> dict:
-    from core.costs import AVAILABLE_MODELS
-    return next((m for m in AVAILABLE_MODELS if m["id"] == model_id), {})
+    from core.costs import all_models
+    return next((m for m in all_models() if m["id"] == model_id), {})
 
 
 def supported_levels(model_id: str) -> list[str]:

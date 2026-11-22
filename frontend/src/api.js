@@ -437,6 +437,32 @@ export async function setProviderKey(providerId, apiKey) {
   return res.json();
 }
 
+/** PUT /api/settings/providers/{id}/endpoint — set the URL of an Azure or local endpoint (B-047). */
+export async function setProviderEndpoint(providerId, endpoint) {
+  const res = await apiFetch(`${BASE}/api/settings/providers/${providerId}/endpoint`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  });
+  return _json(res, `Could not save the endpoint (HTTP ${res.status}).`);
+}
+
+/** POST /api/settings/models/custom — add a model the user names (an Azure deployment, a local model). */
+export async function addCustomModel(provider, id, display) {
+  const res = await apiFetch(`${BASE}/api/settings/models/custom`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, id, display }),
+  });
+  return _json(res, `Could not add the model (HTTP ${res.status}).`);
+}
+
+/** DELETE /api/settings/models/custom/{id} */
+export async function deleteCustomModel(id) {
+  const res = await apiFetch(`${BASE}/api/settings/models/custom/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return _json(res, `Could not remove the model (HTTP ${res.status}).`);
+}
+
 /** POST /api/settings/providers/{id}/verify — re-check the key in use; returns {id, status}. */
 export async function verifyProviderKey(providerId) {
   const res = await apiFetch(`${BASE}/api/settings/providers/${providerId}/verify`, { method: 'POST' });

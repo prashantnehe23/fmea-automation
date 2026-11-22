@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PERSONAS, PROCESS_STEPS, HIERARCHY, SCOPE_LABEL } from '../data';
 import { ORG } from '../data';
-import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, getReasoning, setReasoning, verifyProviderKey,
+import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, setProviderEndpoint, addCustomModel, getReasoning, setReasoning, verifyProviderKey,
   listRepoCredentials, saveRepoCredential, deleteRepoCredential } from '../api';
 
 const LEVEL_LABEL = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High' };
@@ -30,6 +30,8 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
   const [keyInput, setKeyInput]         = useState('');
   const [keyError, setKeyError]         = useState('');
   const [reasoning, setReasoningState]  = useState('off');
+  const [conn, setConn]                 = useState({ provider: 'local', endpoint: '', model: '', key: '' });   // B-047
+  const [connError, setConnError]       = useState('');
   const [repoCreds, setRepoCreds]       = useState([]);     // B-043: [{owner, hint}]
   const [repoOwner, setRepoOwner]       = useState('');
   const [repoToken, setRepoToken]       = useState('');
@@ -79,6 +81,19 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
       setKeyInput('');
       await refreshModels();
     } catch (e) { setKeyError(e.message); }
+  };
+
+  const handleConnect = async () => {
+    setConnError('');
+    try {
+      await setProviderEndpoint(conn.provider, conn.endpoint.trim());
+      if (conn.key.trim()) await setProviderKey(conn.provider, conn.key.trim());
+      if (!models.some(m => m.id === conn.model.trim() && m.provider === conn.provider)) await addCustomModel(conn.provider, conn.model.trim(), conn.model.trim());
+      await setActiveModel(conn.model.trim());
+      setActiveModelState(conn.model.trim());
+      setConn({ ...conn, key: '' });
+      await refreshModels();
+    } catch (e) { setConnError(e.message); }
   };
 
   const handleSaveRepoToken = async () => {
@@ -258,6 +273,31 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
                           </option>
                         ))}
                       </select>
+                      {selected && selected.rates_known === false && (
+                        <p className="text-xs text-amber-600 mt-1">No listed price for this model: costs are estimated at the GPT-5.1 rate, which may be higher or lower than the real one.</p>
+                      )}
+                      {isAdmin && (
+                        <div className="mt-3 pt-3 border-t border-gray-50">
+                          <p className="text-xs font-semibold text-gray-700 mb-1">Your own endpoint</p>
+                          <p className="text-xs text-gray-400 mb-2">Azure OpenAI or any OpenAI-compatible server (Ollama, vLLM, a gateway).</p>
+                          <select value={conn.provider} onChange={e => setConn({ ...conn, provider: e.target.value })}
+                                  className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 mb-1 bg-white">
+                            {providers.filter(p => p.endpoint_editable).map(p => <option key={p.id} value={p.id}>{p.display}</option>)}
+                          </select>
+                          <input value={conn.endpoint} onChange={e => setConn({ ...conn, endpoint: e.target.value })}
+                                 placeholder={providers.find(p => p.id === conn.provider)?.endpoint ?? 'https://… or http://localhost:11434/v1'}
+                                 className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 mb-1" />
+                          <input value={conn.model} onChange={e => setConn({ ...conn, model: e.target.value })}
+                                 placeholder="Model or deployment name"
+                                 className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 mb-1" />
+                          <input type="password" autoComplete="off" value={conn.key} onChange={e => setConn({ ...conn, key: e.target.value })}
+                                 placeholder={conn.provider === 'local' ? 'API key (optional)' : 'API key'}
+                                 className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 mb-1" />
+                          <button onClick={handleConnect} disabled={!conn.endpoint.trim() || !conn.model.trim()}
+                                  className="text-xs font-semibold px-2 py-1 rounded-lg bg-blue-50 text-blue-700 disabled:opacity-40">Connect and use</button>
+                          {connError && <p className="text-xs text-red-500 mt-1">{connError}</p>}
+                        </div>
+                      )}
                       {selected?.reasoning_levels?.length > 0 && (() => {
                         // Highest level the model supports at or below the chosen one
                         const lv = selected.reasoning_levels;
@@ -285,7 +325,7 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
                       })()}
                       {selected && (
                         <div className="mt-2">
-                          {selected.key_set && (
+                          {selected.key_set && selectedProvider?.key_hint && (
                             <div className="flex items-center justify-between gap-2 mb-1">
                               <p className="text-xs text-gray-400">
                                 {selectedProvider?.display} key {selectedProvider?.key_hint}
@@ -299,7 +339,7 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
                               </span>
                             </div>
                           )}
-                          {(!selected.key_set || selectedProvider?.status === 'invalid') && (
+                          {(!selected.key_set || selectedProvider?.status === 'invalid' || (selectedProvider?.key_optional && !selectedProvider?.key_hint)) && (
                             <div className="flex gap-1">
                               <input
                                 type="password"

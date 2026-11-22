@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from core.costs import AVAILABLE_MODELS, compute_cost
+from core.costs import compute_cost, rates_known
 from core.llm import get_model_name
 from workflows.fmea_pipeline import AGENT_CHUNK, MAX_REMEDIATION_PLANS
 
@@ -49,7 +49,7 @@ def estimate_scan(batch_bytes: list[int]) -> dict:
     _, single_prompt, single_completion = _tokens(batch_bytes[:1], min(FINDINGS_PER_BATCH, MAX_REMEDIATION_PLANS))
     return {
         "model": model,
-        "rates_known": model in {m["id"] for m in AVAILABLE_MODELS},
+        "rates_known": rates_known(model),
         "batches": len(batch_bytes),
         "calls": calls,
         "prompt_tokens": prompt,
