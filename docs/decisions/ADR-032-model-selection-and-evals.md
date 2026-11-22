@@ -1,6 +1,6 @@
 # ADR-032: Model Selection and Our Own Evals; Workflow Changes They Support
 
-**Status:** Draft (awaiting engineer approval)  **Date:** 2026-11-22  **Backlog:** B-052 (informs B-028, B-046, B-026)  **Builds on:** [ADR-023](ADR-023-benchmark-methodology.md), [ADR-024](ADR-024-defensive-framing-and-provider-blocks.md), [ADR-030](ADR-030-more-model-providers.md)
+**Status:** Accepted (engineer, 2026-11-22). The numeric limits and publication questions under "For the engineer to decide" stay open and are settled when B-052 is built.  **Date:** 2026-11-22  **Backlog:** B-052 (informs B-028, B-046, B-026)  **Builds on:** [ADR-023](ADR-023-benchmark-methodology.md), [ADR-024](ADR-024-defensive-framing-and-provider-blocks.md), [ADR-030](ADR-030-more-model-providers.md)
 
 ## Context
 The model that reads the code changes the product's results a great deal: in internal experiments on real open-source projects (the B-046 write-up, not yet approved for publication), the same files and the same question produced very different recall and very different shares of wrong claims from two models of the same vendor. Today the model is chosen by feel. Three questions follow:

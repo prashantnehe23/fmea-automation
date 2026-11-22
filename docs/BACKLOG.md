@@ -201,7 +201,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-052 · Model Selection from Published Cyber Benchmarks and Our Own Evals `[ ]` APPROVED — P1 (engineer-approved 2026-11-22; before B-028 phase B)
+### B-052 · Model Selection from Published Cyber Benchmarks and Our Own Evals `[ ]` APPROVED — P1 — *ADR-032 accepted 2026-11-22* (engineer-approved 2026-11-22; before B-028 phase B)
 
 **Why:** Internal experiments on real open-source projects (B-046, write-up not yet approved for publication) showed that the model changes the result a great deal: with the same files and the same question, two models of one vendor differed widely in how many known flaws they found and in how many of their claims were wrong. Model choice is a product decision, today made by feel. Published cyber benchmarks can shortlist, but they measure other tasks (exploit CTFs, security knowledge, insecure-code generation) on public data, are self-reported and may be contaminated; they cannot say which model finds the missing authorisation check in a real repository. Design record: [ADR-032](decisions/ADR-032-model-selection-and-evals.md) (draft).
 
@@ -213,7 +213,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 - A re-measurement trigger when a provider's `-latest` alias or a model version changes.
 
 **Acceptance criteria:**
-- [ ] ADR accepted (ADR-032 drafted 2026-11-22): how models are shortlisted and gated, how the default model is chosen, and the eval method (including the held-out split and negative controls)
+- [x] ADR accepted (ADR-032, accepted 2026-11-22): how models are shortlisted and gated, how the default model is chosen, and the eval method (including the held-out split and negative controls). Numeric limits and publication still to be set by the engineer
 - [ ] Shortlist document with at least 8 candidate models, each published-benchmark claim cited with source and date and labelled vendor-reported or independent
 - [ ] At least 4 models measured with the probe and at least 2 through the pipeline on the real-code set, with cost, time, block rate and claim-quality recorded (needs keys for the providers and a spend decision)
 - [ ] Per-model profile fields in the model registry, filled for the measured models, with a test that a model without a profile is flagged in the settings API

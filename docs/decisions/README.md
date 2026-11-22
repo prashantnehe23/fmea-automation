@@ -44,4 +44,4 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-029](ADR-029-pull-request-check.md) | Pull-Request Check Invoked from CI | Accepted | 2026-11-21 |
 | [ADR-030](ADR-030-more-model-providers.md) | More Model Providers over the OpenAI Protocol (Anthropic, Azure OpenAI, Local); Bedrock Later | Accepted | 2026-11-22 |
 | [ADR-031](ADR-031-frontend-test-framework.md) | Frontend Test Framework: Vitest, Testing Library, jsdom | Accepted | 2026-11-22 |
-| [ADR-032](ADR-032-model-selection-and-evals.md) | Model Selection and Our Own Evals; Workflow Changes They Support | Draft | 2026-11-22 |
+| [ADR-032](ADR-032-model-selection-and-evals.md) | Model Selection and Our Own Evals; Workflow Changes They Support | Accepted | 2026-11-22 |
