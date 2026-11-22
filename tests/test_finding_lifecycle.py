@@ -21,7 +21,7 @@ import core.findings as findings
 import memory.db as db
 import memory.scenario_registry as registry
 import workflows.fmea_pipeline as pipeline
-from core.models import ControlAssessment, FailureMode, RemediationPlan, RiskScore, ScenarioLinkageReport, SystemContext, ValidationResult
+from core.models import ControlAssessment, FailureMode, RemediationPlan, RiskScore, RootCause, ScenarioLinkageReport, SystemContext, ValidationResult
 
 WS = SimpleNamespace(customer="Shop", project="api", function="", business_tier="Tier 1",
                      user_type="external_customers", business_context="", customer_learning=True)
@@ -46,7 +46,8 @@ class Harness:
         monkeypatch.setattr(pipeline, "run_controls_assessor", lambda f, c: [
             ControlAssessment(failure_mode=x.failure_mode, controls={}, control_maturity="Low", gaps=[]) for x in f])
         monkeypatch.setattr(pipeline, "score_all_failures", self._score)
-        monkeypatch.setattr(pipeline, "run_sre_agent", lambda f, c, r: RemediationPlan(
+        monkeypatch.setattr(pipeline, "run_root_cause_analyst", lambda f, c: [RootCause(failure_mode=x.failure_mode) for x in f])
+        monkeypatch.setattr(pipeline, "run_sre_agent", lambda f, c, r, domain=None: RemediationPlan(
             failure_mode=f.failure_mode, fixes=[], monitoring=[], resilience_upgrades=[]))
         monkeypatch.setattr(pipeline, "run_validator", lambda f, r: [ValidationResult(failure_mode=x.failure_mode) for x in f])
         monkeypatch.setattr(pipeline, "run_llm_judge", lambda *a, **k: [])

@@ -569,6 +569,7 @@ export function normalizeScanResult(apiResult, sel) {
   const newScenarioSet = new Set(apiResult.new_scenarios ?? []);
   const failureMap     = Object.fromEntries((apiResult.failures     ?? []).map(f => [f.failure_mode, f]));
   const controlMap     = Object.fromEntries((apiResult.controls     ?? []).map(c => [c.failure_mode, c]));
+  const rootCauseMap = Object.fromEntries((apiResult.root_causes ?? []).map(r => [r.failure_mode, r]));
   const remediationMap = Object.fromEntries((apiResult.remediations ?? []).map(r => [r.failure_mode, r]));
   const validationMap  = Object.fromEntries((apiResult.validations  ?? []).map(v => [v.failure_mode, v]));
   const linkageMap     = Object.fromEntries(
@@ -604,6 +605,10 @@ export function normalizeScanResult(apiResult, sel) {
       blast_radius:        f.blast_radius    ?? '',
       trigger:             f.trigger         ?? '',
       evidence:            f.evidence        ?? '',   // code snippet
+      // ── Root cause (B-029); scans stored before it have none ─────────────
+      root_cause:          rootCauseMap[risk.failure_mode]?.primary ?? 'unclassified',
+      root_cause_also:     rootCauseMap[risk.failure_mode]?.contributing ?? [],
+      root_cause_chain:    rootCauseMap[risk.failure_mode] ?? null,
       // ── Scoring rationales ────────────────────────────────────────────────
       justification:         risk.justification          ?? '',
       severity_rationale:    risk.severity_rationale     ?? '',
@@ -668,6 +673,7 @@ export const STAGE_LABELS = {
   saboteur:    'Saboteur — generating failure scenarios',
   controls:    'Controls assessor — reviewing mitigations',
   actuary:     'Actuary — scoring RPN (S × O × D)',
+  root_cause:  'Root-cause analyst — finding where fixes belong',
   sre:         'SRE agent — building remediation plans',
   validator:   'Validator — peer-reviewing scores',
   registry:    'Registry — locking scenarios',

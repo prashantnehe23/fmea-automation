@@ -5,6 +5,7 @@ import { PRI } from '../helpers';
 import { SCOPE_LABEL } from '../data';
 import { getSelectionLabel, aggregateBy } from '../helpers';
 import { getTelemetry } from '../api';
+import { domainLabel } from '../components/Chip';
 
 // ── Agent display order & labels ──────────────────────────────────────────────
 
@@ -395,6 +396,25 @@ export default function DashboardPage({ persona, sel, scope, liveRisks, liveCont
                 <span className="text-xs font-bold text-gray-600 w-4 text-right">{count}</span>
               </div>
             ))}
+          </div>
+
+          {/* Share of risk by root cause (B-029) */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Risk by root cause</h3>
+            {(() => {
+              const total = Math.max(risks.reduce((a, r) => a + r.rpn, 0), 1);
+              const byDomain = {};
+              risks.forEach(r => { const d = r.root_cause ?? 'unclassified'; byDomain[d] = (byDomain[d] ?? 0) + r.rpn; });
+              return Object.entries(byDomain).sort((a, b) => b[1] - a[1]).map(([d, rpn]) => (
+                <div key={d} className="flex items-center gap-3 mb-3">
+                  <span className="text-xs text-gray-500 w-24">{domainLabel(d)}</span>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-purple-400" style={{ width: `${(rpn / total) * 100}%` }} />
+                  </div>
+                  <span className="text-xs font-bold text-gray-600 w-10 text-right">{Math.round((rpn / total) * 100)}%</span>
+                </div>
+              ));
+            })()}
           </div>
 
           {/* Cost Tracking */}

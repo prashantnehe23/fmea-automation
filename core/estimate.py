@@ -16,7 +16,7 @@ from core.llm import get_model_name
 from workflows.fmea_pipeline import AGENT_CHUNK, MAX_REMEDIATION_PLANS
 
 CALLS_PER_BATCH = 4
-SHARED_CALLS = 3
+SHARED_CALLS = 4                    # actuary, root cause, validator, judge
 REMEDIATION_CALLS_PER_FINDING = 2   # corrective and preventive agents (B-030)
 FINDINGS_PER_BATCH = 7
 TOKENS_PER_BYTE = 0.25          # about four characters per token

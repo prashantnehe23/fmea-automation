@@ -51,6 +51,7 @@ def _deserialize_result(data: dict) -> dict:
         FailureMode,
         RemediationPlan,
         RiskScore,
+        RootCause,
         ScenarioLinkageReport,
         SystemContext,
         ValidationResult,
@@ -68,6 +69,8 @@ def _deserialize_result(data: dict) -> dict:
         result["risks"] = [RiskScore(**r) for r in data["risks"]]
     if "remediations" in data:
         result["remediations"] = [RemediationPlan(**r) for r in data["remediations"]]
+    if "root_causes" in data:
+        result["root_causes"] = [RootCause(**r) for r in data["root_causes"]]
     if "scenario_linkage" in data:
         result["scenario_linkage"] = ScenarioLinkageReport(**data["scenario_linkage"])
     if "validations" in data:

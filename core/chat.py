@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import memory.db as db
+from core import root_cause
 from core.actions import plan_actions
 from core.costs import compute_cost
 from core.llm import call_chat, get_model_name, stream_chat
@@ -165,6 +166,7 @@ def _scenario_views(findings: dict, adjustments: dict[str, dict]) -> list[dict]:
     controls = _by_failure_mode(findings.get("controls"))
     validations = _by_failure_mode(findings.get("validations"))
     plans = _by_failure_mode(findings.get("remediations"))
+    root_causes = _by_failure_mode(findings.get("root_causes"))
     linkage = _by_failure_mode((findings.get("scenario_linkage") or {}).get("explanations"))
     views = []
     for f in findings.get("failures") or []:
@@ -179,7 +181,7 @@ def _scenario_views(findings: dict, adjustments: dict[str, dict]) -> list[dict]:
         views.append({
             "name": name, "failure": f, "risk": risk, "adjustment": adj, "original": original,
             "control": controls.get(name) or {}, "validation": validations.get(name) or {},
-            "plan": plans.get(name) or {}, "linkage": linkage.get(name) or {},
+            "plan": plans.get(name) or {}, "root_cause": root_causes.get(name) or {}, "linkage": linkage.get(name) or {},
         })
     views.sort(key=lambda v: (-(v["risk"].get("rpn") or 0), v["name"]))
     return views
@@ -210,6 +212,9 @@ def build_findings_text(findings: dict, adjustments: dict[str, dict]) -> str:
             head += (f"\nEXPERT-ADJUSTED from S{o['severity']} O{o['occurrence']} D{o['detection']}"
                      f" (RPN {o['rpn']}): {v['adjustment']['justification']}")
         out.append(head)
+        rc = v["root_cause"]
+        also = ", ".join(root_cause.label(d).lower() for d in rc.get("contributing") or [])
+        out.append(f"Root cause: {root_cause.label(rc.get('primary'))}" + (f" (also {also})" if also else ""))
         out.append("Attack chain: " + " -> ".join(f.get("attack_chain") or []))
         for label, key in (("Business impact", "business_impact"), ("Blast radius", "blast_radius"),
                            ("Trigger", "trigger"), ("Evidence", "evidence")):
@@ -400,7 +405,7 @@ def _tool_get_scenario_detail(args: dict, _files: dict[str, str], views: list[di
     v = _resolve_scenario(views, args.get("failure_mode"))
     detail = {"failure": v["failure"], "risk": v["risk"], "expert_adjustment": v["adjustment"],
               "controls": v["control"], "validator": v["validation"],
-              "remediation_plan": plan_detail(v["plan"]), "linkage": v["linkage"]}
+              "remediation_plan": plan_detail(v["plan"]), "root_cause": v["root_cause"], "linkage": v["linkage"]}
     text = json.dumps(detail, indent=1, sort_keys=True, default=str)
     return text[:DETAIL_MAX_CHARS] + ("\n[truncated]" if len(text) > DETAIL_MAX_CHARS else "")
 

@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.paths import data_dir
+from core.root_cause import category_for
 from typing import Any
 
 _MEMORY_ROOT = data_dir(Path(__file__).resolve().parent)
@@ -67,7 +68,7 @@ def _serialize(result: dict) -> dict:
 
 def _deserialize(data: dict) -> dict:
     from core.models import (
-        ControlAssessment, FailureMode, RemediationPlan, RiskScore,
+        ControlAssessment, FailureMode, RemediationPlan, RiskScore, RootCause,
         ScenarioLinkageReport, SystemContext, ValidationResult,
     )
     result: dict[str, Any] = {}
@@ -81,6 +82,8 @@ def _deserialize(data: dict) -> dict:
         result["risks"] = [RiskScore(**r) for r in data["risks"]]
     if "remediations" in data:
         result["remediations"] = [RemediationPlan(**r) for r in data["remediations"]]
+    if "root_causes" in data:
+        result["root_causes"] = [RootCause(**r) for r in data["root_causes"]]
     if "scenario_linkage" in data:
         result["scenario_linkage"] = ScenarioLinkageReport(**data["scenario_linkage"])
     if "validations" in data:
@@ -184,26 +187,7 @@ _AGGRESSION_DESCRIPTIONS = {
 }
 
 
-def _extract_category(failure_mode: str) -> str:
-    fm = failure_mode.lower()
-    if any(k in fm for k in ("race", "concurr", "timing", "toctou", "double")):
-        return "concurrency"
-    if any(k in fm for k in ("inject", "sql", "xss", "command", "payload")):
-        return "injection"
-    if any(k in fm for k in ("secret", "key", "credential", "hardcoded", "token")):
-        return "secrets"
-    if any(k in fm for k in ("auth", "bypass", "privilege", "escalat", "unauthor")):
-        return "auth_bypass"
-    if any(k in fm for k in ("valid", "input", "negative", "zero", "overflow")):
-        return "input_validation"
-    if any(k in fm for k in ("dos", "denial", "exhaust", "flood", "resource")):
-        return "denial_of_service"
-    if any(k in fm for k in ("leak", "exposure", "disclosure", "sensitive")):
-        return "data_exposure"
-    return "other"
-
-
-def _update_memory_patterns(memory: dict, failures: list, risks: list) -> dict:
+def _update_memory_patterns(memory: dict, failures: list, risks: list, domains: dict | None = None) -> dict:
     """Mutate and return memory with updated pattern counts/chains."""
     memory["total_analyses"] = memory.get("total_analyses", 0) + 1
 
@@ -218,7 +202,7 @@ def _update_memory_patterns(memory: dict, failures: list, risks: list) -> dict:
     }
 
     for failure, risk in zip(failures, risks):
-        category = _extract_category(failure.failure_mode)
+        category = category_for((domains or {}).get(failure.failure_mode))
         key = category
         new_steps = [s for s in failure.attack_chain if len(s) > 10]
 
@@ -321,7 +305,7 @@ Instructions:
 """.strip()
 
 
-def update_from_run(failures: list, risks: list, ws=None) -> None:
+def update_from_run(failures: list, risks: list, ws=None, domains: dict | None = None) -> None:
     """
     Update workspace learning (if opted in) and core anonymised patterns.
     Called after every successful FMEA pipeline run.
@@ -330,7 +314,7 @@ def update_from_run(failures: list, risks: list, ws=None) -> None:
     if ws is None or ws.customer_learning:
         ws_path = _ws_learning_path(ws)
         ws_memory = _load_json(ws_path, dict(_EMPTY_MEMORY))
-        ws_memory = _update_memory_patterns(ws_memory, failures, risks)
+        ws_memory = _update_memory_patterns(ws_memory, failures, risks, domains)
         _save_json(ws_path, ws_memory)
 
     # ── Core learning (anonymised category-level stats only) ──────────────────
@@ -349,7 +333,7 @@ def update_from_run(failures: list, risks: list, ws=None) -> None:
         p["pattern_key"]: p for p in core_memory.get("patterns", [])
     }
     for failure, risk in zip(failures, risks):
-        category = _extract_category(failure.failure_mode)
+        category = category_for((domains or {}).get(failure.failure_mode))
         if category in patterns_by_key:
             p = patterns_by_key[category]
             p["frequency"] += 1

@@ -94,6 +94,7 @@ def isolated_environment(tmp: Path, model: str, reasoning: str, api_keys: dict[s
 def findings_from_result(result: dict) -> list[dict]:
     """The scan's findings as plain dicts: what the scorer and the stored results use."""
     validations = result.get("validations") or []
+    domains = {rc.failure_mode: rc.primary for rc in result.get("root_causes") or [] if rc.primary != "unclassified"}
     out = []
     for i, (f, r) in enumerate(zip(result["failures"], result["risks"])):
         out.append({
@@ -103,6 +104,7 @@ def findings_from_result(result: dict) -> list[dict]:
             "severity": r.severity, "occurrence": r.occurrence, "detection": r.detection,
             "rpn": r.rpn, "priority": r.priority,
             "validator_confidence": validations[i].confidence if i < len(validations) else None,
+            **({"root_cause": domains[f.failure_mode]} if f.failure_mode in domains else {}),
         })
     return out
 
