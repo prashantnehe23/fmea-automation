@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import Header  from './components/Header';
 import ScanPage        from './pages/ScanPage';
 import ScenariosPage   from './pages/ScenariosPage';
+import FindingsPage    from './pages/FindingsPage';
 import ScoringPage     from './pages/ScoringPage';
 import MitigationsPage from './pages/MitigationsPage';
 import RemediationPage from './pages/RemediationPage';
@@ -33,6 +34,7 @@ const ROLE_PERSONA = { admin: 'security_engineer', security_engineer: 'security_
 
 const PAGES = {
   scan:        ScanPage,
+  findings:    FindingsPage,
   scenarios:   ScenariosPage,
   scoring:     ScoringPage,
   mitigations: MitigationsPage,
@@ -125,7 +127,7 @@ function applyAdjustments(risks, adjustments) {
     const a = adjustments[r.name];
     if (!a) return r;
     return { ...r, s: a.new_s, o: a.new_o, d: a.new_d, rpn: a.new_rpn,
-             priority: a.priority || r.priority, adjusted: true, original_rpn: r.rpn, adjusted_by: a.source };
+             priority: a.priority || r.priority, priority_reason: `Adjusted by ${a.source ?? 'an expert'}: RPN ${a.new_rpn}`, adjusted: true, original_rpn: r.rpn, adjusted_by: a.source };
   });
 }
 

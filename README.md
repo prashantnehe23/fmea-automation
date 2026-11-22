@@ -83,10 +83,11 @@ Set `FMEA_SECRET_KEY` and `OPENAI_API_KEY` and/or `MISTRAL_API_KEY` in the envir
 ### Tests
 
 ```bash
-python -m pytest tests/ -v            # 857 passing on 2026-11-22
+python -m pytest tests/ -v            # 867 passing on 2026-11-22
+cd frontend && npm test               # 23 passing on 2026-11-22 (Vitest, Testing Library, jsdom: ADR-031)
 ```
 
-`make test`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
+`make test`, `make test-ui`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
 
 `dashboard.py` is the original Streamlit prototype. The React app is the supported interface.
 

@@ -122,7 +122,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-048 · UX Blockers and Findings-First Interface `[~]` PHASE 0 DONE 2026-11-21 (phase 1 not started) — phase 0 P0, phase 1 P1
+### B-048 · UX Blockers and Findings-First Interface `[~]` PHASE 0 DONE 2026-11-21; PHASE 1 SLICE A (findings view) DONE 2026-11-22 — phase 0 P0, phase 1 P1
 
 **Why:** From the UI/UX review (discovery report U1-U16). Phase 0 fixes what stops a first-time user; phase 1 restructures the app around triage and is built together with B-015 because both touch every page.
 
@@ -140,10 +140,12 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 **Phase 0 done:** U1 project selection for every persona (`HierarchyTree.jsx`); U8 placeholders (`data.js`, `Sidebar.jsx`, `KpiRow.jsx`, bell removed from `Header.jsx`); U9 never an empty title (`helpers.js`, and a "component" scope without a component now shows the selected project, `App.jsx`); U13 plain scan errors (`core/llm_errors.py`, scan, GitHub scan and remediation streams, `ScanPage.jsx`); U14 key validation on save, `POST /api/settings/providers/{id}/verify`, `status` on `GET /api/settings/providers`, status in Settings and above the scan controls (`core/providers.py`, `api/routers/settings.py`, `KeyStatus.jsx`, `Header.jsx`); U16 new-project form scrolled into view (`HierarchyTree.jsx`, browser check at 800x600). **Decisions to confirm:** only a 401 rejects a key on save; a network failure or a key that cannot list models (restricted keys) is saved as "unverified". There is no check before each scan: the status line and the fail-fast message cover it. **Not done / not checked:** the Developer persona's role-play switch itself (B-015); personas other than Developer were not clicked through in the browser; no JS test framework exists, so frontend behaviour rests on the browser check and the grep test. A finding for you: scan output for the shown repository was not produced (the key is expired), so result pages remain unreviewed.
 
+**Phase 1 slice A done 2026-11-22 (ADR-031; plan and report in `docs/harness/B-048/`):** the frontend now has an automated test suite (Vitest, Testing Library, jsdom: `npm test`, `make test-ui`, 17 tests); new Findings step with a severity 9+ watchlist (with the reason for each band), a filterable list (priority, root cause, source), and one detail view with plain-language impact and score, why the priority, evidence and attack chain, why the score, validator view, root cause chain, CWE, source, fix actions with verification, state history and decide buttons for those allowed. **Not in slice A (still open in phase 1):** navigation Overview / Findings / Coverage / Reports / Settings, cost and health to an admin page, one icon set instead of emoji, the accessibility pass with an automated axe check (the new page uses labelled controls, regions and buttons, tested by role and name only), the first-run flow from a repository URL, scan history and "what changed" (slice B), the watchlist on the Dashboard.
+
 **Acceptance criteria — phase 1:**
-- [ ] A finding is fully reviewable (evidence, score with reason, fix, history) from one view (browser check)
+- [x] A finding is fully reviewable (evidence, score with reason, fix, history) from one view (slice A: `FindingsPage`, tested in jsdom with Testing Library; **not yet looked at in a real browser**)
 - [ ] Every interactive element is reachable and labelled for keyboard and screen-reader use (automated accessibility check with zero serious violations)
-- [ ] The watchlist lists every severity 9+ finding, including locked ones; old stored scans show current bands without migration (from B-034)
+- [x] The watchlist lists every severity 9+ finding, including locked ones; old stored scans show current bands without migration (from B-034) (slice A: watchlist unit and component tests; `core/priority.refresh_bands` applied when a project's stored scan is opened; the watchlist is shown on the new Findings page, not yet on the Dashboard)
 - [ ] A new user scans a repository from the first screen in one step (browser check)
 
 ---

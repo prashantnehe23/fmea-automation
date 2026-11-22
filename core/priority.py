@@ -56,3 +56,25 @@ def guarded_severity(old: int, proposed: int, validation) -> int:
     if old >= CATASTROPHIC_SEVERITY and proposed < CATASTROPHIC_SEVERITY and validation.is_realistic:
         return CATASTROPHIC_SEVERITY
     return proposed
+
+
+def refresh_bands(result: dict) -> dict:
+    """A stored scan with current bands (B-048). Scans stored before the severity floors have no `priority_reason`;
+    their band is worked out again from the stored S/O/D with today's rules, so nothing needs migrating.
+    A risk that already carries its reason is left as the scan decided it; one without scores is left alone."""
+    from types import SimpleNamespace
+    validations = {v.get("failure_mode"): v for v in result.get("validations") or [] if isinstance(v, dict)}
+    for risk in result.get("risks") or []:
+        if not isinstance(risk, dict) or risk.get("priority_reason"):
+            continue
+        try:
+            s, o, d = int(risk["severity"]), int(risk["occurrence"]), int(risk["detection"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        v = validations.get(risk.get("failure_mode"))
+        confirmed = bool(v) and exploit_confirmed_from(SimpleNamespace(
+            is_realistic=bool(v.get("is_realistic")), attack_chain_complete=bool(v.get("attack_chain_complete")),
+            confidence=v.get("confidence") or 0))
+        band, reason = priority_for(s, o, d, confirmed)
+        risk["priority"], risk["priority_reason"] = band, reason
+    return result

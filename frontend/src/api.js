@@ -632,6 +632,7 @@ export function normalizeScanResult(apiResult, sel) {
       d:         risk.detection,
       rpn:       risk.rpn,
       priority:  risk.priority,
+      priority_reason: risk.priority_reason ?? '',
       status:    'Open',
       // ── Workspace / hierarchy ─────────────────────────────────────────────
       comp:      sel?.componentName ?? 'Scanned',

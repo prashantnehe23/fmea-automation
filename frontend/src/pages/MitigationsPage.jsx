@@ -84,7 +84,7 @@ const BAND = {
 };
 const BAND_ORDER = { now: 0, next: 1, later: 2 };
 
-function ActionList({ title, color, actions }) {
+export function ActionList({ title, color, actions }) {
   if (!actions?.length) return null;
   const sorted = [...actions].sort((a, b) => (BAND_ORDER[a.urgency] ?? 1) - (BAND_ORDER[b.urgency] ?? 1));
   return (

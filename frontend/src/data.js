@@ -47,19 +47,20 @@ export const FIXES = {
 
 export const PROCESS_STEPS = [
   { id: 'scan',        label: 'Context & Scan',    icon: '🔍', step: 1 },
-  { id: 'scenarios',   label: 'Failure Scenarios', icon: '⚠️',  step: 2 },
-  { id: 'scoring',     label: 'Risk Scoring',      icon: '📊', step: 3 },
-  { id: 'mitigations', label: 'Mitigations',       icon: '🛠️', step: 4 },
-  { id: 'remediation', label: 'Auto-Remediation',  icon: '🔧', step: 5 },
-  { id: 'dashboard',   label: 'Dashboard',         icon: '📈', step: 6 },
+  { id: 'findings',    label: 'Findings',          icon: '🧾', step: 2 },
+  { id: 'scenarios',   label: 'Failure Scenarios', icon: '⚠️',  step: 3 },
+  { id: 'scoring',     label: 'Risk Scoring',      icon: '📊', step: 4 },
+  { id: 'mitigations', label: 'Mitigations',       icon: '🛠️', step: 5 },
+  { id: 'remediation', label: 'Auto-Remediation',  icon: '🔧', step: 6 },
+  { id: 'dashboard',   label: 'Dashboard',         icon: '📈', step: 7 },
 ];
 
 // Which steps are "primary" (full opacity) vs "available" (muted) per persona
 export const PERSONA_PRIMARY = {
-  developer:         ['scan', 'scenarios', 'remediation'],
-  risk_manager:      ['scenarios', 'scoring', 'mitigations', 'dashboard'],
+  developer:         ['scan', 'findings', 'scenarios', 'remediation'],
+  risk_manager:      ['findings', 'scenarios', 'scoring', 'mitigations', 'dashboard'],
   sre:               ['mitigations', 'remediation'],
-  security_engineer: ['scenarios', 'scoring'],
+  security_engineer: ['findings', 'scenarios', 'scoring'],
   executive:         ['scoring', 'mitigations', 'dashboard'],
 };
 
