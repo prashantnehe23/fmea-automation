@@ -153,6 +153,11 @@ def coerce_failure_mode_payload(raw: Any) -> dict[str, Any]:
     if d.get("cwe"):
         from core.cwe import normalise_cwe
         out["cwe"] = normalise_cwe(d["cwe"])
+    if isinstance(d.get("exploit_path"), list):
+        steps = [s.model_dump() if hasattr(s, "model_dump") else s for s in d["exploit_path"]]
+        out["exploit_path"] = [s for s in steps if isinstance(s, dict)][:20]
+    if isinstance(d.get("path_status"), str) and d["path_status"] in ("confirmed", "uncertain"):
+        out["path_status"] = d["path_status"]
     if isinstance(d.get("also_reported_by"), list):
         out["also_reported_by"] = [str(x)[:80] for x in d["also_reported_by"]][:10]
     return out

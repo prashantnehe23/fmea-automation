@@ -43,3 +43,6 @@ memory/fmea.db-*
 memory/*.json
 memory/workspaces/
 memory/core/
+
+# Third-party sources, tools and the staged settings used for benchmarks (never committed)
+benchmarks/real/

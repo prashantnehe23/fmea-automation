@@ -91,6 +91,25 @@ function Detail({ r, state, events, canDecide, onDecide, error }) {
         {r.challenges?.length > 0 && <p className="text-xs text-gray-500">Challenged: {r.challenges.join(' ')}</p>}
       </Section>
 
+      {r.exploit_path?.length > 0 && (
+        <Section title="Exploit path">
+          <p className="text-xs text-gray-500 mb-1.5">
+            {r.path_status === 'confirmed'
+              ? 'Each step was checked against the code.'
+              : 'This path could not be fully verified against the code: treat it as a lead.'}
+          </p>
+          <ol className="space-y-2 list-decimal list-inside">
+            {r.exploit_path.map((s, i) => (
+              <li key={i} className="text-sm text-gray-700">
+                <span className="text-xs font-mono text-gray-500">{s.file}{s.lines ? `:${s.lines}` : ''}</span>
+                <span className="block ml-5">{s.action}</span>
+                {s.quote && <pre className="ml-5 mt-1 bg-gray-900 text-green-300 text-xs rounded-lg p-2 overflow-x-auto whitespace-pre-wrap font-mono">{s.quote}</pre>}
+              </li>
+            ))}
+          </ol>
+        </Section>
+      )}
+
       <Section title="Evidence">
         {r.evidence
           ? <pre className="bg-gray-900 text-green-300 text-xs rounded-xl p-4 overflow-x-auto whitespace-pre-wrap font-mono">{r.evidence}</pre>

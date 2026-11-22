@@ -8,13 +8,14 @@ from agents.evaluator import evaluate_pipeline
 from agents.llm_judge import run_llm_judge
 from agents.root_cause_agent import run_root_cause_analyst
 from agents.saboteur import run_saboteur
+from core.path_discovery import discover_exploit_paths, paths_to_failures
 from agents.scenario_linkage import run_scenario_linkage
 from agents.sre_agent import run_sre_agent
 from agents.surveyor import run_surveyor
 from agents.validator import run_validator
 from core.line_numbers import number_lines
 from core.batch_merge import merge_contexts, merge_failures, merge_linkage
-from core.llm import get_call_count, get_model_name, reset_call_count
+from core.llm import get_call_count, get_model_name, get_salvage_count, reset_call_count
 from core.providers import provider_for_model
 from core.models import ControlAssessment, FailureMode, RemediationPlan
 from core.sarif import _where, merge_by_place, merge_imported
@@ -109,6 +110,7 @@ def run_fmea(
     scope: dict | None = None,
     batches: list[str] | None = None,
     persist: bool = True,
+    discovery: str = "scenarios",
 ) -> dict:
     """
     Run the full FMEA pipeline with caching, learning, validation, and evaluation.
@@ -117,6 +119,8 @@ def run_fmea(
     persist: False runs the scan without touching any record (registry, lifecycle history, scan log, caches, learning
              memory): used by the pull-request check, whose branch must not change what the default branch knows (B-012).
     batches: the code split into passes for a large repository; each is scanned on its own and the findings merged.
+    discovery: 'scenarios' (the saboteur's brainstorm) or 'paths' (B-028 phase B: hunt exploit paths across components, verify
+               each against the code, and score the verified ones; locked findings are not carried over in this mode).
     workspace: optional WorkspaceContext — scopes cache, learning, and eval history
                per customer/project.  Pass None to use global (legacy) paths.
 
@@ -171,6 +175,22 @@ def run_fmea(
     # Agents see numbered lines so the line numbers they cite are real (B-041); the original
     # text is what is cached, fingerprinted and stored.
     parts = list(batches) if batches and len(batches) > 1 else [code]
+    found = None
+    discovery_report = {"mode": "scenarios"}
+    if discovery == "paths":
+        from core.chat import split_code_blob
+        from core.github_fetcher import file_block
+        if on_progress: on_progress("paths")
+        files = split_code_blob("\n\n".join(parts))
+        with agent_span("paths"):
+            found = discover_exploit_paths(files)
+        if found.packet_files:
+            # one pass per packet: each finding is assessed against the code its hunt read
+            parts = ["\n\n".join(file_block(p, files[p]) for p in packet) for packet in found.packet_files]
+            discovery_report = {"mode": "paths", **found.counts, "uncovered": found.uncovered}
+        else:
+            found = None
+            discovery_report = {"mode": "scenarios", "note": "no entry points, sinks or guard files found to hunt in; the brainstorm ran instead"}
     prompt_codes = [number_lines(c) for c in parts]
     multi = len(parts) > 1
 
@@ -179,19 +199,23 @@ def run_fmea(
         contexts = [run_surveyor(pc, business_context=biz_ctx) for pc in prompt_codes]
     context = merge_contexts(contexts) if multi else contexts[0]
 
-    if on_progress: on_progress("saboteur")
-    with agent_span("saboteur"):
-        per_batch = [
-            run_saboteur(
-                pc, contexts[i],
-                max_scenarios=cap,
-                learning_context=learning_ctx,
-                locked_names=locked_names if locked_names else None,
-                previous_names=previous_names(locked) or None,
-                **({"part": (i + 1, len(parts))} if multi else {}),
-            )
-            for i, pc in enumerate(prompt_codes)
-        ]
+    if found is not None:
+        reportable = found.reportable()
+        per_batch = [paths_to_failures([p for p in reportable if found.packet_of.get(p.title) == i]) for i in range(len(parts))]
+    else:
+        if on_progress: on_progress("saboteur")
+        with agent_span("saboteur"):
+            per_batch = [
+                run_saboteur(
+                    pc, contexts[i],
+                    max_scenarios=cap,
+                    learning_context=learning_ctx,
+                    locked_names=locked_names if locked_names else None,
+                    previous_names=previous_names(locked) or None,
+                    **({"part": (i + 1, len(parts))} if multi else {}),
+                )
+                for i, pc in enumerate(prompt_codes)
+            ]
     failures, origin = merge_failures(per_batch) if multi else (per_batch[0], [0] * len(per_batch[0]))
     if cap is not None:
         # Locked findings are never cut by the cap, wherever they sit; new findings fill the rest
@@ -415,6 +439,8 @@ def run_fmea(
         "fix_candidates": pending_fixes,           # B-031: findings waiting for a person to confirm they are fixed
         "scope": scope,                    # B-033: what was examined and what was not
         "batches": len(parts),             # B-028 phase 0: passes over the code
+        "discovery": discovery_report,     # B-028 phase B: how the findings were found, what was verified, what was not hunted
+        "model_replies_cut": get_salvage_count(),   # B-046: model answers used only in part; findings after the break were lost
         "model": get_model_name(),         # B-040: the model that produced this result (never switched silently)
         "provider": provider_for_model(get_model_name()),
         "remediation_limit": {"limit": MAX_REMEDIATION_PLANS, "skipped": skipped_plans},   # spend guard (placeholders)

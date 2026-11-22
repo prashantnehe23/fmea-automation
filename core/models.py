@@ -68,6 +68,25 @@ class SystemContext(BaseModel):
         return d
 
 
+class PathStep(BaseModel):
+    """One hop of an exploit path: where it happens, what happens, and the code that shows it (B-028 phase B)."""
+    file: str = ""
+    lines: str = ""
+    action: str = ""
+    quote: str = ""
+
+
+class ExploitPath(BaseModel):
+    title: str
+    entry_point: str = ""
+    steps: List[PathStep] = Field(default_factory=list)
+    broken_check: str = ""            # the check that is missing, wrong or in the wrong component
+    exploit: str = ""
+    impact: str = ""
+    status: str = "unverified"        # confirmed | refuted | uncertain | unverified
+    verification: str = ""
+
+
 class FailureMode(BaseModel):
     failure_mode: str
     attack_chain: List[str]
@@ -78,6 +97,8 @@ class FailureMode(BaseModel):
     source: str = "fmea"                                   # 'fmea' or 'import:<tool>' (B-045, ADR-028)
     cwe: str = "unmapped"                                   # 'CWE-<n>' or 'unmapped'
     also_reported_by: List[str] = Field(default_factory=list)
+    exploit_path: List[PathStep] = Field(default_factory=list)      # B-028 phase B: the hops, when found by the path hunt
+    path_status: str = ""                                           # 'confirmed' or 'uncertain' for path findings
 
     @model_validator(mode="before")
     @classmethod

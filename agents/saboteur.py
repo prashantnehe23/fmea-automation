@@ -1,6 +1,6 @@
 import json
 
-from core.llm import call_llm, extract_json_text
+from core.llm import call_llm, extract_json_text, parse_json_list_leniently
 from core.llm_coercion import coerce_saboteur_json_root
 from core.models import FailureMode, SystemContext
 
@@ -105,6 +105,6 @@ Each object must have these fields:
 """
 
     response = call_llm(prompt, max_tokens=8192)
-    root = json.loads(extract_json_text(response))
+    root = parse_json_list_leniently(response)
     items = coerce_saboteur_json_root(root)
     return [FailureMode(**item) for item in items]

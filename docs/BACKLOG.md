@@ -1118,7 +1118,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[~]` PHASE 0 IMPLEMENTED 2026-11-21 (benchmark re-run open); phases B0, A-D P2 (paused 2026-11-21)
+### B-028 · Goal-Based Discovery Engine (Inventory, Hunt, Prove, Cover) `[~]` PHASE 0 IMPLEMENTED 2026-11-21; PHASE B FIRST SLICE (exploit paths across components) IMPLEMENTED 2026-11-22; rest of B and A, C, D P1 (engineer-pulled forward 2026-11-22 for the demo and B-052)
 
 **Decision:** [ADR-015](decisions/ADR-015-goal-based-discovery.md). **Depends on:** B-026 (measure), B-027 (profile and system map), B-031 (identity and locks before phase D).
 
@@ -1135,6 +1135,17 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - **B. Hunters and exploit verifier:** per-cell hypothesis generation over relevant code via the read-only code tools; verifier tries every playbook variant before refuting; attempt log; mechanical evidence verification; verdict confirmed / refuted / unresolved
 - **C. Catastrophic pass and chain composer:** pre-mortem from the profile's catastrophic outcomes; independent second verification before refuting any potential severity >= 9; compound-path search across confirmed findings
 - **D. Convergence, budgets, parallelism:** stopping rule (no open cells and one stagnant "what did we miss" pass), USD/call/time budget with residual-risk reporting, scan depth setting (quick / standard / deep) with cost estimate, concurrent hunters and verifiers, live coverage progress, findings no longer capped
+
+**Phase B first slice, 2026-11-22 (design: ADR-015, ADR-032; plan and report in `docs/harness/B-028/`):** the scan can run in a `discovery="paths"` mode (the Scan page's "Deep scan" option, `discovery` on both scan requests): `core/component_map.py` builds from the code index a map of files (routes, sinks, guard-like files), calls between files, and links by network position (a service that makes outbound requests and the servers it could reach, for example a localhost-only admin service); it cuts the map into packets of connected files within a byte budget and lists the code files no packet contains. `agents/path_hunter.py` asks one focused question per packet for exploit paths that cross components; `agents/path_verifier.py` checks every claimed path (quoted code must exist and line numbers are corrected without a model; a path whose quotes are mostly missing is refuted without a model call; otherwise one sceptical call looks for defences); verified and uncertain paths become findings (`exploit_path`, `path_status`) and go through the normal stages (controls, scoring, root cause, actions, audit); the Findings page shows the steps. **Limits:** in this mode locked findings from earlier scans are not carried over; packets are made only around files with routes, sinks or guard-like names; link detection by network position is a heuristic (outbound-request patterns and `run`/`listen` calls); a scan is slower and costs more calls.
+**Acceptance criteria for this slice:**
+- [x] The component map, packets and the network-position link are built without a model (tests: `tests/test_component_map.py`)
+- [x] The hunt prompt shows connected files and a map, asks for cross-component paths and carries no hint of any known flaw (tests)
+- [x] A path with invented code is refuted without a model call; line numbers are corrected from the files; a provider block is never swallowed (tests: `tests/test_path_discovery.py`)
+- [x] Verified paths flow through the normal stages as findings; refuted ones do not; counts and unhunted files are reported; a project with nothing to hunt falls back to the brainstorm and says so (pipeline tests)
+- [x] The Scan page offers the deep scan, requests carry the mode, and the Findings page shows each step (JS tests)
+- [x] On the seeded `chain-api` repository (an SSRF in a public service that reaches an unauthenticated localhost-only admin service), a Large 4 scan reports the whole chain as one confirmed Critical finding with both steps cited (two live runs: the first, before the network-position link existed, reported only the SSRF; the second found the chain; about $0.04 and one minute)
+- [ ] Measured on the real-code set against the earlier workflow with the same model (runs held back with the B-046 results; to be re-run with the other models under B-052)
+- [ ] Locked findings carried across scans in this mode; hunts for guard-like files wired only through configuration tables beyond the file-level link; packets for projects without routes or sinks
 
 **Acceptance criteria:**
 - [ ] Every scan stores a coverage ledger; each cell ends confirmed, refuted (with cited controls), not_applicable (with reason) or unresolved
