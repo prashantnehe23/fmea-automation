@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from api.schemas import WorkspaceIn, serialize_result
 from api.sse import sse_event
 from core.llm_errors import scan_error_event
+from core.provider_block import ProviderBlocked
 from api.store import build_workspace, next_scan_id, scan_store
 from core import auth, repo_credentials
 from core.chat import persist_scan_for_chat
@@ -190,7 +191,7 @@ async def github_scan(req: GithubScanRequest, request: Request):
 
         try:
             result = fut.result()
-        except Exception as exc:
+        except (Exception, ProviderBlocked) as exc:
             yield sse_event(scan_error_event(exc), event="error")
             return
 

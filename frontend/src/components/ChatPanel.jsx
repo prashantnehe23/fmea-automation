@@ -20,6 +20,7 @@ const fmtTok = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n ?? 0}`);
 const ERROR_HINT = {
   no_scan:    'Run a scan for this project first, then ask questions about it.',
   no_api_key: 'Add an API key for the selected model in Settings (gear icon).',
+  provider_blocked: 'Open Settings (gear icon), choose another model and ask again.',
 };
 
 function ToolChips({ activity }) {

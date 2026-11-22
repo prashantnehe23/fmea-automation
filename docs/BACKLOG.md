@@ -34,7 +34,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 | 6 | B-031 — **done 2026-11-21** | Finding identity, lifecycle and lock semantics (moved up) | ADR-019 accepted | none |
 | 7 | B-028 phase 0 — **implemented 2026-11-21, benchmark re-run open** | Remove the 7-finding cap; prioritised handling of large repositories (pulled forward) | no | B-031 |
 | 8 | B-012 — **implemented 2026-11-21, real-repository run open** | Pull-request check (moved from P3) | ADR-029 (Accepted) | B-015, B-031, B-043 |
-| 9 | B-040 | Defensive framing and provider-block handling (P2 to P1: before any pilot) | ADR-024 to accept | none |
+| 9 | B-040 — **implemented 2026-11-22, live measurements open** | Defensive framing and provider-block handling (P2 to P1: before any pilot) | ADR-024 accepted | none |
 | 10 | B-047 | More model providers: Azure OpenAI, AWS Bedrock, Anthropic, local endpoint | no (extends ADR-011) | none |
 | 11 | B-045 | SARIF import and export; CWE on every finding | **yes** (ADR-028) | B-031 |
 | 12 | B-046 | Public benchmark on real code and head-to-head with Semgrep and CodeQL (absorbs B-026 targets) | no (extends ADR-023) | B-028 phase 0 |
@@ -909,7 +909,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-040 · Defensive-Purpose Framing Across Models and Provider-Block Handling `[ ]` APPROVED — P1 (P2 to P1 on 2026-11-21: must land before any pilot)
+### B-040 · Defensive-Purpose Framing Across Models and Provider-Block Handling `[~]` IMPLEMENTED 2026-11-22, live measurements open — P1 (P2 to P1 on 2026-11-21: must land before any pilot)
 
 **Decision:** [ADR-024](decisions/ADR-024-defensive-framing-and-provider-blocks.md) (Draft). **Priority:** P2 (engineer-set 2026-11-09). **Ordering (engineer-approved 2026-11-09):** before B-028 phase B, so the new hunters and verifiers are written with the preamble from the start. **Found by:** the first live benchmark run (B-026): 8 of 18 Mistral Large 4 scans were blocked.
 
@@ -924,14 +924,16 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 - Document each provider's official defensive-use route (engineer to supply or confirm from the provider's documentation; not assumed)
 
 **Acceptance criteria:**
-- [ ] Every prompt builder includes the preamble (test over all agents and the chat, as in the untrusted-data tests)
-- [ ] No prompt template contains attacker role-play wording or asks for working exploit code or payloads (test on the templates)
-- [ ] A fake Mistral 403 guardrail error and a fake OpenAI content-filter/refusal response are both classified `provider_blocked`; other errors are not (tests)
-- [ ] A blocked prompt is not retried with the same wording (test)
-- [ ] The scan UI and chat show a clear message and a model chooser after a block; the re-run result states its model (UI check)
-- [ ] Benchmark report shows block rate per model; Large 4 block rate after the change is measured against the 8 of 18 baseline and the target is agreed with the engineer
-- [ ] Recall and catastrophic recall after the change stay within an agreed margin of the pre-change baseline (rerun on the benchmark)
-- [ ] Each provider's official defensive-use route is documented, or noted as none
+- [x] Every prompt builder includes the preamble (`tests/test_provider_blocks.py`: all nine model-calling agents and the chat; it is added in `core/llm.py`, so a new agent cannot omit it)
+- [x] No prompt template contains attacker role-play wording or asks for working exploit code or payloads (test on the captured prompts, the chat prompt and both learning-context tables, including `memory/workspace_store.py`, which the pipeline really uses)
+- [x] A fake Mistral 403 guardrail error and a fake OpenAI content-filter/refusal response are both classified `provider_blocked`; other errors are not (tests: guardrail 403, `content_filter`, `invalid_prompt`, refusals, filtered finish reasons, mid-stream error events; key, access, rate-limit, size, outage and connection errors are not blocks)
+- [x] A blocked prompt is not retried with the same wording (test: one request per blocked call, including the continuation and recovery paths)
+- [x] The scan UI and chat show a clear message and a model chooser after a block; the re-run result states its model (scan page: plain message and a "Choose another model" button that opens Settings, and the model name on the result; chat: the plain message with a hint to open Settings and choose another model. **Tested with fakes and a build; not checked in the browser against a real block**)
+- [ ] Benchmark report shows block rate per model; Large 4 block rate after the change is measured against the 8 of 18 baseline and the target is agreed with the engineer. **Report built and tested** (`blocked: N of M scans`; older result files are read through the provider's error text, so the 8 of 18 baseline shows as blocked); **the Large 4 measurement and the target are open** (needs a Large 4 run)
+- [ ] Recall and catastrophic recall after the change stay within an agreed margin of the pre-change baseline (rerun on the benchmark). **Open:** needs a benchmark run on this code (about $3 on mistral-medium); the margin is still to be agreed
+- [~] Each provider's official defensive-use route is documented, or noted as none (`docs/provider-policies.md` lists Mistral and OpenAI as **not confirmed**: the engineer must supply them from the providers' documentation or accounts)
+
+**Done 2026-11-22 (plan and report in `docs/harness/B-040/`; ADR-024 "As built" section):** `core/prompt_context.py`, `core/provider_block.py`, preamble and block handling in `core/llm.py`, stage tracking and block counting in `core/telemetry.py`, plain messages for scan, GitHub scan, remediation, chat and the pull-request check, model and provider on every result, reworded saboteur, chat and learning-context prompts, benchmark block rate. **Open:** the live Large 4 block rate and the recall check; the providers' defensive-use routes; the legacy Streamlit dashboard and `app.py` show a raw error on a block; a refusal returned as a normal answer is not detected; the remediator aborts at its first blocked fix; the authorisation question below.
 
 **Open questions for the engineer:** (1) whether to ask the user to confirm they are authorised to assess a repository before a scan (the preamble claims it) - **deferred by the engineer on 2026-11-10; stays open in the backlog and is not part of the first implementation**; (2) whether an optional automatic fallback model is wanted later (not in scope now).
 

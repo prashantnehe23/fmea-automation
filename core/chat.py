@@ -34,6 +34,7 @@ from core.llm import call_chat, get_model_name, stream_chat
 from core.priority import priority_for
 from core.untrusted import as_data_block
 from core.providers import get_api_key, model_supports_tools, provider_for_model
+from core.provider_block import ProviderBlocked, blocked_message
 from core.retention import retention_days
 
 _log = logging.getLogger(__name__)
@@ -115,10 +116,10 @@ def persist_scan_for_chat(serialized: dict, code: str, known_paths: list[str] | 
 
 # ── The stable prefix: instructions + findings + file index ───────────────────
 
-SYSTEM_PROMPT = """You are the results assistant for an FMEA (failure mode and effects analysis) security scan of a software project. You help developers and security engineers understand the findings below: why a scenario exists, how it could be exploited in this specific code, why it is rated as it is, and how to fix it.
+SYSTEM_PROMPT = """You are the results assistant for an FMEA (failure mode and effects analysis) security scan of a software project. You help developers and security engineers understand the findings below: why a scenario exists, how it could be abused in this specific code (the conditions and evidence needed to reach the impact), why it is rated as it is, and how to fix it.
 
 Rules:
-- Ground every answer in the findings and the scanned code. Before explaining how something is exploited, look at the real code with read_file and search_code, and cite files as path:line.
+- Ground every answer in the findings and the scanned code. Before explaining how a weakness could be abused (conditions and evidence, not attack instructions), look at the real code with read_file and search_code, and cite files as path:line.
 - Use get_scenario_detail for a scenario's full remediation plan, controls and rationales.
 - To trace how input reaches a dangerous operation use find_callers, find_callees, find_definition, list_entry_points and list_sinks. They read a syntax-based index: say so when a path is unresolved, and confirm important steps with read_file.
 - If the findings and code do not support an answer, say so. Never invent files, functions or vulnerabilities.
@@ -646,7 +647,10 @@ def prepare_turn(workspace_id: int, user_text: str) -> TurnContext:
     views = _scenario_views(snapshot["findings"], adjustments)
 
     thread = db.get_or_create_chat_thread(workspace_id)
-    thread, history = _fold_old_history(thread, db.get_chat_messages(thread["id"]))
+    try:
+        thread, history = _fold_old_history(thread, db.get_chat_messages(thread["id"]))
+    except ProviderBlocked as exc:
+        raise ChatError("provider_blocked", blocked_message(exc, "chat")) from None
     system = build_system_prompt(snapshot, files, adjustments, tools_enabled, thread.get("summary"),
                                  db.list_proposals(thread["id"]))
     user_msg = {"role": "user", "content": user_text}
@@ -719,6 +723,8 @@ def run_turn(ctx: TurnContext, streaming: bool):
                         reply = payload
             except GeneratorExit:
                 raise
+            except ProviderBlocked as exc:
+                raise ChatError("provider_blocked", blocked_message(exc, "chat")) from None
             except Exception as exc:
                 raise ChatError("llm_error", f"The model call failed: {exc}") from exc
             prompt_tokens += reply["prompt_tokens"]

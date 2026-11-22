@@ -30,7 +30,7 @@ from core.chat import (
 
 router = APIRouter(tags=["chat"])
 
-_STATUS = {"empty_message": 422, "no_scan": 409, "no_api_key": 409, "llm_error": 502,
+_STATUS = {"empty_message": 422, "no_scan": 409, "no_api_key": 409, "llm_error": 502, "provider_blocked": 409,
            "not_found": 404, "already_decided": 409, "stale": 409, "invalid_proposal": 422,
            "apply_failed": 500}
 _DONE = object()

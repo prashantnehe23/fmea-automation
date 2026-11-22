@@ -12,13 +12,18 @@ import logging
 import openai
 
 from core.llm import MissingApiKeyError, get_model_name
+from core.provider_block import ProviderBlocked, blocked_message
 from core.providers import PROVIDERS, provider_for_model, set_key_status
 
 log = logging.getLogger(__name__)
 
 
-def scan_error_event(exc: Exception) -> dict:
+def scan_error_event(exc: BaseException) -> dict:
     """Return the SSE error payload {"stage": "error", "msg", "code", "action"} for *exc*."""
+    if isinstance(exc, ProviderBlocked):
+        log.warning("provider blocked a scan: %s", exc)
+        return {"stage": "error", "msg": blocked_message(exc, "scan"), "code": "provider_blocked",
+                "action": "choose_model"}
     log.warning("scan failed: %s: %s", type(exc).__name__, exc)
     provider_id = provider_for_model(get_model_name())
     name = PROVIDERS[provider_id]["display"]

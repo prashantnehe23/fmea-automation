@@ -22,6 +22,14 @@ def _ratio(num: int, den: int) -> float | None:
     return round(num / den, 3) if den else None
 
 
+_BLOCK_MARKERS = ("provider_blocked", "guardrail", "1920", "content_filter")
+
+
+def is_blocked_run(run: dict) -> bool:
+    """A run the provider refused. Runs stored before B-040 carry no flag, only the provider's error text."""
+    return bool(run.get("blocked")) or any(m in str(run.get("error") or "").lower() for m in _BLOCK_MARKERS)
+
+
 def summarise(result: dict, repos_dir: Path = REPOS_DIR) -> dict:
     """Per-repository and overall metrics for one stored result file (failed scans are excluded)."""
     totals: dict[str, int] = {}
@@ -41,6 +49,7 @@ def summarise(result: dict, repos_dir: Path = REPOS_DIR) -> dict:
             stabilities.append(stab)
         per_repo[name] = {
             "runs_ok": len(ok), "runs_failed": len(data["runs"]) - len(ok),
+            "runs_blocked": sum(1 for r in data["runs"] if is_blocked_run(r)), "runs_total": len(data["runs"]),
             **_metrics(agg), "stability": stab,
             "missed": sorted({m for s in scores for m in s["missed"]}),
             "missed_catastrophic": sorted({m for s in scores for m in s["missed_catastrophic"]}),
@@ -53,7 +62,10 @@ def summarise(result: dict, repos_dir: Path = REPOS_DIR) -> dict:
                "cost_usd": round(sum(r["cost_usd"] for r in per_repo.values()), 4),
                "seconds": round(sum(r["seconds"] for r in per_repo.values()), 1),
                "llm_calls": sum(r["llm_calls"] for r in per_repo.values()),
-               "runs_failed": sum(r["runs_failed"] for r in per_repo.values())}
+               "runs_failed": sum(r["runs_failed"] for r in per_repo.values()),
+               "runs_blocked": sum(r["runs_blocked"] for r in per_repo.values()),
+               "runs_total": sum(r["runs_total"] for r in per_repo.values())}
+    overall["block_rate"] = round(overall["runs_blocked"] / overall["runs_total"], 3) if overall["runs_total"] else None
     return {"meta": result["meta"], "repos": per_repo, "overall": overall}
 
 
@@ -93,8 +105,11 @@ def format_table(summaries: list[dict]) -> str:
         misses = {n: r["missed_catastrophic"] for n, r in s["repos"].items() if r["missed_catastrophic"]}
         if misses:
             lines.append("missed catastrophic: " + "; ".join(f"{n}: {', '.join(v)}" for n, v in misses.items()))
-        if s["overall"]["runs_failed"]:
-            lines.append(f"failed scans (excluded): {s['overall']['runs_failed']}")
+        o = s["overall"]
+        lines.append(f"blocked: {o['runs_blocked']} of {o['runs_total']} scans by the provider's policy"
+                     + (f" ({o['block_rate']:.0%})" if o["block_rate"] is not None else ""))
+        if o["runs_failed"]:
+            lines.append(f"failed scans (excluded, blocked ones included): {o['runs_failed']}")
         lines.append("")
     return "\n".join(lines)
 

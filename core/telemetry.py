@@ -20,12 +20,21 @@ Design:
 
 from __future__ import annotations
 
+import contextvars
 import threading
 import time
 import uuid
 from contextlib import contextmanager
 
+from core.provider_block import ProviderBlocked
+
 _ctx = threading.local()
+_stage: contextvars.ContextVar[str] = contextvars.ContextVar("fmea_stage", default="")
+
+
+def current_stage() -> str:
+    """The pipeline stage (agent) now running, so a provider block can say where it happened (B-040)."""
+    return _stage.get()
 
 
 def set_scan_context(scan_id: int | None, workspace_id: int | None) -> None:
@@ -70,12 +79,17 @@ def agent_span(agent_name: str):
     before_p, before_c = get_token_usage()
     t0 = time.perf_counter()
     error_msg: str | None = None
+    stage_token = _stage.set(agent_name)
     try:
         yield
+    except ProviderBlocked:
+        error_msg = "provider_blocked"
+        raise
     except Exception as exc:
         error_msg = str(exc)
         raise
     finally:
+        _stage.reset(stage_token)
         duration_ms = (time.perf_counter() - t0) * 1000
         after_p, after_c = get_token_usage()
         _record(

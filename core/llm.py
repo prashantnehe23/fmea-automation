@@ -21,7 +21,9 @@ import threading
 
 import openai
 
-from core import budget
+from core import budget, prompt_context
+from core.provider_block import ProviderBlocked, is_provider_block
+from core.telemetry import current_stage
 
 _MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.1")
 _clients: dict[str, tuple[str, openai.OpenAI]] = {}
@@ -69,6 +71,22 @@ def _add_usage(calls: int = 0, prompt: int = 0, completion: int = 0) -> None:
         usage.completion += completion
     if prompt or completion:
         budget.record(get_model_name(), prompt, completion)       # raises BudgetReached inside a spend limit (B-012)
+
+
+def _create(client, provider_id: str, **kw):
+    """The provider call. A policy block becomes ProviderBlocked and is never retried (B-040)."""
+    try:
+        return client.chat.completions.create(**kw)
+    except Exception as exc:
+        if is_provider_block(exc):
+            raise ProviderBlocked(provider_id, kw.get("model", ""), current_stage()) from None
+        raise
+
+
+def _raise_if_blocked(choice, provider_id: str, model: str) -> None:
+    """A filtered or refused answer is a block as well, even when the call itself succeeded."""
+    if getattr(choice, "finish_reason", None) == "content_filter" or getattr(getattr(choice, "message", None), "refusal", None):
+        raise ProviderBlocked(provider_id, model, current_stage())
 
 
 class MissingApiKeyError(RuntimeError):
@@ -211,6 +229,7 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     from core.providers import get_provider, provider_for_model
     from core.reasoning import DEFAULT_LEVEL, request_params
     from core.settings import get_setting
+    prompt = prompt_context.with_preamble(prompt)        # the defensive purpose, stated once for every provider (B-040)
     model = _get_model()
     provider_id = provider_for_model(model)
     provider = get_provider(provider_id)
@@ -219,7 +238,8 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
     first_budget = min(max(int(max_tokens * multiplier), FIRST_ATTEMPT_FLOOR), cap)
 
     def complete(messages: list[dict], budget: int) -> tuple[str, str]:
-        response = client.chat.completions.create(
+        response = _create(
+            client, provider_id,
             model=model,
             messages=messages,
             temperature=0.2,
@@ -230,6 +250,7 @@ def call_llm(prompt: str, *, max_tokens: int = 4096) -> str:
         if response.usage:
             _add_usage(prompt=response.usage.prompt_tokens or 0, completion=response.usage.completion_tokens or 0)
         choice = response.choices[0]
+        _raise_if_blocked(choice, provider_id, model)
         return _content_text(choice.message.content), choice.finish_reason
 
     wants_json = bool(_WANTS_JSON.search(prompt))
@@ -295,6 +316,7 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
     from core.providers import get_provider, provider_for_model
     from core.reasoning import DEFAULT_LEVEL, request_params
     from core.settings import get_setting
+    messages = prompt_context.chat_messages(messages)    # B-040: the same defensive-purpose statement
     model = _get_model()
     provider_id = provider_for_model(model)
     provider = get_provider(provider_id)
@@ -306,7 +328,8 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
     def complete(msgs: list[dict], limit: int):
         nonlocal prompt_total, completion_total
         extra = {"tools": tools} if tools else {}
-        response = client.chat.completions.create(
+        response = _create(
+            client, provider_id,
             model=model,
             messages=msgs,
             temperature=0.2,
@@ -320,7 +343,9 @@ def call_chat(messages: list[dict], *, tools: list[dict] | None = None, max_toke
             _add_usage(prompt=p, completion=c)
             prompt_total += p
             completion_total += c
-        return response.choices[0]
+        choice = response.choices[0]
+        _raise_if_blocked(choice, provider_id, model)
+        return choice
 
     choice = complete(messages, budget)
     text = _content_text(choice.message.content)
@@ -360,6 +385,7 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
     from core.providers import get_provider, provider_for_model
     from core.reasoning import DEFAULT_LEVEL, request_params
     from core.settings import get_setting
+    messages = prompt_context.chat_messages(messages)    # B-040: the same defensive-purpose statement
     model = _get_model()
     provider_id = provider_for_model(model)
     provider = get_provider(provider_id)
@@ -373,11 +399,12 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
         extra: dict = {"tools": tools} if tools else {}
         if provider.get("stream_usage"):
             extra["stream_options"] = {"include_usage": True}
-        stream = client.chat.completions.create(
+        stream = _create(
+            client, provider_id,
             model=model, messages=msgs, temperature=0.2, stream=True,
             **{provider["max_tokens_param"]: limit}, **extra, **params,
         )
-        text, finish, usage, slots = "", None, None, []
+        text, finish, usage, slots, refused = "", None, None, [], False
         try:
             for chunk in stream:
                 if getattr(chunk, "usage", None):
@@ -386,6 +413,8 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
                     continue
                 choice = chunk.choices[0]
                 delta = choice.delta
+                if getattr(delta, "refusal", None):
+                    refused = True
                 piece = _content_text(delta.content) if delta.content else ""
                 if piece:
                     text += piece
@@ -404,6 +433,10 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
                         slots[index]["arguments"] += tc.function.arguments
                 if choice.finish_reason:
                     finish = choice.finish_reason
+        except openai.APIError as exc:                  # an error event in the middle of a stream
+            if is_provider_block(exc):
+                raise ProviderBlocked(provider_id, model, current_stage()) from None
+            raise
         finally:
             close = getattr(stream, "close", None)
             if close:
@@ -415,6 +448,8 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
             prompt_used = len(json.dumps(msgs, default=str)) // 4
             completion_used = (len(text) + sum(len(c["arguments"]) for c in slots)) // 4
         _add_usage(prompt=prompt_used, completion=completion_used or 0)
+        if finish == "content_filter" or refused:      # the call was billed: its usage is recorded before the block is raised
+            raise ProviderBlocked(provider_id, model, current_stage())
         usage_totals["prompt"] += prompt_used
         usage_totals["completion"] += completion_used or 0
         return text, [c for c in slots if c["name"]], finish

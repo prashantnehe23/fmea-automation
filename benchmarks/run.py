@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest import mock
 
 from benchmarks.score import load_repo_files, load_truth
+from core.provider_block import ProviderBlocked
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOS_DIR = Path(__file__).resolve().parent / "repos"
@@ -115,6 +116,7 @@ def run_once(repo_dir: Path, model: str, reasoning: str, run_index: int, api_key
 
     code, context = scan_input(repo_dir)
     started = time.perf_counter()
+    blocked = False
     with tempfile.TemporaryDirectory(prefix="fmea-bench-") as tmp:
         with isolated_environment(Path(tmp), model, reasoning, api_keys):
             import memory.db as db
@@ -124,6 +126,8 @@ def run_once(repo_dir: Path, model: str, reasoning: str, run_index: int, api_key
             try:
                 result = run_fmea(code, force_rerun=True, workspace=ws)
                 findings, error = findings_from_result(result), None
+            except ProviderBlocked as exc:  # a provider's policy block is counted, not hidden (B-040)
+                findings, error, blocked = [], f"provider_blocked: {exc}", True
             except Exception as exc:        # a failed scan is data, not a reason to stop the benchmark
                 findings, error = [], f"{type(exc).__name__}: {exc}"
             conn = db.get_db()
@@ -132,7 +136,7 @@ def run_once(repo_dir: Path, model: str, reasoning: str, run_index: int, api_key
             finally:
                 conn.close()
             calls = get_call_count()
-    return {"findings": findings, "error": error, "cost_usd": round(float(cost), 6),
+    return {"findings": findings, "error": error, "blocked": blocked, "cost_usd": round(float(cost), 6),
             "seconds": round(time.perf_counter() - started, 1), "llm_calls": calls}
 
 
