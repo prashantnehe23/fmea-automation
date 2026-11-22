@@ -282,28 +282,18 @@ def _eval_sre(
 
     for r in remediations:
         label = f"SRE ({r.failure_mode[:40]})"
+        if not r.corrective and not r.preventive:
+            if not (r.fixes or r.monitoring or r.resilience_upgrades):
+                issues.append(f"{label}: no corrective or preventive actions were produced.")
+            continue                                         # a plan stored before B-030: nothing structured to check
 
-        if not r.fixes or r.fixes == ["Prioritize fixes from engineering review."]:
-            warnings.append(f"{label}: fixes contain only the default fallback — SRE may not have run.")
-        if not r.monitoring or r.monitoring == ["Add metrics and alerts for this failure class."]:
-            warnings.append(f"{label}: monitoring contains only the default fallback.")
-        if not r.resilience_upgrades:
-            warnings.append(f"{label}: no resilience upgrades listed.")
-
-        # Roadmap completeness
-        road_keys = set(k.lower() for k in r.roadmap_90_day.keys())
-        for phase in ("day 30", "day 60", "day 90"):
-            if not any(phase in k for k in road_keys):
-                issues.append(f"{label}: roadmap missing '{phase.title()}' phase.")
-
-        if not r.roadmap_tasks:
-            warnings.append(f"{label}: no roadmap_tasks (Gantt items) generated.")
-        else:
-            for t in r.roadmap_tasks:
-                if t.start_day > t.end_day:
-                    issues.append(
-                        f"{label}: task '{t.task_id}' has start_day {t.start_day} > end_day {t.end_day}."
-                    )
+        if not any(a.verification for a in r.corrective):
+            issues.append(f"{label}: no corrective action with a verification step.")
+        if not r.preventive:
+            issues.append(f"{label}: no preventive action.")
+        for a in r.corrective + r.preventive:
+            if not a.target:
+                issues.append(f"{label}: action '{a.id}' has no target.")
 
     score = max(0.0, 1.0 - (len(issues) * 0.25 + len(warnings) * 0.08))
     return AgentEval("sre_agent", passed=len(issues) == 0, score=round(score, 2),

@@ -791,7 +791,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 | 2 | B-026 | Scan effectiveness benchmark (ground-truth harness) | P0 | none |
 | 3 | B-034 | Severity-aware prioritisation and catastrophic guardrails | P0 | none (measured by B-026) |
 | 4 | B-033 | Scan scope and coverage transparency | P1 | none (baseline in B-026 shows the gap) |
-| 5 | B-030 | Corrective and Preventive remediation agents; retire 30-60-90 / Gantt | P1 | none |
+| 5 | B-030 — **implemented 2026-11-22, cost measurement open** | Corrective and Preventive remediation agents; retire 30-60-90 / Gantt | P1 | none |
 | 6 | B-029 | Root-cause classification | P1 | best after B-026 for labels |
 | 7 | B-036 | Code navigation toolkit | P1 | before B-028 phase B |
 | 8 | B-031 | Finding identity, lifecycle and lock semantics | P1 | before B-028 phase D |
@@ -989,7 +989,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-030 · Corrective and Preventive Remediation Agents; Retire 30-60-90 and Gantt `[ ]` PROPOSED — P2 (paused 2026-11-21; first to resume)
+### B-030 · Corrective and Preventive Remediation Agents; Retire 30-60-90 and Gantt `[~]` IMPLEMENTED 2026-11-22, cost measurement open — P2 (engineer-ordered after B-040)
 
 **Decision:** [ADR-018](decisions/ADR-018-corrective-preventive-remediation.md). **Supersedes:** B-010.
 
@@ -998,14 +998,14 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **Scope:** `Action` model; `agents/corrective_agent.py` and `agents/preventive_agent.py` (NEW, run in parallel per finding, preventive chosen by root-cause domain when available); remove `roadmap_90_day`, `roadmap_tasks` and their coercion, evaluator and judge rules; Mitigations page with Corrective and Preventive sections and urgency bands (now / next / later, ordering only); remediator consumes corrective `code_fix` actions; legacy Streamlit dashboard and tests updated; chat `get_scenario_detail` updated; compat mapping for stored results; B-010 closed.
 
 **Acceptance criteria:**
-- [ ] Each finding has corrective actions and preventive actions, each with kind, target, verification, owner role and urgency band
-- [ ] No dates, day ranges or Gantt fields are generated or shown anywhere (grep and UI check)
-- [ ] The evaluator no longer requires Day 30/60/90 and has new rules: at least one corrective action with a verification, at least one preventive action, no action without a target
-- [ ] Preventive actions differ by root-cause domain in tests (architectural vs operational example)
-- [ ] The remediator generates diffs from corrective `code_fix` actions (existing remediator tests updated and green)
-- [ ] Old stored scans still render: `fixes` appear as corrective, `monitoring` and `resilience_upgrades` as preventive
-- [ ] SRE-related cost per scan is recorded before and after (B-021 telemetry) and not worse than before for the same input
-- [ ] B-010 is marked superseded; the 90-day roadmap UI and `agents/roadmap_agent` plan are removed from the backlog
+- [x] Each finding has corrective actions and preventive actions, each with kind, target, verification, owner role and urgency band (`tests/test_actions.py`: coercion, both agents, parallel assembly)
+- [x] No dates, day ranges or Gantt fields are generated or shown anywhere (test scans the code, prompts and UI sources; the new prompts are checked for time words; frontend build; no browser check)
+- [x] The evaluator no longer requires Day 30/60/90 and has new rules: at least one corrective action with a verification, at least one preventive action, no action without a target
+- [x] Preventive actions differ by root-cause domain in tests (architectural vs operational example; the pipeline passes no domain until B-029, so the model decides it)
+- [x] The remediator generates diffs from corrective `code_fix` actions (existing remediator tests updated and green)
+- [x] Old stored scans still render: `fixes` appear as corrective, `monitoring` and `resilience_upgrades` as preventive (backend mapping, chat, cache round trip, and the same mapping in `frontend/src/api.js`; not checked in a browser)
+- [ ] SRE-related cost per scan is recorded before and after (B-021 telemetry) and not worse than before for the same input. **Open:** needs a live scan on this code (spend decision); estimate now counts two smaller calls per finding
+- [x] B-010 is marked superseded; the 90-day roadmap UI and `agents/roadmap_agent` plan are removed from the backlog
 
 ---
 
@@ -1312,7 +1312,7 @@ This is different from the existing scenario registry (which deduplicates within
 
 ---
 
-### B-010 · Gantt / 90-Day Remediation Roadmap — *proposed to be superseded by B-030 (awaiting approval of ADR-018)*
+### B-010 · Gantt / 90-Day Remediation Roadmap — *Superseded by B-030 (ADR-018 accepted 2026-11-22); not to be built*
 **Why:** The SRE agent already produces `roadmap_90_day` data per failure mode. A consolidated Gantt view gives executives and risk managers a time-boxed delivery plan from the FMEA output — Day 30 Visibility → Day 60 Controls → Day 90 Automation.
 
 **Scope:**
@@ -1325,7 +1325,7 @@ This is different from the existing scenario registry (which deduplicates within
 - [ ] Gantt chart renders correctly for 5–20 failure modes
 - [ ] CSV export contains all columns needed for board distribution
 
-> **Status (2026-10-24):** pending approval of ADR-018 / B-030, which removes the 30/60/90 roadmap this item would visualise.
+> **Status (2026-11-22):** Superseded: B-030 removed the 30/60/90 roadmap and Gantt this item would visualise.
 
 ---
 
@@ -1366,7 +1366,7 @@ This is different from the existing scenario registry (which deduplicates within
 - B-015 (authentication) is a hard dependency for any external beta or multi-user use. Until then, persona permissions are enforced in the UI only. It is P0 from 2026-11-21.
 - From 2026-11-21 the go-to-market build order at the top of this file decides what is next; the scan-effectiveness programme resumes after the P1 list. New architecture choices in that order (ADR-026 deployment, ADR-027 sign-in, ADR-028 SARIF) are Draft until the engineer accepts them, and their items do not start before that.
 - B-008 (incremental scanning) is deferred by user decision; do not start without re-confirming, and rebase it on the coverage ledger first (see its note).
-- B-006 was superseded by B-018; B-010 is pending supersession by B-030 (ADR-018 approval).
+- B-006 was superseded by B-018; B-010 was superseded by B-030 (ADR-018 accepted).
 - B-019 (attack chain memory) and B-017 (cross-customer patterns) need a privacy review and an ADR extending ADR-005 before implementation.
 - B-020 is advisory only: no agent prompt or rule is ever auto-modified.
 - Verification in the discovery engine is static reasoning with checked evidence; running exploits in a sandbox is out of scope for the first release.

@@ -1,13 +1,12 @@
 """
 Streamlit UI: navigation pane, quick filters, RPN distribution, S/O/D breakdown,
-scenario linkage, Gantt roadmap, validator panel, workspace identity, GitHub fetch,
+scenario linkage, corrective and preventive actions, validator panel, workspace identity, GitHub fetch,
 LLM-judge eval report with drift alerts.
 Run: streamlit run dashboard.py
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +14,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from core.actions import plan_actions
 from core.models import ScenarioLinkageReport, ValidationResult
 from workflows.fmea_pipeline import DEFAULT_MAX_FAILURE_MODES, run_fmea
 
@@ -74,72 +74,8 @@ def _badge(text: str, color: str) -> str:
     )
 
 
-def _roadmap_milestones(roadmap: dict[str, str]) -> list[tuple[int, str, str]]:
-    out: list[tuple[int, str, str]] = []
-    for key, text in roadmap.items():
-        m = re.search(r"(\d+)", str(key))
-        day = int(m.group(1)) if m else 0
-        out.append((day, str(key), str(text)))
-    out.sort(key=lambda x: x[0])
-    return out
-
-
 def _risks_dataframe(risks) -> pd.DataFrame:
     return pd.DataFrame([r.model_dump() for r in risks])
-
-
-def _roadmap_longform(remediations) -> pd.DataFrame:
-    records: list[dict] = []
-    for rem in remediations:
-        for day, key, text in _roadmap_milestones(rem.roadmap_90_day):
-            records.append({
-                "failure_mode": rem.failure_mode,
-                "milestone_key": key,
-                "day": day,
-                "summary": text[:280] + ("\u2026" if len(text) > 280 else ""),
-            })
-    return pd.DataFrame(records)
-
-
-def _gantt_figure(tasks, title: str) -> go.Figure | None:
-    if not tasks:
-        return None
-    fig = go.Figure()
-    labels = []
-    for i, t in enumerate(tasks):
-        lbl = (t.title[:70] + "\u2026") if len(t.title) > 70 else t.title
-        labels.append(lbl)
-        dep = ", ".join(t.depends_on) if t.depends_on else "\u2014"
-        hover = (
-            f"<b>{t.task_id}</b><br>"
-            f"Days {t.start_day}\u2013{t.end_day}<br>"
-            f"Depends on: {dep}<br>"
-            f"{t.implementation_note}<extra></extra>"
-        )
-        fig.add_trace(go.Bar(
-            orientation="h",
-            y=[i],
-            x=[t.end_day - t.start_day],
-            base=t.start_day,
-            name=t.task_id,
-            marker_color="#e74c3c" if t.expedited else "#3498db",
-            hovertemplate=hover,
-            showlegend=False,
-        ))
-    fig.update_layout(
-        title=title,
-        xaxis_title="Calendar day (1\u201390)",
-        yaxis=dict(
-            tickmode="array",
-            tickvals=list(range(len(tasks))),
-            ticktext=labels,
-            autorange="reversed",
-        ),
-        height=max(280, 48 * len(tasks)),
-        margin=dict(l=200, r=24, t=48, b=48),
-    )
-    fig.update_xaxes(range=[0, 95])
-    return fig
 
 
 # ── Filter ─────────────────────────────────────────────────────────────────────
@@ -685,7 +621,7 @@ def render_risk_deep_dive(risks, remediations, failures, controls, linkage, vali
 
 def render_mitigation_plans(risks, remediations, failures) -> None:
     st.subheader("🛠️ Mitigation Plans")
-    st.caption("90-day remediation roadmaps sorted by RPN (highest risk first).")
+    st.caption("Corrective and preventive actions, sorted by RPN (highest risk first).")
     st.divider()
 
     filtered_risks, filtered_rems, filtered_fails = _apply_filters(risks, remediations, failures)
@@ -709,56 +645,15 @@ def render_mitigation_plans(risks, remediations, failures) -> None:
         with c_c:
             st.metric("S/O/D", f"{risk.severity}/{risk.occurrence}/{risk.detection}")
 
-        if rem.rpn_priority_note:
-            st.info(rem.rpn_priority_note)
-        if rem.dependency_notes:
-            st.markdown("**Interdependencies**")
-            st.write(rem.dependency_notes)
-
-        gantt = _gantt_figure(rem.roadmap_tasks, f"Implementation Gantt \u2014 {rem.failure_mode[:40]}")
-        if gantt:
-            st.plotly_chart(gantt, use_container_width=True)
-        else:
-            st.caption("_No structured tasks; using milestone text below._")
-
-        ms = _roadmap_milestones(rem.roadmap_90_day)
-        if ms:
-            st.markdown("**Milestone narrative**")
-            cols = st.columns(min(len(ms), 3))
-            for col, (_, key, text) in zip(cols, ms):
-                with col:
-                    st.markdown(f"**{key}**")
-                    st.write(text)
-
-        with st.expander("Fixes, monitoring, resilience", expanded=False):
-            st.markdown("**Fixes**")
-            for x in rem.fixes:
-                st.write(f"- {x}")
-            st.markdown("**Monitoring**")
-            for x in rem.monitoring:
-                st.write(f"- {x}")
-            st.markdown("**Resilience upgrades**")
-            for x in rem.resilience_upgrades:
-                st.write(f"- {x}")
+        corrective, preventive = plan_actions(rem)
+        for heading, actions in (("Corrective actions", corrective), ("Preventive actions", preventive)):
+            st.markdown(f"**{heading}**")
+            for x in actions:
+                st.write(f"- [{x.urgency}] {x.title} ({x.kind}; target: {x.target or 'not stated'}; owner: {x.owner_role})")
+                if x.verification:
+                    st.caption(f"Verify: {x.verification}")
 
         st.divider()
-
-    st.subheader("All milestones \u2014 90-day timeline")
-    df_road = _roadmap_longform([p[1] for p in pairs])
-    if not df_road.empty:
-        max_day = int(df_road["day"].max()) if not df_road["day"].isna().all() else 90
-        fig_road = px.scatter(
-            df_road, x="day", y="failure_mode",
-            hover_name="milestone_key",
-            hover_data={"summary": True, "day": True, "failure_mode": True},
-            title="Milestones on a 90-day horizon",
-            labels={"day": "Day", "failure_mode": "Failure mode"},
-            height=max(360, 80 * df_road["failure_mode"].nunique()),
-        )
-        fig_road.update_traces(marker=dict(size=14, opacity=0.88, line=dict(width=1, color="white")))
-        fig_road.update_xaxes(range=[0, max(90, max_day + 5)])
-        fig_road.update_layout(showlegend=False)
-        st.plotly_chart(fig_road, use_container_width=True)
 
 
 def render_system_context(ctx, failures, linkage) -> None:

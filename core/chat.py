@@ -29,9 +29,11 @@ from dataclasses import dataclass
 from typing import Callable
 
 import memory.db as db
+from core.actions import plan_actions
 from core.costs import compute_cost
 from core.llm import call_chat, get_model_name, stream_chat
 from core.priority import priority_for
+from core.models import RemediationPlan
 from core.untrusted import as_data_block
 from core.providers import get_api_key, model_supports_tools, provider_for_model
 from core.provider_block import ProviderBlocked, blocked_message
@@ -143,6 +145,18 @@ def _latest_adjustments(workspace_id: int) -> dict[str, dict]:
 
 def _by_failure_mode(items: list[dict] | None) -> dict[str, dict]:
     return {i.get("failure_mode", ""): i for i in (items or [])}
+
+
+def plan_detail(plan: dict) -> dict:
+    """A stored remediation plan as structured corrective and preventive actions (old plans are mapped)."""
+    if not plan:
+        return {}
+    try:
+        corrective, preventive = plan_actions(RemediationPlan(**{"failure_mode": "", **plan}))
+    except ValueError:                                    # a malformed stored action
+        corrective, preventive = [], []
+    return {"failure_mode": plan.get("failure_mode", ""),
+            "corrective": [a.model_dump() for a in corrective], "preventive": [a.model_dump() for a in preventive]}
 
 
 def _scenario_views(findings: dict, adjustments: dict[str, dict]) -> list[dict]:
@@ -386,7 +400,7 @@ def _tool_get_scenario_detail(args: dict, _files: dict[str, str], views: list[di
     v = _resolve_scenario(views, args.get("failure_mode"))
     detail = {"failure": v["failure"], "risk": v["risk"], "expert_adjustment": v["adjustment"],
               "controls": v["control"], "validator": v["validation"],
-              "remediation_plan": v["plan"], "linkage": v["linkage"]}
+              "remediation_plan": plan_detail(v["plan"]), "linkage": v["linkage"]}
     text = json.dumps(detail, indent=1, sort_keys=True, default=str)
     return text[:DETAIL_MAX_CHARS] + ("\n[truncated]" if len(text) > DETAIL_MAX_CHARS else "")
 

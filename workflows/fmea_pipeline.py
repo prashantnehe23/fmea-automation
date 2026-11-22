@@ -226,7 +226,7 @@ def run_fmea(
         planned = set(by_risk[:MAX_REMEDIATION_PLANS])
         remediations = [
             run_sre_agent(f, c, r) if k in planned else RemediationPlan(
-                failure_mode=f.failure_mode, monitoring=[], resilience_upgrades=[], roadmap_90_day={},
+                failure_mode=f.failure_mode,
                 fixes=[f"Not generated: the limit of {MAX_REMEDIATION_PLANS} remediation plans per scan was reached "
                        "(highest risk first). Ask in the results chat or rescan."])
             for k, (f, c, r) in enumerate(zip(failures, controls, risks))

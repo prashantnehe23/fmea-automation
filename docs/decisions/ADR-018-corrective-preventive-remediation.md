@@ -1,6 +1,6 @@
 # ADR-018: Remediation Split — Corrective and Preventive Actions; No Time-Boxed Roadmap
 
-**Status:** Draft (awaiting engineer approval)  **Date:** 2026-10-19  **Backlog:** B-030 (supersedes B-010)
+**Status:** Accepted (engineer, 2026-11-22; as-built notes below)  **Date:** 2026-10-19  **Backlog:** B-030 (supersedes B-010)
 
 ## Context
 One SRE agent per finding produces `fixes`, `monitoring`, `resilience_upgrades`, a `roadmap_90_day` (Day 30/60/90) and Gantt-style `roadmap_tasks` with start/end days. It is the largest cost driver (8,192-token output, one call per scenario, 50-80 s each on Mistral Large 4), and mixes two different intents. Delivery timelines are decisions for SRE and product teams, who know capacity and dependencies; an LLM guessing day numbers adds false precision. The evaluator even raises an *issue* when a Day 30/60/90 phase is missing, and the judge scores roadmap fields.
@@ -26,3 +26,11 @@ One SRE agent per finding produces `fixes`, `monitoring`, `resilience_upgrades`,
 - Prompts get smaller and more specific; two calls per finding replace one large call, and they run in parallel.
 - Executives lose the generated timeline; the platform now provides the action backlog only.
 - Removing fields touches models, coercion, evaluator, judge, the React Mitigations page, the legacy Streamlit dashboard and tests.
+
+## As built (2026-11-22, B-030)
+- `core/actions.py` holds the kinds, owner roles, urgency table and answer coercion; `agents/corrective_agent.py` and `agents/preventive_agent.py` each make one model call; `agents/sre_agent.py` runs both in parallel (a copy of the scan's context per worker, so usage, the spend limit and stage tracking still apply; a provider block or spend limit in either raises out of the stage).
+- Kinds as built: corrective `code_fix`, `containment`, `config_change`; preventive `guardrail`, `design_change`, `monitoring`, `runbook`. The wider list above (test, process, config) was narrowed to what the two agents can tell apart. Owner roles: developer, security, sre, product.
+- Urgency is derived in code from the finding's priority and the action kind (containment is `now` for Critical, High and Medium; fixes are `now` for Critical and High). Never a date.
+- Root-cause domain: `run_preventive_agent` accepts a domain and shapes its focus by it. The pipeline does not pass one yet because findings carry no root-cause field (B-029); until then the prompt asks the model to decide the domain itself.
+- Plans stored before this change keep `fixes`, `monitoring` and `resilience_upgrades`; `plan_actions` maps them (fixes to corrective, monitoring and resilience upgrades to preventive) for the UI, chat, judge and remediator. Their stored `roadmap_*` fields are ignored on load.
+- Cost: two calls per finding of up to 4,096 tokens each instead of one of 8,192; `core/estimate.py` counts two. The before/after cost on a real scan has not been measured.

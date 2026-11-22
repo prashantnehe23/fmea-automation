@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from core.actions import plan_actions
 from core.llm import call_llm, extract_json_text
 from core.models import FailureMode, RemediationPlan, RiskScore, ValidationResult
 
@@ -112,14 +113,14 @@ def _build_prompt(
     sre_sample = [
         {
             "failure_mode": r.failure_mode,
-            "fix_count": len(r.fixes),
-            "fix_preview": r.fixes[:2],
-            "monitoring_count": len(r.monitoring),
-            "resilience_count": len(r.resilience_upgrades),
-            "roadmap_phases": list(r.roadmap_90_day.keys())[:3],
-            "task_count": len(r.roadmap_tasks),
+            "corrective_count": len(corrective),
+            "corrective_preview": [a.title for a in corrective[:2]],
+            "corrective_with_verification": sum(1 for a in corrective if a.verification),
+            "preventive_count": len(preventive),
+            "preventive_kinds": sorted({a.kind for a in preventive}),
         }
         for r in remediations[:5]
+        for corrective, preventive in [plan_actions(r)]
     ]
 
     return f"""

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.models import FailureMode, RemediationPlan, RiskScore, RoadmapTask
+from core.models import Action, FailureMode, RemediationPlan, RiskScore
 from agents.remediator import _apply_patch, _extract_func_name, generate_fix
 
 
@@ -31,13 +31,9 @@ def _make_failure(name: str = "SQL Injection") -> FailureMode:
 def _make_plan(name: str = "SQL Injection") -> RemediationPlan:
     return RemediationPlan(
         failure_mode=name,
-        fixes=["Use parameterised queries", "Validate input length", "Enable WAF"],
-        monitoring=["Log all DB errors"],
-        resilience_upgrades=["Add read replica"],
-        roadmap_90_day={"Day 30": "Fix queries", "Day 60": "WAF", "Day 90": "Review"},
-        roadmap_tasks=[
-            RoadmapTask(task_id="t1", title="Parameterise queries", start_day=1, end_day=5),
-        ],
+        corrective=[Action(id=f"c{i}", title=t, kind="code_fix", target="db.py", verification="a test")
+                    for i, t in enumerate(["Use parameterised queries", "Validate input length", "Enable WAF"], 1)],
+        preventive=[Action(id="p1", title="Log all DB errors", kind="monitoring")],
     )
 
 
