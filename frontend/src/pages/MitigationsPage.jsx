@@ -4,10 +4,7 @@
  * Mitigation action queue with fully expanded remediation plan per scenario:
  *  - Component impacted + current controls & gaps
  *  - Code evidence snippet (exactly where the problem lives)
- *  - Detailed fix steps (numbered, from the SRE agent's plan)
- *  - Monitoring requirements
- *  - Resilience / architectural upgrades
- *  - 90-day roadmap phases
+ *  - Corrective and preventive actions (kind, target, owner, verification, now/next/later band)
  *  - Status workflow (Open → In Progress → Mitigated)
  */
 
@@ -78,110 +75,41 @@ function EvidenceBlock({ evidence }) {
   );
 }
 
-// ── Detailed fix steps ────────────────────────────────────────────────────────
+// ── Corrective and preventive actions ─────────────────────────────────────────
 
-function FixSteps({ fixes }) {
-  if (!fixes?.length) return null;
+const BAND = {
+  now:   { label: 'Now',   cls: 'bg-red-50 text-red-600 border-red-200' },
+  next:  { label: 'Next',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  later: { label: 'Later', cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+};
+const BAND_ORDER = { now: 0, next: 1, later: 2 };
+
+function ActionList({ title, color, actions }) {
+  if (!actions?.length) return null;
+  const sorted = [...actions].sort((a, b) => (BAND_ORDER[a.urgency] ?? 1) - (BAND_ORDER[b.urgency] ?? 1));
   return (
     <div className="mb-4">
-      <p className="text-xs font-bold text-green-600 uppercase tracking-wide mb-2">🔧 Remediation Steps</p>
-      <ol className="space-y-2.5">
-        {fixes.map((fix, i) => (
-          <li key={i} className="flex items-start gap-3">
-            <span className="flex-shrink-0 w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold mt-0.5">
-              {i + 1}
-            </span>
-            <span className="text-sm text-gray-700 leading-relaxed">{fix}</span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-// ── Monitoring ────────────────────────────────────────────────────────────────
-
-function MonitoringSection({ monitoring }) {
-  if (!monitoring?.length) return null;
-  return (
-    <div className="mb-4">
-      <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">📡 Monitoring Requirements</p>
-      <ul className="space-y-1.5">
-        {monitoring.map((m, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-            <span className="text-blue-400 flex-shrink-0 mt-0.5">→</span>{m}
-          </li>
-        ))}
+      <p className={`text-xs font-bold uppercase tracking-wide mb-2 ${color}`}>{title}</p>
+      <ul className="space-y-3">
+        {sorted.map(a => {
+          const band = BAND[a.urgency] ?? BAND.next;
+          return (
+            <li key={a.id} className="text-sm text-gray-700">
+              <div className="flex items-start gap-2">
+                <span className={`flex-shrink-0 text-xs font-bold border rounded-lg px-2 py-0.5 ${band.cls}`}>{band.label}</span>
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-800">{a.title}</p>
+                  {a.detail && <p className="text-xs text-gray-600 leading-relaxed mt-0.5">{a.detail}</p>}
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {(a.kind ?? '').replaceAll('_', ' ')}{a.target ? ` · ${a.target}` : ''} · {a.owner_role}
+                  </p>
+                  {a.verification && <p className="text-xs text-green-700 mt-0.5">Verify: {a.verification}</p>}
+                </div>
+              </div>
+            </li>
+          );
+        })}
       </ul>
-    </div>
-  );
-}
-
-// ── Resilience upgrades ───────────────────────────────────────────────────────
-
-function ResilienceSection({ upgrades }) {
-  if (!upgrades?.length) return null;
-  return (
-    <div className="mb-4">
-      <p className="text-xs font-bold text-purple-600 uppercase tracking-wide mb-2">🏗️ Resilience Upgrades</p>
-      <ul className="space-y-1.5">
-        {upgrades.map((u, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-            <span className="text-purple-400 flex-shrink-0 mt-0.5">↑</span>{u}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// ── 90-day roadmap ────────────────────────────────────────────────────────────
-
-function RoadmapSection({ roadmap, tasks }) {
-  const hasDict  = roadmap && Object.keys(roadmap).length > 0;
-  const hasTasks = tasks?.length > 0;
-  if (!hasDict && !hasTasks) return null;
-
-  return (
-    <div>
-      <p className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-2">📅 90-Day Roadmap</p>
-      {hasDict && (
-        <div className="space-y-2 mb-3">
-          {Object.entries(roadmap).map(([phase, desc]) => (
-            <div key={phase} className="flex items-start gap-3">
-              <span className="flex-shrink-0 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 whitespace-nowrap">
-                {phase}
-              </span>
-              <span className="text-xs text-gray-700 leading-relaxed mt-1">{desc}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {hasTasks && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-gray-100">
-                {['Task', 'Days', 'Note'].map(h => (
-                  <th key={h} className="text-left px-2 py-1 text-gray-400 font-semibold uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {tasks.map((t, i) => (
-                <tr key={i} className="border-b border-gray-50">
-                  <td className="px-2 py-1.5 font-semibold text-gray-800">
-                    {t.expedited && <span className="text-red-500 mr-1">⚡</span>}
-                    {t.title}
-                  </td>
-                  <td className="px-2 py-1.5 text-gray-500">D{t.start_day}–D{t.end_day}</td>
-                  <td className="px-2 py-1.5 text-gray-500">{t.implementation_note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
@@ -193,16 +121,11 @@ function RemediationDetail({ r }) {
     <div className="border-t border-gray-100 bg-gray-50 px-6 py-5 space-y-0">
       <ControlsSection r={r} />
       <EvidenceBlock evidence={r.evidence} />
-      <FixSteps fixes={r.fixes} />
-      {!r.fixes?.length && (
-        <p className="text-xs text-gray-400 italic mb-4">No detailed fix steps available for this scenario.</p>
+      <ActionList title="🔧 Corrective actions" color="text-green-600" actions={r.corrective} />
+      {!r.corrective?.length && (
+        <p className="text-xs text-gray-400 italic mb-4">No corrective actions available for this scenario.</p>
       )}
-      <MonitoringSection monitoring={r.monitoring} />
-      <ResilienceSection upgrades={r.resilience_upgrades} />
-      <RoadmapSection roadmap={r.roadmap_90_day} tasks={r.roadmap_tasks} />
-      {r.dependency_notes && (
-        <p className="text-xs text-gray-500 mt-3 italic">{r.dependency_notes}</p>
-      )}
+      <ActionList title="🛡️ Preventive actions" color="text-purple-600" actions={r.preventive} />
     </div>
   );
 }

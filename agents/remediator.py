@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 
+from core.actions import plan_actions
 from core.llm import call_llm, extract_json_text
 from core.models import FailureMode, RemediationPlan, RemediationResult, RiskScore
 
@@ -57,7 +58,9 @@ def generate_fix(
     Returns a RemediationResult with before_rpn=0 (caller fills it in).
     """
     relevant = _extract_relevant_code(code, failure)
-    top_fixes = plan.fixes[:3]
+    corrective, _ = plan_actions(plan)
+    top_fixes = [{"title": a.title, "detail": a.detail, "target": a.target, "verification": a.verification}
+                 for a in ([a for a in corrective if a.kind == "code_fix"] or corrective)[:3]]
 
     prompt = f"""
 You are a senior security engineer implementing a fix for a known vulnerability.

@@ -9,6 +9,7 @@ at most the one call in flight when it was reached, never by a second one.
 from __future__ import annotations
 
 import contextvars
+import threading
 from contextlib import contextmanager
 
 from core.costs import compute_cost
@@ -41,6 +42,9 @@ def spend_limit(usd: float):
         _tracker.reset(token)
 
 
+_lock = threading.Lock()      # the two remediation agents record from separate threads
+
+
 def check_before_call() -> None:
     tracker = _tracker.get()
     if tracker is not None and tracker.reached:
@@ -51,7 +55,10 @@ def record(model: str, prompt_tokens: int, completion_tokens: int) -> None:
     tracker = _tracker.get()
     if tracker is None:
         return
-    tracker.spent_usd += compute_cost(model, prompt_tokens, completion_tokens)
-    if tracker.spent_usd >= tracker.limit_usd:
-        tracker.reached = True
+    with _lock:
+        tracker.spent_usd += compute_cost(model, prompt_tokens, completion_tokens)
+        over = tracker.spent_usd >= tracker.limit_usd
+        if over:
+            tracker.reached = True
+    if over:
         raise BudgetReached(f"The spend limit of ${tracker.limit_usd:.2f} was reached.")

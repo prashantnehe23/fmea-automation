@@ -284,7 +284,7 @@ def counting(monkeypatch, bh):
     def sre(f, c, r):
         from core.models import RemediationPlan
         sizes["sre"] += 1
-        return RemediationPlan(failure_mode=f.failure_mode, fixes=["real plan"], monitoring=[], resilience_upgrades=[], roadmap_90_day={})
+        return RemediationPlan(failure_mode=f.failure_mode, fixes=["real plan"], monitoring=[], resilience_upgrades=[])
 
     monkeypatch.setattr(pipeline, "score_all_failures", score)
     monkeypatch.setattr(pipeline, "run_validator", validate)

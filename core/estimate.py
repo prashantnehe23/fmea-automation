@@ -2,7 +2,7 @@
 core/estimate.py — B-028 phase 0: what a scan will roughly cost, shown before it starts.
 
 A scan makes four model calls per batch of code (surveyor, saboteur, controls, linkage), shared calls
-(actuary, validator, judge, in chunks of ten findings) and one remediation call per finding, up to a per-scan
+(actuary, validator, judge, in chunks of ten findings) and two remediation calls per finding (corrective and preventive), up to a per-scan
 limit. The number of findings is not known in advance, so seven per batch (the old cap) is the planning
 figure and the limit gives the upper figure. It is an estimate, never a promise; real cost is recorded per scan (B-021).
 """
@@ -17,6 +17,7 @@ from workflows.fmea_pipeline import AGENT_CHUNK, MAX_REMEDIATION_PLANS
 
 CALLS_PER_BATCH = 4
 SHARED_CALLS = 3
+REMEDIATION_CALLS_PER_FINDING = 2   # corrective and preventive agents (B-030)
 FINDINGS_PER_BATCH = 7
 TOKENS_PER_BYTE = 0.25          # about four characters per token
 OVERHEAD_TOKENS = 1500          # instructions and context per call
@@ -29,9 +30,9 @@ def _tokens(batch_bytes: list[int], findings: int) -> tuple[int, int, int]:
     if not batch_bytes:
         return 0, 0, 0
     shared = SHARED_CALLS * max(1, math.ceil(findings / AGENT_CHUNK))        # actuary and validator run in chunks
-    calls = CALLS_PER_BATCH * len(batch_bytes) + shared + findings
+    calls = CALLS_PER_BATCH * len(batch_bytes) + shared + findings * REMEDIATION_CALLS_PER_FINDING
     prompt = sum(CALLS_PER_BATCH * (int(size * TOKENS_PER_BYTE) + OVERHEAD_TOKENS) for size in batch_bytes)
-    prompt += shared * SHARED_PROMPT_TOKENS + findings * REMEDIATION_PROMPT_TOKENS
+    prompt += shared * SHARED_PROMPT_TOKENS + findings * REMEDIATION_CALLS_PER_FINDING * REMEDIATION_PROMPT_TOKENS
     return calls, prompt, calls * COMPLETION_TOKENS_PER_CALL
 
 

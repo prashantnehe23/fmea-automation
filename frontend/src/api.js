@@ -539,6 +539,20 @@ export async function deleteProject(projectId) {
 
 // ── Data normalisation ────────────────────────────────────────────────────────
 
+// Corrective and preventive actions (B-030). Plans stored before it carry text lists: fixes become corrective
+// actions, monitoring and resilience upgrades become preventive ones.
+function actionsOf(rm = {}) {
+  if (rm.corrective?.length || rm.preventive?.length) {
+    return { corrective: rm.corrective ?? [], preventive: rm.preventive ?? [] };
+  }
+  const old = (title, kind, i, p) => ({ id: `${p}${i + 1}`, title, detail: '', kind, target: '', verification: '', owner_role: 'developer', urgency: 'next' });
+  return {
+    corrective: (rm.fixes ?? []).map((t, i) => old(t, 'code_fix', i, 'c')),
+    preventive: [...(rm.monitoring ?? []).map(t => [t, 'monitoring']), ...(rm.resilience_upgrades ?? []).map(t => [t, 'design_change'])]
+      .map(([t, k], i) => old(t, k, i, 'p')),
+  };
+}
+
 /**
  * Convert a run_fmea() API result to the rich risk row shape used by all UI
  * components.  Every row carries not just scoring fields but also the full
@@ -600,13 +614,8 @@ export function normalizeScanResult(apiResult, sel) {
       control_maturity: c.control_maturity ?? '',
       gaps:             c.gaps             ?? [],
       // ── Remediation plan ─────────────────────────────────────────────────
-      fixes:               rm.fixes               ?? [],
-      monitoring:          rm.monitoring          ?? [],
-      resilience_upgrades: rm.resilience_upgrades ?? [],
-      roadmap_90_day:      rm.roadmap_90_day      ?? {},
-      roadmap_tasks:       rm.roadmap_tasks        ?? [],
-      dependency_notes:    rm.dependency_notes    ?? '',
-      rpn_priority_note:   rm.rpn_priority_note   ?? '',
+      corrective: actionsOf(rm).corrective,
+      preventive: actionsOf(rm).preventive,
       // ── Validator ────────────────────────────────────────────────────────
       is_realistic:          v.is_realistic          ?? true,
       attack_chain_complete: v.attack_chain_complete ?? true,

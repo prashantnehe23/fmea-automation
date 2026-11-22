@@ -50,7 +50,7 @@ def make_findings(extra_name=None):
         "controls": [{"failure_mode": n, "controls": {}, "control_maturity": "Low", "gaps": ["no WAF"]} for n in names],
         "validations": [{"failure_mode": n, "confidence": 0.8, "is_realistic": True, "challenges": []} for n in names],
         "remediations": [{"failure_mode": n, "fixes": ["parametrise queries"], "monitoring": [],
-                          "resilience_upgrades": [], "roadmap_tasks": []} for n in names],
+                          "resilience_upgrades": []} for n in names],
         "scenario_linkage": {"explanations": []},
         "workspace_id": 1, "db_scan_id": 5, "fingerprint": "fp-" + str(len(names)),
     }

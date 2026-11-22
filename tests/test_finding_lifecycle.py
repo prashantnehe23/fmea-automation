@@ -47,7 +47,7 @@ class Harness:
             ControlAssessment(failure_mode=x.failure_mode, controls={}, control_maturity="Low", gaps=[]) for x in f])
         monkeypatch.setattr(pipeline, "score_all_failures", self._score)
         monkeypatch.setattr(pipeline, "run_sre_agent", lambda f, c, r: RemediationPlan(
-            failure_mode=f.failure_mode, fixes=[], monitoring=[], resilience_upgrades=[], roadmap_90_day={}))
+            failure_mode=f.failure_mode, fixes=[], monitoring=[], resilience_upgrades=[]))
         monkeypatch.setattr(pipeline, "run_validator", lambda f, r: [ValidationResult(failure_mode=x.failure_mode) for x in f])
         monkeypatch.setattr(pipeline, "run_llm_judge", lambda *a, **k: [])
         monkeypatch.setattr(pipeline, "evaluate_pipeline", lambda **k: SimpleNamespace(__dict__={}, overall_passed=True))

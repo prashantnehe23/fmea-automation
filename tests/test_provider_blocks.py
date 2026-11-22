@@ -118,7 +118,7 @@ def run_all_agents():
         lambda: llm_judge.run_llm_judge([f()], [risk()], [ValidationResult(failure_mode="A")], []),
     ]
     from agents import remediator
-    plan = RemediationPlan(failure_mode="A", fixes=["validate input"], monitoring=[], resilience_upgrades=[], roadmap_90_day={})
+    plan = RemediationPlan(failure_mode="A", fixes=["validate input"], monitoring=[], resilience_upgrades=[])
     calls.append(lambda: remediator.generate_fix(f(), plan, "def handler(x):\n    return x\n"))
     for call in calls:
         try:

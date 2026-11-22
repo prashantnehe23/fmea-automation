@@ -107,25 +107,26 @@ class RiskScore(BaseModel):
     detection_rationale: str
 
 
-class RoadmapTask(BaseModel):
-    task_id: str
+class Action(BaseModel):
+    """One corrective or preventive action (B-030, ADR-018). Urgency is an ordering band, never a date."""
+    id: str
     title: str
-    start_day: int
-    end_day: int
-    depends_on: List[str] = []
-    expedited: bool = False
-    implementation_note: str = ""
+    detail: str = ""
+    kind: str
+    target: str = ""
+    verification: str = ""
+    owner_role: str = "developer"
+    urgency: str = "next"
 
 
 class RemediationPlan(BaseModel):
     failure_mode: str
-    fixes: List[str]
-    monitoring: List[str]
-    resilience_upgrades: List[str]
-    roadmap_90_day: Dict[str, str]
-    roadmap_tasks: List[RoadmapTask] = Field(default_factory=list)
-    dependency_notes: str = ""
-    rpn_priority_note: str = ""
+    corrective: List[Action] = Field(default_factory=list)
+    preventive: List[Action] = Field(default_factory=list)
+    # Plans stored before B-030 carry text lists only; core.actions.plan_actions maps them to actions.
+    fixes: List[str] = Field(default_factory=list)
+    monitoring: List[str] = Field(default_factory=list)
+    resilience_upgrades: List[str] = Field(default_factory=list)
 
 
 class ScenarioExplanation(BaseModel):
