@@ -148,6 +148,13 @@ def coerce_failure_mode_payload(raw: Any) -> dict[str, Any]:
     }
     if ev is not None and str(ev).strip() != "":
         out["evidence"] = str(ev)
+    if isinstance(d.get("source"), str) and d["source"]:
+        out["source"] = d["source"][:100]
+    if d.get("cwe"):
+        from core.cwe import normalise_cwe
+        out["cwe"] = normalise_cwe(d["cwe"])
+    if isinstance(d.get("also_reported_by"), list):
+        out["also_reported_by"] = [str(x)[:80] for x in d["also_reported_by"]][:10]
     return out
 
 

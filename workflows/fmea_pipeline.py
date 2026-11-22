@@ -16,7 +16,8 @@ from core.line_numbers import number_lines
 from core.batch_merge import merge_contexts, merge_failures, merge_linkage
 from core.llm import get_call_count, get_model_name, reset_call_count
 from core.providers import provider_for_model
-from core.models import ControlAssessment, RemediationPlan
+from core.models import ControlAssessment, FailureMode, RemediationPlan
+from core.sarif import _where, merge_by_place, merge_imported
 from core.priority import exploit_confirmed_from, guarded_severity, priority_for
 from core.telemetry import agent_span, clear_scan_context, get_run_id, set_scan_context
 from memory import eval_store, workspace_store
@@ -90,6 +91,14 @@ def _assess(failures: list, prompt_code: str) -> tuple[list, list]:
 DEFAULT_MAX_FAILURE_MODES = 7
 
 
+def _has_pending_imports(workspace) -> bool:
+    """Imported findings waiting for a scan (B-045) must not be answered from the cache."""
+    if workspace is None:
+        return False
+    wid = _db.find_workspace_id(workspace.customer, workspace.project)
+    return bool(wid and _db.pending_imported_findings(wid))
+
+
 def run_fmea(
     code: str,
     *,
@@ -126,7 +135,7 @@ def run_fmea(
     )
 
     # ── Cache check ────────────────────────────────────────────────────────────
-    if persist and not force_rerun:
+    if persist and not force_rerun and not _has_pending_imports(workspace):
         cached = get_cached_result(code, workspace)
         if cached is not None:
             cached["memory_stats"] = get_memory_stats(workspace)
@@ -196,6 +205,18 @@ def run_fmea(
                 room -= 1
         failures, origin = [failures[k] for k in keep], [origin[k] for k in keep]
 
+    # Imported SARIF findings (B-045, ADR-028) join the findings, wherever the cap fell; the same stages score them
+    # Every scan carries the project's active imports, not only the new ones: a finding a tool still reports must
+    # stay expected, or the next scan would call it a fix candidate (B-031)
+    active = _db.active_imported_findings(workspace_id) if workspace_id and persist else []
+    imported_summary = {"added": 0, "merged": 0}
+    if active:
+        failures, added, merged = merge_imported(failures, [FailureMode(**p["finding"]) for p in active])
+        imported_summary = {"added": added, "merged": merged}
+        for f in failures[len(failures) - added:]:
+            where = _where(f.evidence)
+            origin.append(next((i for i, c in enumerate(parts) if where and where[0] in c), 0))
+
     if on_progress: on_progress("controls")
     with agent_span("controls"):
         reports, controls = [], [None] * len(failures)
@@ -209,6 +230,22 @@ def run_fmea(
                 controls[k] = assessment
         scenario_linkage = reports[0] if len(reports) == 1 else merge_linkage(reports)
 
+    # Root cause (B-029): where each finding's lasting fix lives; the preventive agent is shaped by it. It runs before the
+    # actuary because it needs only the findings and controls, and so that an imported finding that repeats one of
+    # ours (same CWE, same place) is dropped before it is scored (B-045).
+    if on_progress: on_progress("root_cause")
+    with agent_span("root_cause"):
+        root_causes = []
+        for s_, e_ in _chunks(len(failures)):
+            root_causes += run_root_cause_analyst(failures[s_:e_], controls[s_:e_])
+    failures = [f.model_copy(update={"cwe": rc.cwe}) if f.cwe == "unmapped" and rc.cwe != "unmapped" else f
+                for f, rc in zip(failures, root_causes)]      # our own findings get the analyst's CWE (B-045)
+    if any(f.source != "fmea" for f in failures):
+        failures, kept, dropped = merge_by_place(failures)
+        controls, root_causes = [controls[k] for k in kept], [root_causes[k] for k in kept]
+        imported_summary = {"added": imported_summary["added"] - dropped, "merged": imported_summary["merged"] + dropped}
+    domains = {rc.failure_mode: rc.primary for rc in root_causes if rc.primary != "unclassified"}
+
     # Single batched actuary call — locked scenarios short-circuit (no LLM call)
     if on_progress: on_progress("actuary")
     with agent_span("actuary"):
@@ -219,14 +256,6 @@ def run_fmea(
                 business_context=biz_ctx,
                 locked_rpn=locked_rpn if locked_rpn else None,
             )
-
-    # Root cause (B-029): where each finding's lasting fix lives; the preventive agent is shaped by it
-    if on_progress: on_progress("root_cause")
-    with agent_span("root_cause"):
-        root_causes = []
-        for s_, e_ in _chunks(len(failures)):
-            root_causes += run_root_cause_analyst(failures[s_:e_], controls[s_:e_])
-    domains = {rc.failure_mode: rc.primary for rc in root_causes if rc.primary != "unclassified"}
 
     # Per-failure SRE (complex plans benefit from focused attention)
     if on_progress: on_progress("sre")
@@ -345,6 +374,8 @@ def run_fmea(
                     _db.backfill_telemetry_scan_id(run_id, db_scan_id)
         except Exception:
             db_scan_id = None
+        if db_scan_id:            # a scan that was not saved has not used them up
+            _db.mark_imported_used([x["id"] for x in active if x["status"] == "pending"], db_scan_id)
         try:
             if db_scan_id:
                 _db.save_eval(workspace_id, db_scan_id, evaluation.__dict__)
@@ -366,6 +397,7 @@ def run_fmea(
         "controls": controls,
         "risks": risks,
         "root_causes": root_causes,      # B-029
+        "imported": imported_summary,    # B-045: SARIF findings added to, and merged into, this scan
         "remediations": remediations,
         "scenario_linkage": scenario_linkage,
         "validations": validations,

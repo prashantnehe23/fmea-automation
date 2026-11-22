@@ -75,6 +75,9 @@ class FailureMode(BaseModel):
     blast_radius: str
     trigger: str
     evidence: Optional[str] = None
+    source: str = "fmea"                                   # 'fmea' or 'import:<tool>' (B-045, ADR-028)
+    cwe: str = "unmapped"                                   # 'CWE-<n>' or 'unmapped'
+    also_reported_by: List[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -138,6 +141,7 @@ class RootCause(BaseModel):
     proximate_cause: str = ""
     root_cause: str = ""
     confidence: float = 0.0
+    cwe: str = "unmapped"
 
 
 class ScenarioExplanation(BaseModel):

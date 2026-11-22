@@ -165,19 +165,21 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ## Next — evaluation credibility and workflow (P1, new items)
 
-### B-045 · SARIF Import and Export; CWE on Every Finding `[ ]` APPROVED — P1 — *ADR first (ADR-028)*
+### B-045 · SARIF Import and Export; CWE on Every Finding `[~]` IMPLEMENTED 2026-11-22, fixtures hand-made — P1 — *ADR-028 accepted 2026-11-22*
 
 **Why:** Buyers already run scanners and will not trust a new detector on day one. Importing their findings and scoring, deduplicating and registering them alongside ours makes the product "the risk layer above your scanners" and adds dependency (SCA) results without building SCA. Security teams and auditors also need standard identifiers.
 
 **Scope:** ADR-028 (imported findings as a source in the finding identity model of B-031; how imported findings are scored and verified); `POST /api/import/sarif`; CWE (and OWASP category where clear) on every finding, ours and imported; SARIF export per scan; source shown on each finding.
 
+**Done 2026-11-22 (plan and report in `docs/harness/B-045/`):** `core/cwe.py`, `core/sarif.py` (parse, merge, export), `source` and `cwe` on every finding, the CWE from the root-cause analyst, `imported_findings` table, `POST /api/import/sarif?workspace_id=N`, `GET /api/projects/{id}/sarif`, pending imports joined to the next scan (and bypassing the scan cache), Import and Export buttons, CWE and source badges. **Not done:** CWE names (ids only); real tool exports as fixtures; imported findings are not independently verified (needs B-028 phase B); not checked in a browser; scoring at import time.
+
 **Acceptance criteria:**
-- [ ] ADR-028 accepted before implementation
-- [ ] SARIF files from Semgrep, CodeQL and one dependency scanner import without error (fixtures, tests)
-- [ ] An imported finding at the same location and class as one of ours is merged, not duplicated (test)
-- [ ] Imported findings receive S/O/D, priority and the catastrophic floor like our own (test)
-- [ ] Every finding has a CWE or an explicit "unmapped" (test)
-- [ ] Exported SARIF validates against the SARIF 2.1.0 schema (test)
+- [x] ADR-028 accepted before implementation (2026-11-22)
+- [x] SARIF files from Semgrep, CodeQL and one dependency scanner (Trivy) import without error (fixtures, tests). **Limit:** the fixtures are written by hand from the tools' documented shapes; the tools were not run, so real exports of other versions may differ
+- [x] An imported finding at the same location and class as one of ours is merged, not duplicated (tests: same code quote; same file, within three lines and the same known CWE, after the root-cause stage)
+- [x] Imported findings receive S/O/D, priority and the catastrophic floor like our own (test: the pipeline test shows the actuary scoring imported findings together with ours; the floor is applied inside that shared stage, not separately tested for imports). They are scored by the next scan, not at import
+- [x] Every finding has a CWE or an explicit "unmapped" (test: model default, normaliser, SARIF extraction, analyst CWE applied to our findings)
+- [x] Exported SARIF validates against the SARIF 2.1.0 schema (test against the official schema, vendored in `tests/fixtures/sarif/`)
 
 ---
 

@@ -1,0 +1,215 @@
+{
+ "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+ "version": "2.1.0",
+ "runs": [
+  {
+   "tool": {
+    "driver": {
+     "name": "CodeQL",
+     "rules": [
+      {
+       "id": "py/sql-injection",
+       "name": "py/sql-injection",
+       "shortDescription": {
+        "text": "SQL query built from user-controlled sources"
+       },
+       "fullDescription": {
+        "text": "Building a SQL query from user-controlled sources is vulnerable to insertion of malicious SQL code."
+       },
+       "defaultConfiguration": {
+        "level": "error"
+       },
+       "properties": {
+        "tags": [
+         "security",
+         "external/cwe/cwe-089"
+        ],
+        "security-severity": "8.8"
+       },
+       "relationships": [
+        {
+         "target": {
+          "id": "89",
+          "toolComponent": {
+           "name": "CWE"
+          }
+         },
+         "kinds": [
+          "superset"
+         ]
+        }
+       ]
+      },
+      {
+       "id": "py/path-injection",
+       "name": "py/path-injection",
+       "shortDescription": {
+        "text": "Uncontrolled data used in path expression"
+       },
+       "defaultConfiguration": {
+        "level": "error"
+       },
+       "properties": {
+        "tags": [
+         "security",
+         "external/cwe/cwe-022"
+        ]
+       },
+       "relationships": [
+        {
+         "target": {
+          "id": "22",
+          "toolComponent": {
+           "name": "CWE"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "id": "py/weak-sensitive-data-hashing",
+       "name": "weak-hash",
+       "shortDescription": {
+        "text": "Use of a weak hash"
+       },
+       "relationships": [
+        {
+         "target": {
+          "id": "327",
+          "toolComponent": {
+           "name": "CWE"
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "results": [
+    {
+     "ruleId": "py/sql-injection",
+     "ruleIndex": 0,
+     "level": "error",
+     "message": {
+      "text": "This SQL query depends on a user-provided value."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/auth.py",
+         "uriBaseId": "%SRCROOT%"
+        },
+        "region": {
+         "startLine": 13
+        }
+       }
+      }
+     ],
+     "codeFlows": [
+      {
+       "threadFlows": [
+        {
+         "locations": [
+          {
+           "location": {
+            "physicalLocation": {
+             "artifactLocation": {
+              "uri": "src/auth.py",
+              "uriBaseId": "%SRCROOT%"
+             },
+             "region": {
+              "startLine": 9
+             }
+            },
+            "message": {
+             "text": "source"
+            }
+           }
+          },
+          {
+           "location": {
+            "physicalLocation": {
+             "artifactLocation": {
+              "uri": "src/auth.py",
+              "uriBaseId": "%SRCROOT%"
+             },
+             "region": {
+              "startLine": 13
+             }
+            },
+            "message": {
+             "text": "sink"
+            }
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "ruleId": "py/path-injection",
+     "ruleIndex": 1,
+     "level": "error",
+     "message": {
+      "text": "This path depends on a user-provided value."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/files.py",
+         "uriBaseId": "%SRCROOT%"
+        },
+        "region": {
+         "startLine": 30,
+         "endLine": 31
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleIndex": 2,
+     "ruleId": "py/weak-sensitive-data-hashing",
+     "level": "warning",
+     "message": {
+      "text": "MD5 is weak."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/crypto.py",
+         "uriBaseId": "%SRCROOT%"
+        },
+        "region": {
+         "startLine": 7
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "taxonomies": [
+    {
+     "name": "CWE",
+     "taxa": [
+      {
+       "id": "89"
+      },
+      {
+       "id": "22"
+      },
+      {
+       "id": "327"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

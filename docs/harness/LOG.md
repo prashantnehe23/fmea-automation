@@ -33,3 +33,5 @@ State for the feature-delivery harness. The feature list is `docs/BACKLOG.md` (t
 | 2026-11-22 | B-029 | Close | PR opened and merged; item stays open for the benchmark agreement |
 | 2026-11-22 | B-047 | Plan / Build / Verify / Review | Phase 1 implemented; two critical review findings fixed; live checks and Bedrock open |
 | 2026-11-22 | B-047 | Close | PR opened and merged; item stays open |
+| 2026-11-22 | B-045 | Plan / Build / Verify / Review | Implemented; critical review finding fixed; real tool exports and browser check open |
+| 2026-11-22 | B-045 | Close | PR opened and merged |

@@ -1,0 +1,175 @@
+{
+ "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+ "version": "2.1.0",
+ "runs": [
+  {
+   "tool": {
+    "driver": {
+     "name": "Semgrep OSS",
+     "rules": [
+      {
+       "id": "python.lang.security.audit.formatted-sql-query",
+       "name": "formatted-sql-query",
+       "shortDescription": {
+        "text": "Detected a formatted SQL query"
+       },
+       "fullDescription": {
+        "text": "Queries built with string formatting can be abused to run other SQL."
+       },
+       "defaultConfiguration": {
+        "level": "error"
+       },
+       "properties": {
+        "tags": [
+         "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')",
+         "OWASP-A03:2021 - Injection",
+         "security"
+        ]
+       }
+      },
+      {
+       "id": "generic.secrets.security.detected-generic-secret",
+       "name": "detected-generic-secret",
+       "shortDescription": {
+        "text": "Generic secret detected"
+       },
+       "defaultConfiguration": {
+        "level": "warning"
+       },
+       "properties": {
+        "tags": [
+         "CWE-798: Use of Hard-coded Credentials",
+         "security"
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "results": [
+    {
+     "ruleId": "python.lang.security.audit.formatted-sql-query",
+     "level": "error",
+     "message": {
+      "text": "Detected a formatted SQL query. Use parameterised queries."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/auth.py",
+         "uriBaseId": "%SRCROOT%"
+        },
+        "region": {
+         "startLine": 12,
+         "endLine": 12,
+         "snippet": {
+          "text": "q = \"SELECT * FROM users WHERE name = '\" + name + \"'\""
+         }
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "generic.secrets.security.detected-generic-secret",
+     "level": "warning",
+     "message": {
+      "text": "Hard-coded secret in configuration."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "config.py",
+         "uriBaseId": "%SRCROOT%"
+        },
+        "region": {
+         "startLine": 3
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "python.lang.security.audit.formatted-sql-query",
+     "level": "error",
+     "message": {
+      "text": "Tainted value reaches a SQL query."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/reports.py",
+         "uriBaseId": "%SRCROOT%"
+        },
+        "region": {
+         "startLine": 20
+        }
+       }
+      }
+     ],
+     "codeFlows": [
+      {
+       "threadFlows": [
+        {
+         "locations": [
+          {
+           "location": {
+            "physicalLocation": {
+             "artifactLocation": {
+              "uri": "src/api.py",
+              "uriBaseId": "%SRCROOT%"
+             },
+             "region": {
+              "startLine": 5
+             }
+            },
+            "message": {
+             "text": "request parameter read"
+            }
+           }
+          },
+          {
+           "location": {
+            "physicalLocation": {
+             "artifactLocation": {
+              "uri": "src/reports.py",
+              "uriBaseId": "%SRCROOT%"
+             },
+             "region": {
+              "startLine": 14
+             }
+            },
+            "message": {
+             "text": "passed to build_report"
+            }
+           }
+          },
+          {
+           "location": {
+            "physicalLocation": {
+             "artifactLocation": {
+              "uri": "src/reports.py",
+              "uriBaseId": "%SRCROOT%"
+             },
+             "region": {
+              "startLine": 20
+             }
+            },
+            "message": {
+             "text": "used in query"
+            }
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

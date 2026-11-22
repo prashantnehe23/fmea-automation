@@ -216,6 +216,19 @@ CREATE TABLE IF NOT EXISTS finding_events (
     at           TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS imported_findings (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    import_id    TEXT    NOT NULL,
+    tool         TEXT    NOT NULL,
+    dedupe_key   TEXT    NOT NULL,
+    finding_json TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'pending',
+    used_scan_id INTEGER,
+    created_at   TEXT    NOT NULL,
+    UNIQUE (workspace_id, dedupe_key)
+);
+
 CREATE TABLE IF NOT EXISTS api_tokens (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL,
@@ -962,6 +975,103 @@ def get_latest_snapshot(workspace_id: int) -> dict | None:
         item = dict(row)
         item["findings"] = json.loads(item.pop("findings_json"))
         return item
+    finally:
+        conn.close()
+
+
+def add_imported_findings(workspace_id: int, import_id: str, tool: str, items: list[tuple[str, dict]]) -> tuple[int, int]:
+    """Store parsed SARIF results for a project. Returns (added, duplicates).
+
+    A file is the tool's current report: results of the same tool that are not in it any more are superseded, so
+    the next scan no longer expects them (and so can mark them fix candidates); results that come back are
+    reactivated. A result already active is a duplicate (B-045)."""
+    keys = {k for k, _ in items}
+    added = 0
+    with _lock:
+        conn = get_db()
+        try:
+            for row in conn.execute("SELECT id, dedupe_key FROM imported_findings WHERE workspace_id=? AND tool=? AND status!='superseded'",
+                                    (workspace_id, tool)).fetchall():
+                if row["dedupe_key"] not in keys:
+                    conn.execute("UPDATE imported_findings SET status='superseded' WHERE id=?", (row["id"],))
+            for key, finding in items:
+                row = conn.execute("SELECT id, status, used_scan_id FROM imported_findings WHERE workspace_id=? AND dedupe_key=?",
+                                   (workspace_id, key)).fetchone()
+                payload = json.dumps(finding, default=str)
+                if row is None:
+                    conn.execute(
+                        """INSERT INTO imported_findings (workspace_id, import_id, tool, dedupe_key, finding_json, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (workspace_id, import_id, tool, key, payload, datetime.now().isoformat()))
+                    added += 1
+                elif row["status"] == "superseded":
+                    conn.execute("UPDATE imported_findings SET status=?, finding_json=?, import_id=? WHERE id=?",
+                                 ("used" if row["used_scan_id"] else "pending", payload, import_id, row["id"]))
+                    added += 1
+            conn.commit()
+        finally:
+            conn.close()
+    return added, len(items) - added
+
+
+def active_imported_findings(workspace_id: int) -> list[dict]:
+    """Imports every scan of the project must carry: new ones (pending) and ones already scored (used), not superseded."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, tool, status, finding_json FROM imported_findings WHERE workspace_id=? AND status!='superseded' ORDER BY id",
+            (workspace_id,)).fetchall()
+        return [{"id": r["id"], "tool": r["tool"], "status": r["status"], "finding": json.loads(r["finding_json"])} for r in rows]
+    finally:
+        conn.close()
+
+
+def find_workspace_id(customer: str, project: str) -> int | None:
+    """The project's id if it exists; unlike upsert_workspace it never creates one."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM workspaces WHERE customer=? AND project=?", (customer, project)).fetchone()
+        return row["id"] if row else None
+    finally:
+        conn.close()
+
+
+def pending_imported_findings(workspace_id: int) -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, tool, finding_json FROM imported_findings WHERE workspace_id=? AND status='pending' ORDER BY id",
+            (workspace_id,),
+        ).fetchall()
+        return [{"id": r["id"], "tool": r["tool"], "finding": json.loads(r["finding_json"])} for r in rows]
+    finally:
+        conn.close()
+
+
+def mark_imported_used(ids: list[int], scan_id: int | None) -> None:
+    if not ids:
+        return
+    with _lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                f"UPDATE imported_findings SET status='used', used_scan_id=? WHERE id IN ({','.join('?' * len(ids))})",
+                (scan_id, *ids),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def workspace_id_for_project(project_id: int) -> int | None:
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT w.id AS workspace_id FROM projects pr JOIN portfolios po ON po.id = pr.portfolio_id
+               JOIN workspaces w ON w.customer = po.name AND w.project = pr.name WHERE pr.id = ?""",
+            (project_id,),
+        ).fetchone()
+        return row["workspace_id"] if row else None
     finally:
         conn.close()
 

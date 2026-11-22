@@ -21,6 +21,11 @@ export function DomainChip({ d }) {
   return <Chip label={domainLabel(d)} cls={DOMAIN_CLS[d] ?? 'bg-gray-100 text-gray-500'} />;
 }
 
+export function CweChip({ cwe }) {
+  const known = cwe && cwe !== 'unmapped';
+  return <Chip label={known ? cwe : 'CWE unmapped'} cls={known ? 'bg-gray-100 text-gray-700' : 'bg-gray-50 text-gray-400'} />;
+}
+
 export function PChip({ p }) {
   return <Chip label={p} cls={PRI[p]?.badge ?? 'bg-gray-100 text-gray-600'} />;
 }
