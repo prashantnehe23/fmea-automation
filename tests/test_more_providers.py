@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import openai
 import pytest
 from fastapi.testclient import TestClient
 
@@ -368,3 +369,46 @@ def test_gpt_6_2_astra_and_sol_are_built_in_openai_models_without_a_made_up_pric
     shown = {m["id"]: m for m in client.get("/api/settings/models").json()}
     assert shown["gpt-6.2-astra"]["rates_known"] is False and shown["gpt-6.2-sol"]["rates_known"] is False   # the interface says so
     assert providers.provider_for_model("gpt-6.2-sol") == "openai"
+
+
+# ── a model that refuses a temperature (GPT-6.2 Sol, found live 2026-11-22) ───────────────────────────────────
+
+def _bad_request(message):
+    import httpx, openai
+    req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    return openai.BadRequestError(message, response=httpx.Response(400, request=req),
+                                  body={"error": {"param": "temperature", "code": "unsupported_value", "message": message}})
+
+
+def test_a_model_that_rejects_a_temperature_is_retried_without_it_and_remembered():
+    seen = []
+
+    class Completions:
+        def create(self, **kw):
+            seen.append(dict(kw))
+            if "temperature" in kw:
+                raise _bad_request("Unsupported value: 'temperature' does not support 0.2 with this model. Only the default (1) value is supported.")
+            return "ok"
+    client = type("C", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    llm._no_temperature.discard("picky-model")
+    assert llm._create(client, "openai", model="picky-model", temperature=0.2, messages=[]) == "ok"
+    assert ["temperature" in c for c in seen] == [True, False]                  # one retry, without it
+    assert llm._create(client, "openai", model="picky-model", temperature=0.2, messages=[]) == "ok"
+    assert ["temperature" in c for c in seen] == [True, False, False]           # the next call does not try it again
+    n = len(seen)
+    llm._create(client, "openai", model="other-model", temperature=0.2, messages=[])
+    assert "temperature" in seen[n]                                              # another model is still tried with it first
+    llm._no_temperature.discard("picky-model")
+
+
+def test_other_bad_requests_are_not_retried():
+    calls = []
+
+    class Completions:
+        def create(self, **kw):
+            calls.append(kw)
+            raise _bad_request("Unsupported value: 'max_tokens' is not supported")
+    client = type("C", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    with pytest.raises(openai.BadRequestError):
+        llm._create(client, "openai", model="m", temperature=0.2, messages=[])
+    assert len(calls) == 1

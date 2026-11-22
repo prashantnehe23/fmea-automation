@@ -73,11 +73,25 @@ def _add_usage(calls: int = 0, prompt: int = 0, completion: int = 0) -> None:
         budget.record(get_model_name(), prompt, completion)       # raises BudgetReached inside a spend limit (B-012)
 
 
+_no_temperature: set[str] = set()     # models that refused a temperature this run (newer OpenAI models allow only the default)
+
+
+def _refuses_temperature(exc: Exception) -> bool:
+    return isinstance(exc, openai.BadRequestError) and "temperature" in str(exc).lower() and "unsupported" in str(exc).lower()
+
+
 def _create(client, provider_id: str, **kw):
-    """The provider call. A policy block becomes ProviderBlocked and is never retried (B-040)."""
+    """The provider call. A policy block becomes ProviderBlocked and is never retried (B-040). A model that refuses a
+    temperature is called again without one, and not asked again."""
+    if kw.get("model") in _no_temperature:
+        kw.pop("temperature", None)
     try:
         return client.chat.completions.create(**kw)
     except Exception as exc:
+        if "temperature" in kw and _refuses_temperature(exc):
+            _no_temperature.add(kw.get("model", ""))
+            kw.pop("temperature")
+            return _create(client, provider_id, **kw)
         if is_provider_block(exc):
             raise ProviderBlocked(provider_id, kw.get("model", ""), current_stage()) from None
         raise

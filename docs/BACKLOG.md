@@ -247,6 +247,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 ---
 
 **Update 2026-11-22 (engineer-requested for the demo):** OpenAI `gpt-6.2-astra` (Power) and `gpt-6.2-sol` (Standard) are built-in models, ids as given by the engineer. No price was given, so none is built in: the live price refresh fills it when the model is listed, and until then the interface shows "no listed price" and costs are estimated. Reasoning levels are not set for them (not known). The older GPT-6 Astra and GPT-5.6 Sol entries stay. Test: `tests/test_more_providers.py::test_gpt_6_2_astra_and_sol_are_built_in_openai_models_without_a_made_up_price`; 915 tests pass.
+**Found live the same day:** the first scan with `gpt-6.2-sol` failed with HTTP 400, "'temperature' does not support 0.2 with this model". A model that refuses a temperature is now retried once without one and remembered for the run (`core/llm.py::_create`); other bad requests are not retried. Tests in `tests/test_more_providers.py` (917 pass). Live: a deep scan of the seeded chain-api repository with `gpt-6.2-sol` completed and reported the chain (one path, status uncertain, three steps).
 
 ### B-049 · Fixes as Pull Requests `[ ]` APPROVED — P1
 
