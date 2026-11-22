@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOS_DIR = Path(__file__).resolve().parent / "repos"
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 DEFAULT_MAX_USD = 12.0
+DEFAULT_CAP = 7          # the cap the recorded baselines ran with; "none" measures the no-cap behaviour (B-028 phase 0)
 
 
 # ── What a scan sees ──────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ def findings_from_result(result: dict) -> list[dict]:
 
 
 def run_once(repo_dir: Path, model: str, reasoning: str, run_index: int, api_keys: dict[str, str],
-             run_fmea=None) -> dict:
+             run_fmea=None, max_failure_modes: int | None = DEFAULT_CAP) -> dict:
     """Scan one repository in a fresh isolated environment. Never raises: errors are recorded."""
     if run_fmea is None:
         from workflows.fmea_pipeline import run_fmea
@@ -124,7 +125,8 @@ def run_once(repo_dir: Path, model: str, reasoning: str, run_index: int, api_key
                                   business_tier="Tier 1", user_type="external_customers",
                                   business_context=context, customer_learning=True)
             try:
-                result = run_fmea(code, force_rerun=True, workspace=ws)
+                extra = {} if max_failure_modes == DEFAULT_CAP else {"max_failure_modes": max_failure_modes}
+                result = run_fmea(code, force_rerun=True, workspace=ws, **extra)
                 findings, error = findings_from_result(result), None
             except ProviderBlocked as exc:  # a provider's policy block is counted, not hidden (B-040)
                 findings, error, blocked = [], f"provider_blocked: {exc}", True
@@ -150,12 +152,13 @@ def _git_state() -> dict:
 
 
 def run_benchmark(model: str, reasoning: str, runs: int, repos: list[Path], label: str,
-                  max_usd: float, allow_unsigned: bool, api_keys: dict[str, str], run_fmea=None) -> dict:
+                  max_usd: float, allow_unsigned: bool, api_keys: dict[str, str], run_fmea=None,
+                  max_failure_modes: int | None = DEFAULT_CAP) -> dict:
     truths = {r.name: load_truth(r, require_signed_off=not allow_unsigned) for r in repos}
     result = {"meta": {"label": label, "model": model, "reasoning": reasoning, "runs": runs,
                        "created": datetime.now().isoformat(timespec="seconds"), "git": _git_state(),
                        "signed_off": {n: t.get("signed_off_by") for n, t in truths.items()},
-                       "max_usd": max_usd, "stopped": None},
+                       "max_usd": max_usd, "max_failure_modes": max_failure_modes, "stopped": None},
               "repos": {}}
     total = 0.0
     for repo in repos:
@@ -165,7 +168,7 @@ def run_benchmark(model: str, reasoning: str, runs: int, repos: list[Path], labe
                 result["meta"]["stopped"] = f"budget ${max_usd:.2f} reached before {repo.name} run {i}"
                 result["meta"]["total_cost_usd"] = round(total, 4)
                 return result
-            one = run_once(repo, model, reasoning, i, api_keys, run_fmea)
+            one = run_once(repo, model, reasoning, i, api_keys, run_fmea, max_failure_modes)
             total += one["cost_usd"]
             result["repos"][repo.name]["runs"].append(one)
             print(f"{repo.name} run {i}/{runs}: {len(one['findings'])} findings, ${one['cost_usd']:.3f}, "
@@ -182,6 +185,7 @@ def main(argv: list[str] | None = None) -> Path:
     ap.add_argument("--repo", action="append", help="repository name; repeat for several (default all)")
     ap.add_argument("--label", default="run")
     ap.add_argument("--max-usd", type=float, default=DEFAULT_MAX_USD, help="stop launching scans past this spend")
+    ap.add_argument("--max-failure-modes", default=str(DEFAULT_CAP), help="cap on reported findings (default 7, as the recorded baselines); 'none' = no cap")
     ap.add_argument("--allow-unsigned", action="store_true", help="run repositories whose labels are not signed off")
     args = ap.parse_args(argv)
 
@@ -190,8 +194,9 @@ def main(argv: list[str] | None = None) -> Path:
     names = args.repo or sorted(p.parent.name for p in REPOS_DIR.glob("*/truth.json"))
     repos = [REPOS_DIR / n for n in names]
     keys = read_api_keys()
+    cap = None if args.max_failure_modes.lower() == "none" else int(args.max_failure_modes)
     result = run_benchmark(model, args.reasoning, args.runs, repos, args.label, args.max_usd,
-                           args.allow_unsigned, keys)
+                           args.allow_unsigned, keys, max_failure_modes=cap)
     RESULTS_DIR.mkdir(exist_ok=True)
     out = RESULTS_DIR / f"{args.label}-{model}-{args.reasoning}-{datetime.now():%Y%m%d-%H%M%S}.json"
     out.write_text(json.dumps(result, indent=2), encoding="utf-8")
