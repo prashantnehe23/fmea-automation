@@ -52,4 +52,17 @@ describe('API key in Settings (B-048 follow-up)', () => {
     setup(provider({ source: 'env' }));
     expect(await screen.findByRole('button', { name: 'Replace' })).toBeInTheDocument();
   });
+
+  it('puts the key controls straight under the model choice, before reasoning, and keeps the rarely used settings under Advanced', async () => {
+    setup(provider());
+    const replace = await screen.findByRole('button', { name: 'Replace' });
+    const model = screen.getByRole('combobox');
+    const reasoning = screen.queryByText('Reasoning');
+    expect(model.compareDocumentPosition(replace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    if (reasoning) expect(replace.compareDocumentPosition(reasoning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const advanced = screen.getByText('Advanced').closest('details');
+    expect(advanced).not.toHaveAttribute('open');
+    expect(advanced).toHaveTextContent('Clear Local Data');
+    expect(screen.queryByText('Risk Registry')).not.toBeInTheDocument();      // a static "Active" label carried no information
+  });
 });
