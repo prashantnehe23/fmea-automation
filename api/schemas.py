@@ -51,6 +51,18 @@ class ApiKeyBody(BaseModel):
     api_key: str
 
 
+class EndpointBody(BaseModel):
+    endpoint: str
+
+
+class CustomModelBody(BaseModel):
+    provider: str
+    id: str
+    display: str = ""
+    prompt_per_1m: float | None = None
+    completion_per_1m: float | None = None
+
+
 class RepoCredentialBody(BaseModel):
     owner: str = ""          # GitHub user or organisation; empty or "*" = any owner
     token: str

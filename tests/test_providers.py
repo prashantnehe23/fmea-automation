@@ -38,7 +38,7 @@ def test_registry_models_map_to_providers_and_have_rates():
     assert {"openai", "mistral"} <= ids
     for m in AVAILABLE_MODELS:
         assert m["provider"] in providers.PROVIDERS
-        assert m["id"] in FALLBACK_RATES
+        assert m["id"] in FALLBACK_RATES or m.get("priced") is False      # B-047: a built-in price may be unknown
 
 
 def test_key_stored_masked_and_not_leaked(client):

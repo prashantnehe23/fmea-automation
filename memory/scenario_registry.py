@@ -38,15 +38,17 @@ def _active_provider() -> str:
     return provider_for_model(get_model_name())
 
 
-def current_embed_model() -> str:
-    """Embedding model of the active LLM provider."""
+def current_embed_model() -> str | None:
+    """Embedding model of the active LLM provider; None when it has none (matching then uses names and identity)."""
     from core.providers import get_provider
-    return get_provider(_active_provider())["embed_model"]
+    return get_provider(_active_provider()).get("embed_model")
 
 
 def embed_text(text: str) -> np.ndarray:
     """Return a float32 unit-normalised embedding for text."""
     from core.llm import _get_client            # also refuses to start a call once a spend limit is reached
+    if current_embed_model() is None:
+        raise RuntimeError("The active provider has no embedding model.")
     resp = _get_client(_active_provider()).embeddings.create(
         model=current_embed_model(), input=text[:2000]
     )

@@ -24,8 +24,11 @@
 |---|---|
 | OpenAI | GPT-6 Astra, GPT-5.6 Sol, GPT-5.6 Luna, GPT-5.1, GPT-4o, GPT-4o mini |
 | Mistral AI | Mistral Large 4, Mistral Medium, Mistral Small |
+| Anthropic | Claude Opus 5.5, Claude Sonnet 5.5, Claude Haiku 5.5 (through Anthropic's OpenAI-compatibility endpoint; no built-in price) |
+| Azure OpenAI | your own deployment names, on your resource's `/openai/v1/` URL |
+| Local endpoint | any OpenAI-compatible server (Ollama, vLLM, LM Studio): your URL, your model names, no key needed |
 
-Pick the model, reasoning level and key in the app's settings panel. `OPENAI_API_KEY` and `MISTRAL_API_KEY` are used as a fallback. Adding another provider that speaks the OpenAI chat protocol takes registry entries only ([ADR-011](docs/decisions/ADR-011-multi-provider-llm.md)). Model identifiers and prices are best effort. Check them against the provider's documentation.
+Pick the model, reasoning level and key in the app's settings panel. `OPENAI_API_KEY`, `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` (with `AZURE_OPENAI_ENDPOINT`) and `LOCAL_LLM_BASE_URL` are used as a fallback. The Anthropic, Azure and local connections are checked with fake clients only so far ([ADR-030](docs/decisions/ADR-030-more-model-providers.md)); AWS Bedrock is not supported yet. Adding another provider that speaks the OpenAI chat protocol takes registry entries only ([ADR-011](docs/decisions/ADR-011-multi-provider-llm.md)). Model identifiers and prices are best effort. Check them against the provider's documentation.
 
 ---
 
@@ -80,7 +83,7 @@ Set `FMEA_SECRET_KEY` and `OPENAI_API_KEY` and/or `MISTRAL_API_KEY` in the envir
 ### Tests
 
 ```bash
-python -m pytest tests/ -v            # 753 passing on 2026-11-22
+python -m pytest tests/ -v            # 804 passing on 2026-11-22
 ```
 
 `make test`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
