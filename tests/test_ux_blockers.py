@@ -93,6 +93,10 @@ def test_missing_key_unknown_and_rate_limit_errors_are_plain():
         openai.RateLimitError("429 raw", response=httpx.Response(429, request=req), body=None))
     assert limited["code"] == "rate_limited" and "429" not in limited["msg"]
 
+    billing = scan_error_event(openai.APIStatusError("402 raw budget text", response=httpx.Response(402, request=req), body=None))
+    assert billing["code"] == "billing_limit" and billing["action"] == "open_settings"
+    assert "spending limit" in billing["msg"] and "402" not in billing["msg"] and "budget text" not in billing["msg"]
+
     other = scan_error_event(ValueError("/home/user/secret/path exploded"))
     assert other["code"] == "scan_failed" and "secret" not in other["msg"]
     assert other.get("action") is None
