@@ -29,4 +29,4 @@ Details:
 ## Consequences
 - A pull request can steer the model with text in its code (prompt injection); the comment is sanitised and the verdict depends on severities the model assigns, so a determined author could try to lower them. The check is a safety net for honest mistakes, not a gate against a hostile contributor.
 - Fork pull requests have no secrets and fail; trusted branches only.
-- Findings the baseline does not know that are really renamed old ones can block a merge when severity is 9 or more; the matching reduces but cannot remove this.
+- Findings the baseline does not know that are really renamed old ones can block a merge when severity is 9 or more; the matching reduces but cannot remove this. A live run (2026-11-22, real model) showed a docstring-only pull request failing on such findings, so a finding is reported only when it sits on a line the pull request changed (within 3 lines); findings elsewhere are counted in the summary but not posted. The flip side: a genuinely new weakness of a kind the baseline already has, in the same file, can be treated as the known one and missed.

@@ -40,7 +40,8 @@ class PrHarness(Harness):
         self.tree = classify_tree([("src/payments/charge.py", 900), ("src/app.py", 900), ("README.md", 100)])
         monkeypatch.setattr(pr_check, "list_repo", lambda url: (NS(owner="acme", repo="shop", branch=SHA), self.tree, "README.md"))
         monkeypatch.setattr(pr_check, "fetch_contents", lambda ref, paths: ({p: "x = 1\n" for p in paths}, {}))
-        monkeypatch.setattr(pr_check, "fetch_pr_files", lambda owner, repo, number: ["src/payments/charge.py"])
+        self.changes = {"src/payments/charge.py": None}                         # None: the whole file counts as changed
+        monkeypatch.setattr(pr_check, "fetch_pr_changes", lambda owner, repo, number: self.changes)
         self.scores: dict[str, tuple[int, int, int]] = {}
 
     def _score(self, failures, controls, context, business_context="", locked_rpn=None):
@@ -114,7 +115,7 @@ def test_unchanged_findings_are_not_reported_again_even_when_renamed_or_moved(ph
 def test_a_new_finding_below_the_threshold_is_listed_but_does_not_fail(ph):
     ph.baseline([failure("Existing")])
     ph.scores["Minor issue"] = (5, 5, 5)
-    out = ph.check([failure("Existing"), failure("Minor issue", "src/app.py:3 `print(secret_value_here)`")])
+    out = ph.check([failure("Existing"), failure("Minor issue", "src/payments/charge.py:3 `print(secret_value_here)`")])
     assert out["verdict"] == "pass" and [n["failure_mode"] for n in out["new"]] == ["Minor issue"]
     assert "Minor issue" in out["comment_markdown"]
 
@@ -407,7 +408,7 @@ def test_a_project_without_a_baseline_says_so_in_the_comment(ph):
 def test_changed_files_that_were_not_examined_are_called_out(ph, monkeypatch):
     ph.baseline([failure("A")])
     ph.tree = classify_tree([("src/app.py", 900), ("deploy/settings.cfg.lock", 50), ("src/payments/charge.py", 900)])
-    monkeypatch.setattr(pr_check, "fetch_pr_files", lambda o, r, n: ["deploy/settings.cfg.lock", "src/app.py"])
+    monkeypatch.setattr(pr_check, "fetch_pr_changes", lambda o, r, n: {"deploy/settings.cfg.lock": None, "src/app.py": None})
     out = ph.check([failure("A")])
     assert out["verdict"] == "pass" and "not examined" in out["comment_markdown"] and "settings.cfg.lock" in out["comment_markdown"]
 
@@ -461,3 +462,53 @@ def test_the_template_cancels_superseded_runs_and_does_not_comment_on_an_error()
     text = (ROOT / "docs" / "ci" / "fmea-pr-check.yml").read_text(encoding="utf-8")
     assert "cancel-in-progress: true" in text and "timeout-minutes" in text
     assert "%{http_code}" in text and '!= "200"' in text and "steps.check.outputs.verdict != ''" in text
+
+
+# ── only what the pull request changed is the pull request's ──────────────────
+
+def test_changed_ranges_come_from_the_patch_hunks():
+    from core.github_fetcher import changed_ranges
+    patch = ("@@ -1,3 +1,4 @@\n import os\n+import sys\n import json\n def f():\n"
+             "@@ -20,2 +21,5 @@ def g():\n     a = 1\n+    b = 2\n+    c = 3\n-    d = 4\n+    d = 5\n     return a\n")
+    assert changed_ranges(patch) == [(2, 2), (22, 24)]
+
+
+def test_a_docstring_only_pull_request_passes_even_when_the_model_finds_unrelated_new_things(ph):
+    ph.baseline([failure("Existing finding")])
+    ph.changes = {"src/app.py": [(10, 12)]}                                   # the pull request touched three lines
+    ph.scores["Rate limiting missing"] = (9, 6, 6)
+    ph.scores["Another unrelated one"] = (8, 5, 5)
+    out = ph.check([failure("Existing finding"),
+                    failure("Rate limiting missing", "src/app.py:90 `def login(user, password):`"),
+                    failure("Another unrelated one", "src/payments/charge.py:7 `q = 'SELECT ' + request.args['x']`")])
+    assert out["verdict"] == "pass" and out["new"] == [] and out["outside_changes"] == 2
+    assert out["comment_markdown"] == "" and "outside the changed lines" in out["summary"]
+
+
+def test_a_finding_on_a_changed_line_or_just_around_it_is_reported(ph):
+    ph.baseline([failure("Existing finding")])
+    ph.changes = {"src/app.py": [(40, 44)]}
+    ph.scores["Near the change"] = (9, 6, 6)
+    out = ph.check([failure("Existing finding"), failure("Near the change", "src/app.py:47 `os.system('zip ' + name)`")])
+    assert out["verdict"] == "fail" and [n["failure_mode"] for n in out["new"]] == ["Near the change"]
+    far = ph.check([failure("Existing finding"), failure("Near the change", "src/app.py:48 `os.system('zip ' + name)`")])
+    assert far["new"] == [] and far["outside_changes"] == 1                    # more than three lines away
+
+
+def test_a_whole_file_change_and_missing_diff_information_report_everything(ph):
+    ph.baseline([failure("Existing finding")])
+    ph.scores["Anywhere in the file"] = (9, 6, 6)
+    ph.changes = {"src/app.py": None}
+    out = ph.check([failure("Existing finding"), failure("Anywhere in the file", "src/app.py:900 `eval(request.args['x'])`")])
+    assert out["verdict"] == "fail"
+    ph.changes = {}                                                           # no pull request number or no diff available
+    out = ph.check([failure("Existing finding"), failure("Anywhere in the file", "src/other.py:5 `eval(request.args['x'])`")])
+    assert out["verdict"] == "fail"
+
+
+def test_a_file_the_pull_request_did_not_touch_is_not_the_pull_requests(ph):
+    ph.baseline([failure("Existing finding")])
+    ph.changes = {"src/app.py": [(1, 5)]}
+    ph.scores["In another file"] = (9, 6, 6)
+    out = ph.check([failure("Existing finding"), failure("In another file", "src/payments/charge.py:3 `eval(request.args['x'])`")])
+    assert out["new"] == [] and out["verdict"] == "pass"
