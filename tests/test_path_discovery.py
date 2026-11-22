@@ -127,7 +127,7 @@ def test_discovery_hunts_packets_verifies_paths_and_reports_counts_and_uncovered
     result = path_discovery.discover_exploit_paths(files, ask=ask)
     assert [p.title for p in result.confirmed()] == ["Upload validator is the handler itself"]
     assert result.counts == {"packets": 1, "found": 2, "confirmed": 1, "refuted": 1, "uncertain": 0}
-    assert result.uncovered == ["docs/notes.go"] and result.packet_of[result.confirmed()[0].title] == 0
+    assert result.uncovered == ["docs/notes.go"] and result.packet_of[path_discovery._key(result.confirmed()[0])] == 0
 
 
 def test_the_same_path_found_in_two_packets_is_reported_once():
@@ -190,7 +190,7 @@ def _discovery(statuses=("confirmed", "refuted", "uncertain")):
     d = path_discovery.PathDiscovery(packet_files=[["server/auth.py", "server/handlers.py"]], uncovered=["worker/main.go"])
     for i, status in enumerate(statuses):
         d.paths.append(ExploitPath(**raw_path(title=f"Path {i}"), status=status, verification="v"))
-        d.packet_of[f"Path {i}"] = 0
+        d.packet_of[path_discovery._key(d.paths[-1])] = 0
     return d
 
 
@@ -233,3 +233,47 @@ def test_the_scan_requests_accept_only_the_two_modes():
     for model, kw in ((ScanRequest, {"code": "x"}), (GithubScanRequest, {"repo_url": "https://github.com/a/b"})):
         with pytest.raises(ValueError):
             model(**kw, discovery="everything")
+
+
+# ── review fixes (independent review, 2026-11-22) ─────────────────────────────
+
+def test_a_short_quote_is_not_evidence_and_a_partly_invented_path_is_never_confirmed():
+    assert path_verifier.locate("return", "def f():" + chr(10) + "    return 1") is None
+    path = ExploitPath(**raw_path(steps=raw_path()["steps"] + [{"file": "server/auth.py", "lines": "1", "quote": "def totally_invented_helper():"}]))
+    out = path_verifier.verify_path(path, FILES, ask=lambda p, n: json.dumps({"verdict": "confirmed", "reason": "ok"}))
+    assert out.status == "uncertain" and "not found" in out.verification and out.steps[0].lines
+    assert [s.lines for s in out.steps][2:] == [""]                 # unverified steps keep no line numbers, so they are never evidence
+    assert path_discovery.paths_to_failures([out])[0].evidence.startswith("server/auth.py:6")
+
+
+def test_a_failed_call_loses_only_its_own_packet_or_path_and_is_listed():
+    calls = {"n": 0}
+
+    def flaky(prompt, n):
+        if "Find exploit paths" in prompt:
+            calls["n"] += 1
+            raise RuntimeError("timeout")
+        raise AssertionError("nothing to verify")
+    result = path_discovery.discover_exploit_paths(FILES, ask=flaky)
+    assert result.paths == [] and sorted(result.uncovered) == sorted(FILES)
+    ask = scripted({"Find exploit paths": [raw_path()]})
+    result = path_discovery.discover_exploit_paths(FILES, ask=lambda p, n: ask(p, n) if "Find exploit paths" in p else (_ for _ in ()).throw(RuntimeError("boom")))
+    assert [p.status for p in result.paths] == ["uncertain"] and "could not run" in result.paths[0].verification
+
+
+def test_two_paths_with_one_title_are_assessed_against_their_own_packet():
+    a = ExploitPath(**raw_path(entry_point="POST /a")); b = ExploitPath(**raw_path(entry_point="POST /b"))
+    assert path_discovery._key(a) != path_discovery._key(b)
+
+
+def test_a_path_scan_does_not_use_the_code_keyed_cache_or_mark_locked_findings_not_seen(monkeypatch, tmp_path):
+    h, pipeline = _harness(monkeypatch, tmp_path)
+    ws = __import__("test_finding_lifecycle").WS
+    h.next_failures = [FailureMode(failure_mode="From the brainstorm", attack_chain=["x"], business_impact="b", blast_radius="c", trigger="t")]
+    first = pipeline.run_fmea(_code(), workspace=ws)                       # a normal scan fills the cache
+    monkeypatch.setattr(pipeline, "discover_exploit_paths", lambda files, **kw: _discovery(("confirmed",)))
+    paths = pipeline.run_fmea(_code(), workspace=ws, discovery="paths")   # no force_rerun: must still run the path workflow
+    assert not paths.get("from_cache") and paths["discovery"]["mode"] == "paths"
+    assert paths["lifecycle_changes"] == {}
+    again = pipeline.run_fmea(_code(), workspace=ws)
+    assert [f.failure_mode for f in again["failures"]] == [f.failure_mode for f in first["failures"]]   # the paths result was not cached

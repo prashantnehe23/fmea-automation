@@ -51,7 +51,13 @@ def _parallel(function, items: list) -> list:
     A provider block or spend limit raised in a worker reaches the caller."""
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         futures = [pool.submit(contextvars.copy_context().run, function, item) for item in items]
-        return [f.result() for f in futures]
+        out = []
+        for f in futures:
+            try:
+                out.append(f.result())
+            except Exception as exc:             # BaseException ones (provider block, spend limit) still stop the scan
+                out.append(exc)
+        return out
 
 
 def discover_exploit_paths(files: dict[str, str], ask: Ask | None = None, budget_bytes: int = 300_000) -> PathDiscovery:
@@ -59,6 +65,9 @@ def discover_exploit_paths(files: dict[str, str], ask: Ask | None = None, budget
     packets, uncovered = make_packets(cmap, files, budget_bytes)
     summary = cmap.summary()
     hunted = _parallel(lambda packet: run_path_hunter({p: files[p] for p in packet.files}, summary, ask), packets)
+    failed = [packets[i] for i, h in enumerate(hunted) if isinstance(h, Exception)]
+    uncovered = sorted(set(uncovered) | {p for packet in failed for p in packet.files})   # a hunt that failed is listed, not hidden
+    hunted = [[] if isinstance(h, Exception) else h for h in hunted]
 
     unique: list[ExploitPath] = []
     packet_of: dict[str, int] = {}
@@ -68,8 +77,10 @@ def discover_exploit_paths(files: dict[str, str], ask: Ask | None = None, budget
             if _key(path) not in seen:
                 seen.add(_key(path))
                 unique.append(path)
-                packet_of[path.title] = index
+                packet_of[_key(path)] = index
     verified = _parallel(lambda path: verify_path(path, files, ask), unique)
+    verified = [path.model_copy(update={"status": "uncertain", "verification": "the check could not run"}) if isinstance(v, Exception) else v
+                for path, v in zip(unique, verified)]
     return PathDiscovery(paths=verified, packet_files=[p.files for p in packets], packet_of=packet_of, uncovered=uncovered)
 
 

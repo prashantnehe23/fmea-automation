@@ -8,7 +8,7 @@ from agents.evaluator import evaluate_pipeline
 from agents.llm_judge import run_llm_judge
 from agents.root_cause_agent import run_root_cause_analyst
 from agents.saboteur import run_saboteur
-from core.path_discovery import discover_exploit_paths, paths_to_failures
+from core.path_discovery import _key as _path_key, discover_exploit_paths, paths_to_failures
 from agents.scenario_linkage import run_scenario_linkage
 from agents.sre_agent import run_sre_agent
 from agents.surveyor import run_surveyor
@@ -139,7 +139,7 @@ def run_fmea(
     )
 
     # ── Cache check ────────────────────────────────────────────────────────────
-    if persist and not force_rerun and not _has_pending_imports(workspace):
+    if persist and not force_rerun and discovery == "scenarios" and not _has_pending_imports(workspace):   # the cache is keyed on code only
         cached = get_cached_result(code, workspace)
         if cached is not None:
             cached["memory_stats"] = get_memory_stats(workspace)
@@ -201,7 +201,7 @@ def run_fmea(
 
     if found is not None:
         reportable = found.reportable()
-        per_batch = [paths_to_failures([p for p in reportable if found.packet_of.get(p.title) == i]) for i in range(len(parts))]
+        per_batch = [paths_to_failures([p for p in reportable if found.packet_of.get(_path_key(p)) == i]) for i in range(len(parts))]
     else:
         if on_progress: on_progress("saboteur")
         with agent_span("saboteur"):
@@ -406,7 +406,8 @@ def run_fmea(
         except Exception:
             pass
         try:
-            lifecycle_changes = record_scan_outcome(workspace_id, db_scan_id, failures, locked)
+            lifecycle_changes = ({} if discovery == "paths"      # locked findings were not part of this scan: do not call them 'not seen'
+                                 else record_scan_outcome(workspace_id, db_scan_id, failures, locked))
             pending_fixes = fix_candidates(workspace_id)
         except Exception:
             logging.getLogger(__name__).warning("finding lifecycle bookkeeping failed", exc_info=True)
@@ -447,7 +448,7 @@ def run_fmea(
     }
 
     # Cache for next run (JSON file cache for fast repeated loads)
-    if persist:
+    if persist and discovery == "scenarios":
         cache_result(code, result, workspace)
 
     result["memory_stats"] = get_memory_stats(workspace)
