@@ -6,6 +6,7 @@ from agents.actuary import score_all_failures
 from agents.controls_assessor import run_controls_assessor
 from agents.evaluator import evaluate_pipeline
 from agents.llm_judge import run_llm_judge
+from agents.root_cause_agent import run_root_cause_analyst
 from agents.saboteur import run_saboteur
 from agents.scenario_linkage import run_scenario_linkage
 from agents.sre_agent import run_sre_agent
@@ -219,13 +220,21 @@ def run_fmea(
                 locked_rpn=locked_rpn if locked_rpn else None,
             )
 
+    # Root cause (B-029): where each finding's lasting fix lives; the preventive agent is shaped by it
+    if on_progress: on_progress("root_cause")
+    with agent_span("root_cause"):
+        root_causes = []
+        for s_, e_ in _chunks(len(failures)):
+            root_causes += run_root_cause_analyst(failures[s_:e_], controls[s_:e_])
+    domains = {rc.failure_mode: rc.primary for rc in root_causes if rc.primary != "unclassified"}
+
     # Per-failure SRE (complex plans benefit from focused attention)
     if on_progress: on_progress("sre")
     with agent_span("sre"):
         by_risk = sorted(range(len(risks)), key=lambda k: -risks[k].rpn)
         planned = set(by_risk[:MAX_REMEDIATION_PLANS])
         remediations = [
-            run_sre_agent(f, c, r) if k in planned else RemediationPlan(
+            run_sre_agent(f, c, r, domain=domains.get(f.failure_mode)) if k in planned else RemediationPlan(
                 failure_mode=f.failure_mode,
                 fixes=[f"Not generated: the limit of {MAX_REMEDIATION_PLANS} remediation plans per scan was reached "
                        "(highest risk first). Ask in the results chat or rescan."])
@@ -271,6 +280,10 @@ def run_fmea(
                         "priority_reason": reason,
                     })
 
+    # A finding renamed to its locked canonical name keeps its root cause: align by position, not by the old name
+    root_causes = [rc.model_copy(update={"failure_mode": f.failure_mode}) for rc, f in zip(root_causes, failures)]
+    domains = {rc.failure_mode: rc.primary for rc in root_causes if rc.primary != "unclassified"}
+
     # ── Track genuinely new scenarios (after dedup) ────────────────────────────
     new_scenario_names = [
         f.failure_mode for f in failures if f.failure_mode not in locked_rpn
@@ -303,7 +316,7 @@ def run_fmea(
 
     # ── Learning memory update ─────────────────────────────────────────────────
     if persist:
-        update_from_run(failures, risks, workspace)
+        update_from_run(failures, risks, workspace, domains=domains)
 
     # ── Fingerprint ────────────────────────────────────────────────────────────
     from memory.workspace_store import _fingerprint
@@ -352,6 +365,7 @@ def run_fmea(
         "failures": failures,
         "controls": controls,
         "risks": risks,
+        "root_causes": root_causes,      # B-029
         "remediations": remediations,
         "scenario_linkage": scenario_linkage,
         "validations": validations,

@@ -281,7 +281,7 @@ def counting(monkeypatch, bh):
         sizes["validator"].append(len(failures))
         return [ValidationResult(failure_mode=f.failure_mode) for f in failures]
 
-    def sre(f, c, r):
+    def sre(f, c, r, domain=None):
         from core.models import RemediationPlan
         sizes["sre"] += 1
         return RemediationPlan(failure_mode=f.failure_mode, fixes=["real plan"], monitoring=[], resilience_upgrades=[])

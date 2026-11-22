@@ -792,7 +792,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 | 3 | B-034 | Severity-aware prioritisation and catastrophic guardrails | P0 | none (measured by B-026) |
 | 4 | B-033 | Scan scope and coverage transparency | P1 | none (baseline in B-026 shows the gap) |
 | 5 | B-030 — **implemented 2026-11-22, cost measurement open** | Corrective and Preventive remediation agents; retire 30-60-90 / Gantt | P1 | none |
-| 6 | B-029 | Root-cause classification | P1 | best after B-026 for labels |
+| 6 | B-029 — **implemented 2026-11-22, benchmark agreement open** | Root-cause classification | P1 | best after B-026 for labels |
 | 7 | B-036 | Code navigation toolkit | P1 | before B-028 phase B |
 | 8 | B-031 | Finding identity, lifecycle and lock semantics | P1 | before B-028 phase D |
 | 9 | B-028 | Goal-based discovery engine (phases A-D, includes budget guard and cost estimate) | P1 (core) | B-026, B-027, B-031, B-033, B-036 |
@@ -1009,7 +1009,7 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 
 ---
 
-### B-029 · Root-Cause Classification (Security / Architectural / Engineering / Operational) `[ ]` PROPOSED — P2 (paused 2026-11-21; first to resume)
+### B-029 · Root-Cause Classification (Security / Architectural / Engineering / Operational) `[~]` IMPLEMENTED 2026-11-22, benchmark agreement open — P1 (engineer-chosen after B-030)
 
 **Decision:** [ADR-016](decisions/ADR-016-root-cause-taxonomy.md)
 
@@ -1018,14 +1018,14 @@ Verified in the browser pane on an isolated stack with Mistral Large 4: the mode
 **Scope:** root-cause domain registry (rubric as data); Root-Cause Analyst agent (primary domain, contributing domains, root-cause chain, confidence); fields on the finding, registry and snapshot; badges and domain filter on Scenarios and Scoring pages; dashboard breakdown (share of risk by domain); chat tools expose domains; learning memory uses domains instead of keyword categories; works on today's findings and on B-028 findings.
 
 **Acceptance criteria:**
-- [ ] Every new finding has a primary domain from the four, optional contributing domains, a root-cause chain and a confidence
-- [ ] The rubric lives in a registry file; adding a domain needs no code change beyond the registry (test)
-- [ ] Benchmark root-cause agreement is recorded against `truth.json` (target set after baseline)
-- [ ] Scenarios page shows the domain badge and can filter by domain; the dashboard shows risk share per domain
-- [ ] The chat can answer "which problems are architectural?" from stored data (tool test)
-- [ ] `_extract_category` keyword matching is removed from the learning memory path; existing memory files still load
-- [ ] Old scans show "not classified" and do not error
-- [ ] Unit tests with a fake model cover coerce/fallback when the model returns an unknown domain
+- [x] Every new finding has a primary domain from the four, optional contributing domains, a root-cause chain and a confidence (`tests/test_root_cause.py`: analyst, coercion, pipeline result; one call per chunk of ten)
+- [x] The rubric lives in a registry file; adding a domain needs no code change beyond the registry (test with a fifth domain)
+- [ ] Benchmark root-cause agreement is recorded against `truth.json` (target set after baseline). **Open:** the runner now stores each finding's domain and the scorer already measures agreement (test); the number needs a live run
+- [x] Scenarios page shows the domain badge and can filter by domain; the dashboard shows risk share per domain (build and source test; **not checked in a browser**)
+- [x] The chat can answer "which problems are architectural?" from stored data (the scenario text and the detail tool carry the domain; tests)
+- [x] `_extract_category` keyword matching is removed from the learning memory path; existing memory files still load (tests)
+- [x] Old scans show "not classified" and do not error (cache load, chat text, interface default)
+- [x] Unit tests with a fake model cover coerce/fallback when the model returns an unknown domain
 
 ---
 

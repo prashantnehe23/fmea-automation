@@ -22,7 +22,7 @@ function stripHtml(str) {
 }
 import KpiRow from '../components/KpiRow';
 import AggTable from '../components/AggTable';
-import { PChip } from '../components/Chip';
+import { PChip, DomainChip, domainLabel } from '../components/Chip';
 import { SCOPE_LABEL } from '../data';
 import { getSelectionLabel, aggregateBy, PRI } from '../helpers';
 
@@ -217,6 +217,7 @@ function ScenarioDetail({ r, onClose }) {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <PChip p={r.priority} />
+            <DomainChip d={r.root_cause} />
             <span className="text-xs font-mono text-gray-400">{r.comp}</span>
             <ValidatorBadge r={r} />
           </div>
@@ -256,6 +257,16 @@ function ScenarioDetail({ r, onClose }) {
           </div>
         )}
 
+        {/* Root cause (B-029) */}
+        {r.root_cause_chain?.root_cause && (
+          <div className="mb-4 text-xs text-gray-700 space-y-0.5">
+            <p className="font-bold text-gray-500 uppercase tracking-wide mb-1">Root Cause · {domainLabel(r.root_cause)}</p>
+            <p><span className="text-gray-400">Symptom:</span> {r.root_cause_chain.symptom}</p>
+            <p><span className="text-gray-400">Proximate cause:</span> {r.root_cause_chain.proximate_cause}</p>
+            <p><span className="text-gray-400">Root cause:</span> {r.root_cause_chain.root_cause}</p>
+          </div>
+        )}
+
         {/* Attack chain */}
         <AttackChain chain={r.attack_chain} />
 
@@ -273,22 +284,37 @@ function ScenarioDetail({ r, onClose }) {
 
 function ScenarioTable({ risks }) {
   const [detail, setDetail] = useState(null);
-  const sorted = [...risks].sort((a, b) => b.rpn - a.rpn);
+  const [domainFilter, setDomainFilter] = useState('all');
+  const domains = [...new Set(risks.map(r => r.root_cause ?? 'unclassified'))];
+  const activeFilter = domains.includes(domainFilter) ? domainFilter : 'all';     // a stale filter never hides the table
+  const sorted = [...risks]
+    .filter(r => activeFilter === 'all' || (r.root_cause ?? 'unclassified') === activeFilter)
+    .sort((a, b) => b.rpn - a.rpn);
 
   return (
     <div>
+      {domains.length > 1 && (
+        <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
+          <span>Root cause</span>
+          <select value={activeFilter} onChange={e => setDomainFilter(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-2 py-1 bg-white">
+            <option value="all">All</option>
+            {domains.map(d => <option key={d} value={d}>{domainLabel(d)}</option>)}
+          </select>
+        </div>
+      )}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              {['#', 'Failure Scenario', 'Component', 'S', 'O', 'D', 'RPN', 'Priority', 'Confidence / New'].map(h => (
+              {['#', 'Failure Scenario', 'Component', 'S', 'O', 'D', 'RPN', 'Root Cause', 'Priority', 'Confidence / New'].map(h => (
                 <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {sorted.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-300 text-sm">No scenarios in scope</td></tr>
+              <tr><td colSpan={10} className="px-4 py-10 text-center text-gray-300 text-sm">No scenarios in scope</td></tr>
             )}
             {sorted.map((r, i) => {
               const active = detail?.id === r.id;
@@ -310,6 +336,7 @@ function ScenarioTable({ risks }) {
                     <td key={j} className="px-3 py-3 text-center text-sm font-semibold text-gray-600">{v}</td>
                   ))}
                   <td className="px-3 py-3 font-bold text-gray-900">{r.rpn}</td>
+                  <td className="px-3 py-3"><DomainChip d={r.root_cause} /></td>
                   <td className="px-3 py-3"><PChip p={r.priority} /></td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">

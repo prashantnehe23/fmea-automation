@@ -29,3 +29,5 @@ State for the feature-delivery harness. The feature list is `docs/BACKLOG.md` (t
 | 2026-11-22 | B-040 | Close | PR opened and merged; item stays open for the live measurements |
 | 2026-11-22 | B-030 | Plan / Build / Verify / Review | Implemented; review findings fixed; cost before/after not measured |
 | 2026-11-22 | B-030 | Close | PR opened and merged; item stays open for the cost measurement |
+| 2026-11-22 | B-029 | Plan / Build / Verify / Review | Implemented; critical review finding fixed; benchmark agreement not measured |
+| 2026-11-22 | B-029 | Close | PR opened and merged; item stays open for the benchmark agreement |

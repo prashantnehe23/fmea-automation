@@ -129,6 +129,17 @@ class RemediationPlan(BaseModel):
     resilience_upgrades: List[str] = Field(default_factory=list)
 
 
+class RootCause(BaseModel):
+    """Where a finding's lasting fix lives (B-029, ADR-016). 'unclassified' when no domain could be named."""
+    failure_mode: str
+    primary: str = "unclassified"
+    contributing: List[str] = Field(default_factory=list)
+    symptom: str = ""
+    proximate_cause: str = ""
+    root_cause: str = ""
+    confidence: float = 0.0
+
+
 class ScenarioExplanation(BaseModel):
     failure_mode: str
     scenario_summary: str

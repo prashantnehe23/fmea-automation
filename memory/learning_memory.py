@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.paths import data_dir
+from core.root_cause import category_for
 from typing import Any
 
 LEARNING_PATH = data_dir(Path(__file__).parent) / "learning_memory.json"
@@ -51,26 +52,6 @@ def _empty_memory() -> dict[str, Any]:
     }
 
 
-def _extract_category(failure_mode: str) -> str:
-    """Map a failure_mode string to a broad vulnerability category."""
-    fm = failure_mode.lower()
-    if any(k in fm for k in ("race", "concurr", "timing", "toctou", "double")):
-        return "concurrency"
-    if any(k in fm for k in ("inject", "sql", "xss", "command", "payload")):
-        return "injection"
-    if any(k in fm for k in ("secret", "key", "credential", "hardcoded", "token")):
-        return "secrets"
-    if any(k in fm for k in ("auth", "bypass", "privilege", "escalat", "unauthor")):
-        return "auth_bypass"
-    if any(k in fm for k in ("valid", "input", "negative", "zero", "overflow")):
-        return "input_validation"
-    if any(k in fm for k in ("dos", "denial", "exhaust", "flood", "resource")):
-        return "denial_of_service"
-    if any(k in fm for k in ("leak", "exposure", "disclosure", "sensitive")):
-        return "data_exposure"
-    return "other"
-
-
 # ── I/O ─────────────────────────────────────────────────────────────────────────
 
 def load_learning_memory() -> dict[str, Any]:
@@ -95,7 +76,7 @@ def _save_learning_memory(memory: dict[str, Any]) -> None:
 
 # ── Core update logic ────────────────────────────────────────────────────────────
 
-def update_from_run(failures: list, risks: list) -> None:
+def update_from_run(failures: list, risks: list, domains: dict | None = None) -> None:
     """
     Called after every successful FMEA pipeline run.
     Updates pattern frequencies, extends known attack chains, and raises
@@ -116,7 +97,7 @@ def update_from_run(failures: list, risks: list) -> None:
     }
 
     for failure, risk in zip(failures, risks):
-        category = _extract_category(failure.failure_mode)
+        category = category_for((domains or {}).get(failure.failure_mode))
         key = category  # aggregate by category so patterns accumulate across runs
 
         # Collect novel attack chain steps (deduplicated)

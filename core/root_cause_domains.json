@@ -1,0 +1,24 @@
+{
+  "domains": [
+    {
+      "id": "security",
+      "label": "Security",
+      "rubric": "A security control is missing or wrong: authentication, authorisation, input validation, secrets handling, cryptography."
+    },
+    {
+      "id": "architectural",
+      "label": "Architectural",
+      "rubric": "The structure makes the failure possible: trust boundaries, single points of failure, missing isolation, data-flow or coupling design, no idempotency."
+    },
+    {
+      "id": "engineering",
+      "label": "Engineering",
+      "rubric": "An implementation defect or a missing engineering practice: race conditions, error handling, missing tests, dependency hygiene."
+    },
+    {
+      "id": "operational",
+      "label": "Operational",
+      "rubric": "A runtime or process capability is missing: monitoring and alerting, backup and recovery, configuration and access management, deployment, incident response."
+    }
+  ]
+}
