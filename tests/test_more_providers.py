@@ -355,3 +355,16 @@ def test_gemini_needs_a_key_and_has_no_built_in_models_or_endpoint_to_set(client
     row = next(p for p in client.get("/api/settings/providers").json() if p["id"] == "gemini")
     assert row["endpoint_editable"] is False and row["custom_models"] is True
     assert not any(m["provider"] == "gemini" for m in AVAILABLE_MODELS)
+
+
+# ── OpenAI GPT-6.2 Astra and Sol (added 2026-11-22; ids given by the engineer, no price given) ─────────────────
+
+def test_gpt_6_2_astra_and_sol_are_built_in_openai_models_without_a_made_up_price(client):
+    import core.costs as costs
+    by_id = {m["id"]: m for m in costs.AVAILABLE_MODELS}
+    assert by_id["gpt-6.2-astra"]["provider"] == "openai" and by_id["gpt-6.2-astra"]["tier"] == "Power"
+    assert by_id["gpt-6.2-sol"]["provider"] == "openai" and by_id["gpt-6.2-sol"]["tier"] == "Standard"
+    assert "gpt-6.2-astra" not in costs.FALLBACK_RATES and "gpt-6.2-sol" not in costs.FALLBACK_RATES    # no price was given
+    shown = {m["id"]: m for m in client.get("/api/settings/models").json()}
+    assert shown["gpt-6.2-astra"]["rates_known"] is False and shown["gpt-6.2-sol"]["rates_known"] is False   # the interface says so
+    assert providers.provider_for_model("gpt-6.2-sol") == "openai"
