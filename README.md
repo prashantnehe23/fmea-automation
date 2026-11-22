@@ -26,9 +26,10 @@
 | Mistral AI | Mistral Large 4, Mistral Medium, Mistral Small |
 | Anthropic | Claude Opus 5.5, Claude Sonnet 5.5, Claude Haiku 5.5 (through Anthropic's OpenAI-compatibility endpoint; no built-in price) |
 | Azure OpenAI | your own deployment names, on your resource's `/openai/v1/` URL |
+| Google Gemini | your own model names, through Google's OpenAI-compatible endpoint (documented by Google as beta; token parameter and live behaviour unverified) |
 | Local endpoint | any OpenAI-compatible server (Ollama, vLLM, LM Studio): your URL, your model names, no key needed |
 
-Pick the model, reasoning level and key in the app's settings panel. `OPENAI_API_KEY`, `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` (with `AZURE_OPENAI_ENDPOINT`) and `LOCAL_LLM_BASE_URL` are used as a fallback. The Anthropic, Azure and local connections are checked with fake clients only so far ([ADR-030](docs/decisions/ADR-030-more-model-providers.md)); AWS Bedrock is not supported yet. Adding another provider that speaks the OpenAI chat protocol takes registry entries only ([ADR-011](docs/decisions/ADR-011-multi-provider-llm.md)). Model identifiers and prices are best effort. Check them against the provider's documentation.
+Pick the model, reasoning level and key in the app's settings panel. `OPENAI_API_KEY`, `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` (with `AZURE_OPENAI_ENDPOINT`), `GEMINI_API_KEY` and `LOCAL_LLM_BASE_URL` are used as a fallback. The Anthropic, Azure and local connections are checked with fake clients only so far ([ADR-030](docs/decisions/ADR-030-more-model-providers.md)); AWS Bedrock is not supported yet. Adding another provider that speaks the OpenAI chat protocol takes registry entries only ([ADR-011](docs/decisions/ADR-011-multi-provider-llm.md)). Model identifiers and prices are best effort. Check them against the provider's documentation.
 
 ---
 

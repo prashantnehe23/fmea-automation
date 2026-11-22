@@ -71,6 +71,17 @@ PROVIDERS: dict[str, dict] = {
         "embed_model":      None,
         "custom_models":    True,
     },
+    # Google Gemini through its OpenAI-compatible endpoint, which Google documents as beta (checked 2026-11-22). The
+    # token-parameter name and temperature handling are not stated there; max_tokens is the common one. The model name
+    # is the user's (for example the id shown in Google AI Studio), so there is no built-in list or price.
+    "gemini": {
+        "display":          "Google Gemini",
+        "base_url":         "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "env_var":          "GEMINI_API_KEY",
+        "max_tokens_param": "max_tokens",
+        "embed_model":      "gemini-embedding-001",
+        "custom_models":    True,
+    },
 }
 
 DEFAULT_PROVIDER = "openai"

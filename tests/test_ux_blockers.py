@@ -150,11 +150,11 @@ def test_providers_list_shows_status_per_provider(client, monkeypatch):
     monkeypatch.setenv("MISTRAL_API_KEY", "env-key-3333")
 
     status = {p["id"]: p["status"] for p in client.get("/api/settings/providers").json()}
-    assert status == {"openai": "valid", "mistral": "unchecked", "anthropic": "missing", "azure": "missing", "local": "unchecked"}   # env key not yet checked; a local endpoint needs no key
+    assert status == {"openai": "valid", "mistral": "unchecked", "anthropic": "missing", "azure": "missing", "local": "unchecked", "gemini": "missing"}   # env key not yet checked; a local endpoint needs no key
     client.delete("/api/settings/providers/openai/key")
     monkeypatch.delenv("MISTRAL_API_KEY")
     status = {p["id"]: p["status"] for p in client.get("/api/settings/providers").json()}
-    assert status == {"openai": "missing", "mistral": "missing", "anthropic": "missing", "azure": "missing", "local": "unchecked"}
+    assert status == {"openai": "missing", "mistral": "missing", "anthropic": "missing", "azure": "missing", "local": "unchecked", "gemini": "missing"}
 
 
 def test_verify_endpoint_rechecks_and_updates_status(client, monkeypatch):

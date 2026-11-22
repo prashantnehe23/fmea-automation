@@ -333,3 +333,25 @@ def test_reasoning_lookup_knows_custom_models():
     import core.reasoning as reasoning
     providers.add_custom_model("local", "llama", "Llama")
     assert reasoning.supported_levels("llama") is not None
+
+
+# ── Google Gemini (added 2026-11-22) ──────────────────────────────────────────
+
+def test_gemini_uses_googles_openai_compatible_endpoint_the_users_model_name_and_max_tokens(fake):
+    providers.set_api_key("gemini", "g-key-1234")
+    providers.add_custom_model("gemini", "gemini-test-model", "Gemini test model")
+    settings.set_setting("active_model", "gemini-test-model")
+    llm.call_llm("hello", max_tokens=300)
+    assert fake.built[-1] == {"api_key": "g-key-1234", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"}
+    req = fake.requests[-1]
+    assert req["model"] == "gemini-test-model" and "max_tokens" in req and "max_completion_tokens" not in req
+    assert providers.provider_for_model("gemini-test-model") == "gemini" and providers.get_provider("gemini")["embed_model"] == "gemini-embedding-001"
+
+
+def test_gemini_needs_a_key_and_has_no_built_in_models_or_endpoint_to_set(client):
+    assert providers.is_configured("gemini") is False
+    providers.set_api_key("gemini", "k-1234")
+    assert providers.is_configured("gemini") is True
+    row = next(p for p in client.get("/api/settings/providers").json() if p["id"] == "gemini")
+    assert row["endpoint_editable"] is False and row["custom_models"] is True
+    assert not any(m["provider"] == "gemini" for m in AVAILABLE_MODELS)
