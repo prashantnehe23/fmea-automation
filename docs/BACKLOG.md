@@ -42,6 +42,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 | 14 | B-011 | Report export for auditors and boards (moved up) | no | B-031 |
 | 15 | B-049 | Fixes as pull requests | no | B-043 |
 | 16 | B-016 | Ticketing (Jira, Linear) and Slack / Teams alerts (moved from P3, widened) | no | B-031 |
+| 17 | B-052 | Model selection from published cyber benchmarks and our own evals (added 2026-11-22, engineer-approved at P1; before B-028 phase B) | **yes** (ADR for the default model and the eval method) | B-046 |
 
 ### Paused — resume after the P1 list (moved to P2)
 
@@ -197,6 +198,30 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 - [ ] False-positive rate estimated from a triaged sample of at least 50 findings, with the triage recorded
 - [ ] Write-up with method and misses ready for publication (engineer approves before it is published)
 - [ ] B-028 targets recorded in B-026 and approved
+
+---
+
+### B-052 · Model Selection from Published Cyber Benchmarks and Our Own Evals `[ ]` APPROVED — P1 (engineer-approved 2026-11-22; before B-028 phase B)
+
+**Why:** The B-046 real-code run showed that the model changes the result a lot: handed the same files and one plain question, Mistral Large 4 identified 3 of 11 labelled flaws and was wrong on 1 of 15 claims, while Mistral Medium identified 0 and was wrong on 20 of 27. Model choice is a product decision, today made by feel. Published cyber benchmarks can shortlist, but they measure other tasks (exploit CTFs, security knowledge, insecure-code generation) on public data, are self-reported and may be contaminated; they cannot say which model finds the missing authorisation check in a real repository.
+
+**Scope:**
+- A shortlist of candidate models from published cyber benchmarks (CyberSecEval, Cybench, CyberGym and similar; versions, dates, harness and whether results are vendor-reported or independent recorded for each) plus availability, price, refusal and guardrail behaviour, data handling and latency.
+- Our own eval as the gate: the direct-question probe (`benchmarks/probe.py`) for cheap screening, then the real pipeline on the real-code set (B-046), with the seeded set as regression. The set grows from 11 labels in 3 projects towards about 100 labels in about 20 projects, labelled largely automatically from advisory fix-commit diffs with a human sign-off sample, a held-out split that prompts are never tuned on, and a patched-version negative control (scan the fixed release; a finding that persists at the fixed code is a false positive).
+- A per-model profile stored as data in the registry: probe recall, share of claims wrong, block rate, JSON failure rate, cost and time per scan, date measured, model version.
+- The settings page shows the profile, recommends a model, and says plainly when a model has no profile.
+- A re-measurement trigger when a provider's `-latest` alias or a model version changes.
+
+**Acceptance criteria:**
+- [ ] ADR drafted and accepted: how models are shortlisted and gated, how the default model is chosen, and the eval method (including the held-out split and negative controls)
+- [ ] Shortlist document with at least 8 candidate models, each published-benchmark claim cited with source and date and labelled vendor-reported or independent
+- [ ] At least 4 models measured with the probe and at least 2 through the pipeline on the real-code set, with cost, time, block rate and claim-quality recorded (needs keys for the providers and a spend decision)
+- [ ] Per-model profile fields in the model registry, filled for the measured models, with a test that a model without a profile is flagged in the settings API
+- [ ] The settings page shows the profile and a recommendation
+- [ ] The real-code label set extended (target about 100 labels in about 20 projects, labels signed off in a sampled review) and a patched-version negative control run for at least 5 projects
+- [ ] The default model recorded with its measured numbers and approved by the engineer
+
+**Notes:** Needs provider keys the engineer enters (OpenAI, Anthropic, Azure, local) and a budget; the probe costs about $0.2 to $0.5 per model for three projects. Interacts with B-040 (guardrail blocks) and B-047 (providers).
 
 ---
 
