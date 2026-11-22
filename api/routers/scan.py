@@ -55,6 +55,7 @@ async def submit_scan(req: ScanRequest):
                 force_rerun=req.force_rerun,
                 workspace=ws,
                 on_progress=_on_progress,
+                discovery=req.discovery,
             ),
         )
 

@@ -1,0 +1,57 @@
+{
+  "findings": [
+    {
+      "failure_mode": "SSRF from /preview reaches localhost-only admin service and triggers backup wipe",
+      "trigger": "An attacker sends GET /preview?url=http://127.0.0.1:9000/wipe-backups to the public service. public.py fetches that URL server-side; internal_admin.py executes wipe_backups() and deletes /var/backups/shop, returning 'done', which is echoed back in the preview response (confirming success).",
+      "evidence": "public.py:9-11 `url = request.args[\"url\"]\n    resp = requests.get(url, timeout=5)\n    return resp.text[:2000]`",
+      "business_impact": "Unauthenticated remote destruction of all shop backups (/var/backups/shop) by any party who can reach the public /preview endpoint, causing permanent data loss and loss of recoverability after any incident.",
+      "blast_radius": "Components on the path: public.py, internal_admin.py",
+      "attack_chain": [
+        "GET /preview?url=... (public.py, preview()): attacker-controlled input arrives",
+        "public.py:9-11 - The /preview route takes the attacker-supplied 'url' query parameter with no validation, allowlist, or scheme/host restriction, and passes it directly to requests.get().",
+        "internal_admin.py:9-12 - The outbound request from public.py can target 127.0.0.1:9000, the loopback-only admin service. Its /wipe-backups route performs a destructive shutil.rmtree with no authentication, token, or source check \u2014 it relies solely on network locality for protection, which the SSRF in public.py bypasses.",
+        "Fails here: internal_admin.py assumes 'listening on 127.0.0.1' is an access control, but public.py performs server-side requests to arbitrary URLs, so any host that can reach /preview can make the server itself call the loopback admin endpoint. There is no validation of the url parameter (scheme, host, IP range) in public.py and no authentication on /wipe-backups."
+      ],
+      "severity": 10,
+      "occurrence": 9,
+      "detection": 8,
+      "rpn": 720,
+      "priority": "Critical",
+      "validator_confidence": 0.97,
+      "root_cause": "security",
+      "exploit_path": [
+        {
+          "file": "public.py",
+          "lines": "9-11",
+          "action": "The /preview route takes the attacker-supplied 'url' query parameter with no validation, allowlist, or scheme/host restriction, and passes it directly to requests.get().",
+          "quote": "url = request.args[\"url\"]\n    resp = requests.get(url, timeout=5)\n    return resp.text[:2000]"
+        },
+        {
+          "file": "internal_admin.py",
+          "lines": "9-12",
+          "action": "The outbound request from public.py can target 127.0.0.1:9000, the loopback-only admin service. Its /wipe-backups route performs a destructive shutil.rmtree with no authentication, token, or source check \u2014 it relies solely on network locality for protection, which the SSRF in public.py bypasses.",
+          "quote": "@admin.get(\"/wipe-backups\")\ndef wipe_backups():\n    shutil.rmtree(\"/var/backups/shop\", ignore_errors=True)\n    return \"done\""
+        }
+      ],
+      "path_status": "confirmed"
+    }
+  ],
+  "error": null,
+  "blocked": false,
+  "discovery": {
+    "mode": "paths",
+    "packets": 1,
+    "found": 1,
+    "confirmed": 1,
+    "refuted": 0,
+    "uncertain": 0,
+    "uncovered": []
+  },
+  "model_replies_cut": 0,
+  "cost_usd": 0.0388,
+  "seconds": 53.2,
+  "llm_calls": 11,
+  "model": "mistral-large-4",
+  "created": "2026-11-22T19:37:38",
+  "project": "chain-api"
+}

@@ -1,6 +1,6 @@
 import json
 
-from core.llm import call_llm, extract_json_text
+from core.llm import call_llm, extract_json_text, parse_json_list_leniently
 from core.llm_coercion import coerce_control_assessment_payload
 from core.models import ControlAssessment, FailureMode
 
@@ -41,7 +41,7 @@ Return only the JSON array — no explanation outside the array.
 """
 
     response = call_llm(prompt, max_tokens=6000)
-    raw = json.loads(extract_json_text(response))
+    raw = parse_json_list_leniently(response)
 
     # Normalise to list
     if isinstance(raw, dict):

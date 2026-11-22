@@ -52,6 +52,7 @@ class GithubScanRequest(BaseModel):
     max_batches: int = Field(DEFAULT_MAX_BATCHES, ge=1, le=10)   # passes over a large repository (cost ceiling)
     force_rerun: bool = False
     selected_files: list[str] | None = None
+    discovery: str = Field("scenarios", pattern="^(scenarios|paths)$")   # 'paths': exploit paths across components (B-028 phase B)
 
 
 class GithubPreviewRequest(BaseModel):
@@ -178,6 +179,7 @@ async def github_scan(req: GithubScanRequest, request: Request):
                 on_progress=_on_progress,
                 scope=scope,
                 batches=scan_input.batch_codes,
+                discovery=req.discovery,
             ),
         )
 

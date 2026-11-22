@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -73,6 +73,7 @@ class ScanRequest(BaseModel):
     workspace: WorkspaceIn | None = None
     max_failure_modes: int | None = None     # None = no cap on what is reported (B-028 phase 0)
     force_rerun: bool = False
+    discovery: str = Field("scenarios", pattern="^(scenarios|paths)$")   # 'paths': exploit paths across components (B-028 phase B)
 
 
 class RemediateRequest(BaseModel):

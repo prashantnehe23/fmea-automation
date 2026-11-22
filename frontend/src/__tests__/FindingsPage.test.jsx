@@ -197,3 +197,38 @@ describe('review follow-ups', () => {
     expect(options).toEqual(['All priorities', 'Critical', 'High', 'Low']);
   });
 });
+
+
+describe('exploit paths across components', () => {
+  const pathFinding = {
+    ...sql, id: 9, name: 'Public preview can reach the internal admin service', path_status: 'confirmed',
+    exploit_path: [
+      { file: 'public.py', lines: '9-11', action: 'The preview route fetches any URL the caller gives', quote: 'resp = requests.get(url, timeout=5)' },
+      { file: 'internal_admin.py', lines: '8-11', action: 'The admin service wipes backups and checks no credentials', quote: 'shutil.rmtree("/var/backups/shop")' },
+    ],
+  };
+
+  it('shows each step of the path in order with its file, lines, action and code', async () => {
+    renderPage({ liveRisks: [pathFinding] });
+    await userEvent.click(screen.getAllByRole('button', { name: /Public preview can reach the internal admin service/ })[0]);
+    const d = within(screen.getByRole('region', { name: 'Finding detail' }));
+    expect(d.getByText('Exploit path')).toBeInTheDocument();
+    expect(d.getByText('Each step was checked against the code.')).toBeInTheDocument();
+    const steps = d.getAllByRole('listitem').filter(li => /public\.py|internal_admin\.py/.test(li.textContent));
+    expect(steps.map(li => li.textContent)).toEqual([
+      expect.stringContaining('public.py:9-11'), expect.stringContaining('internal_admin.py:8-11')]);
+    expect(d.getByText('shutil.rmtree("/var/backups/shop")')).toBeInTheDocument();
+  });
+
+  it('says plainly when a path was not fully verified', async () => {
+    renderPage({ liveRisks: [{ ...pathFinding, path_status: 'uncertain' }] });
+    await userEvent.click(screen.getAllByRole('button', { name: /Public preview can reach the internal admin service/ })[0]);
+    expect(within(screen.getByRole('region', { name: 'Finding detail' })).getByText(/could not be fully verified/)).toBeInTheDocument();
+  });
+
+  it('shows no path section for an ordinary finding', async () => {
+    renderPage();
+    await userEvent.click(screen.getAllByRole('button', { name: /SQL injection in login/ })[0]);
+    expect(within(screen.getByRole('region', { name: 'Finding detail' })).queryByText('Exploit path')).not.toBeInTheDocument();
+  });
+});

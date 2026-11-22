@@ -1,0 +1,50 @@
+{
+  "findings": [
+    {
+      "failure_mode": "Server-Side Request Forgery via /preview URL parameter",
+      "trigger": "An unauthenticated attacker sends GET /preview?url=http://169.254.169.254/latest/meta-data/ (cloud metadata), or http://127.0.0.1:PORT/admin (internal services), or an internal-only host such as http://internal-db:5432/. The Flask server performs the request from its own network position and returns the first 2000 characters of the response body to the attacker.",
+      "evidence": "public.py:9-11 `url = request.args[\"url\"]\n    resp = requests.get(url, timeout=5)\n    return resp.text[:2000]`",
+      "business_impact": "The attacker gains read access to internal-only network resources and cloud instance metadata (which frequently contains IAM credentials), enabling credential theft, lateral movement, and full compromise of cloud infrastructure. Any user who can reach the public /preview endpoint is harmed; the organisation's internal services are exposed.",
+      "blast_radius": "Components on the path: public.py",
+      "attack_chain": [
+        "GET /preview (public.py, preview()): attacker-controlled input arrives",
+        "public.py:9-11 - The attacker-supplied 'url' query parameter is read directly from the request with no validation, allowlist, scheme restriction, or host/IP filtering, then passed straight into requests.get().",
+        "Fails here: There is no check at all: no scheme allowlist (file://, gopher:// etc. may be attempted depending on the requests/urllib3 version), no blocklist of private/loopback/link-local IP ranges (127.0.0.1, 169.254.169.254, 10.x/172.16.x/192.168.x), no DNS-rebinding protection, and no authentication or authorization on the route. The server fully trusts the client-supplied URL."
+      ],
+      "severity": 10,
+      "occurrence": 9,
+      "detection": 9,
+      "rpn": 810,
+      "priority": "Critical",
+      "validator_confidence": 0.95,
+      "root_cause": "security",
+      "exploit_path": [
+        {
+          "file": "public.py",
+          "lines": "9-11",
+          "action": "The attacker-supplied 'url' query parameter is read directly from the request with no validation, allowlist, scheme restriction, or host/IP filtering, then passed straight into requests.get().",
+          "quote": "url = request.args[\"url\"]\n    resp = requests.get(url, timeout=5)\n    return resp.text[:2000]"
+        }
+      ],
+      "path_status": "confirmed"
+    }
+  ],
+  "error": null,
+  "blocked": false,
+  "discovery": {
+    "mode": "paths",
+    "packets": 2,
+    "found": 1,
+    "confirmed": 1,
+    "refuted": 0,
+    "uncertain": 0,
+    "uncovered": []
+  },
+  "model_replies_cut": 0,
+  "cost_usd": 0.0437,
+  "seconds": 66.3,
+  "llm_calls": 13,
+  "model": "mistral-large-4",
+  "created": "2026-11-22T19:34:53",
+  "project": "chain-api"
+}

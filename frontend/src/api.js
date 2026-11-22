@@ -95,6 +95,7 @@ export async function* streamGithubScan(
   forceRerun = false,
   selectedFiles = null,
   maxBatches = undefined,      // passes over a large repository; omitted = the server default
+  discovery = 'scenarios',     // 'paths' hunts exploit paths across components and verifies them (B-028 phase B)
 ) {
   const res = await apiFetch(`${BASE}/api/github/scan`, {
     method: 'POST',
@@ -106,6 +107,7 @@ export async function* streamGithubScan(
       force_rerun: forceRerun,
       selected_files: selectedFiles,
       max_batches: maxBatches,
+      discovery,
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
@@ -133,6 +135,7 @@ export async function* streamScan(
   workspace = null,
   maxFailureModes = 7,
   forceRerun = false,
+  discovery = 'scenarios',
 ) {
   const res = await apiFetch(`${BASE}/api/scan`, {
     method: 'POST',
@@ -142,6 +145,7 @@ export async function* streamScan(
       workspace,
       max_failure_modes: maxFailureModes,
       force_rerun: forceRerun,
+      discovery,
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
@@ -653,6 +657,9 @@ export function normalizeScanResult(apiResult, sel) {
       cwe:                 f.cwe ?? 'unmapped',
       source:              f.source ?? 'fmea',
       also_reported_by:    f.also_reported_by ?? [],
+      // ── Exploit path across components (B-028 phase B) ───────────────────
+      exploit_path:        f.exploit_path ?? [],
+      path_status:         f.path_status ?? '',
       // ── Scoring rationales ────────────────────────────────────────────────
       justification:         risk.justification          ?? '',
       severity_rationale:    risk.severity_rationale     ?? '',
@@ -716,6 +723,7 @@ export const STAGE_LABELS = {
   surveyor:    'Surveyor — mapping system context',
   saboteur:    'Saboteur — generating failure scenarios',
   controls:    'Controls assessor — reviewing mitigations',
+  paths:       'Exploit paths — hunting across components and verifying',
   actuary:     'Actuary — scoring RPN (S × O × D)',
   root_cause:  'Root-cause analyst — finding where fixes belong',
   sre:         'SRE agent — building remediation plans',

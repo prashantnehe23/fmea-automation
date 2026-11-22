@@ -449,6 +449,7 @@ export default function ScanPage({
   // ── GitHub scan runner ──────────────────────────────────────────────────────
 
   // B-028 phase 0: a large repository takes several passes. Show the estimate and ask before spending it.
+  const [deepScan, setDeepScan] = useState(false);                 // hunt exploit paths across components (B-028 phase B)
   const [pendingEstimate, setPendingEstimate] = useState(null);   // { repoUrl, forceRerun, estimate }
   const starting = useRef(false);        // a second click while the estimate is being fetched must not start a second scan
   const runGithubScan = async (repoUrl, forceRerun = false, files = null) => {
@@ -482,7 +483,7 @@ export default function ScanPage({
       : null;
 
     try {
-      for await (const event of streamGithubScan(repoUrl, ws, null, forceRerun, files, files ? 1 : undefined)) {
+      for await (const event of streamGithubScan(repoUrl, ws, null, forceRerun, files, files ? 1 : undefined, deepScan ? 'paths' : 'scenarios')) {
         if (event.stage === 'complete') {
           setStages(prev => prev.map(s => ({ ...s, status: 'done' })));
           setResult(event.result);
@@ -527,7 +528,7 @@ export default function ScanPage({
       : null;
 
     try {
-      for await (const event of streamScan(pasteCode, ws)) {
+      for await (const event of streamScan(pasteCode, ws, null, false, deepScan ? 'paths' : 'scenarios')) {
         if (event.stage === 'complete') {
           setStages(prev => prev.map(s => ({ ...s, status: 'done' })));
           setResult(event.result);
@@ -712,6 +713,10 @@ export default function ScanPage({
               </div>
             </div>
 
+            <label className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+              <input type="checkbox" checked={deepScan} onChange={e => setDeepScan(e.target.checked)} />
+              Deep scan: hunt exploit paths across components and verify each against the code (slower, uses more of the model)
+            </label>
             <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={() => runGithubScan(project.repoUrl)}

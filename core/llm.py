@@ -45,10 +45,10 @@ def get_model_name() -> str:
 # in one executor thread, so scans never mix; work handed on with asyncio.to_thread or contextvars.copy_context()
 # keeps adding to the same scan's counters.
 class _Usage:
-    __slots__ = ("calls", "prompt", "completion")
+    __slots__ = ("calls", "prompt", "completion", "salvaged")
 
     def __init__(self) -> None:
-        self.calls = self.prompt = self.completion = 0
+        self.calls = self.prompt = self.completion = self.salvaged = 0
 
 
 _usage_var: contextvars.ContextVar[_Usage | None] = contextvars.ContextVar("fmea_scan_usage", default=None)
@@ -128,6 +128,11 @@ def reset_call_count() -> None:
 def get_call_count() -> int:
     """Return the number of LLM calls made since the last reset."""
     return _current_usage().calls
+
+
+def get_salvage_count() -> int:
+    """Model answers this scan could only use in part (a long JSON array that broke half way)."""
+    return _current_usage().salvaged
 
 
 def get_token_usage() -> tuple[int, int]:
@@ -487,6 +492,37 @@ def stream_chat(messages: list[dict], *, tools: list[dict] | None = None, max_to
                     "completion_tokens": usage_totals["completion"]})
 
 
+def parse_json_list_leniently(response: str):
+    """The model's JSON reply, or, when a long array breaks half way (a stray quote, a missing comma), the complete
+    objects before the break (items after the break are lost; the scan's `model_replies_cut` counts such replies). Raises ValueError only when nothing can be recovered. A scan must not die on one bad
+    character in a 12 KB answer (B-046: this stopped the scan of a large repository twice)."""
+    text = extract_json_text(response)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        start = text.find("[")
+        if start == -1 or text[:start].strip():          # only a reply that IS an array is salvaged; an object root is not
+            raise
+        decoder, pos, items = json.JSONDecoder(), start + 1, []
+        while True:
+            while pos < len(text) and text[pos] in " \t\r\n,":
+                pos += 1
+            if pos >= len(text) or text[pos] == "]":
+                break
+            try:
+                item, pos = decoder.raw_decode(text, pos)
+            except json.JSONDecodeError:
+                break
+            items.append(item)
+        if not items:
+            raise error
+        import logging
+        logging.getLogger(__name__).warning("model JSON was cut at char %s; kept %s complete items", error.pos, len(items))
+        with _usage_lock:
+            _current_usage().salvaged += 1             # shown in the scan result: items after the break were lost
+        return items
+
+
 def _repair_json(text: str) -> str:
     """
     State-machine JSON repair for LLM output quirks.
@@ -511,10 +547,14 @@ def _repair_json(text: str) -> str:
             i += 1
             while i < n:
                 sc = text[i]
-                if sc == '\\' and i + 1 < n:          # valid escape — pass through
-                    out.append(sc)
+                if sc == '\\' and i + 1 < n and (text[i + 1] in '"\\/bfnrt'
+                                                 or (text[i + 1] == 'u' and re.fullmatch(r"[0-9a-fA-F]{4}", text[i + 2:i + 6]))):
+                    out.append(sc)                      # valid escape — pass through
                     out.append(text[i + 1])
                     i += 2
+                elif sc == '\\':                        # a lone backslash (regex or a Windows path in quoted code): escape it
+                    out.append('\\\\')
+                    i += 1
                 elif sc == '"':                         # closing quote
                     out.append(sc)
                     i += 1

@@ -131,3 +131,49 @@ def test_complete_but_malformed_json_is_not_cut_down(monkeypatch):
     settings.set_setting("active_model", "mistral-large-4")
     out = llm.call_llm(JSON_PROMPT)
     assert "id\": 3" in out  # nothing dropped: returned for the agent to handle
+
+
+def test_backslashes_that_are_not_json_escapes_are_repaired_not_fatal():
+    bad = r"""{"evidence": "re.match(r'\d+\.\w', x) and open('C:\Users\data')", "ok": "line\nbreak \u00e9 \"q\" \\ done"}"""
+    out = json.loads(llm.extract_json_text(bad))
+    assert out["evidence"] == r"re.match(r'\d+\.\w', x) and open('C:\Users\data')"
+    assert out["ok"] == 'line\nbreak é "q" \\ done'          # real escapes are untouched
+
+
+def test_a_long_array_that_breaks_half_way_keeps_the_complete_items():
+    broken = '[{"failure_mode": "A", "n": 1}, {"failure_mode": "B", "n": 2}, {"failure_mode": "C" "n": 3}, {"failure_mode": "D"}]'
+    assert llm.parse_json_list_leniently(broken) == [{"failure_mode": "A", "n": 1}, {"failure_mode": "B", "n": 2}]
+    assert llm.parse_json_list_leniently('```json\n[{"a": 1}, {"a": 2}]\n```') == [{"a": 1}, {"a": 2}]      # whole replies are unchanged
+
+
+def test_nothing_recoverable_still_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        llm.parse_json_list_leniently('[{"failure_mode": "A" "n": 1}]')
+    with pytest.raises(ValueError):
+        llm.parse_json_list_leniently('not json at all {')
+
+
+def test_the_saboteur_survives_a_reply_that_breaks_after_some_findings(monkeypatch):
+    import agents.saboteur as saboteur
+    from core.models import SystemContext
+    reply = '[{"failure_mode": "A", "attack_chain": ["x"], "business_impact": "b", "blast_radius": "c", "trigger": "t", "evidence": "a.py:1"}, {"failure_mode": "B" "oops": 1}]'
+    monkeypatch.setattr(saboteur, "call_llm", lambda *a, **k: reply)
+    found = saboteur.run_saboteur("code", SystemContext(tiering={}, attack_surfaces=[], failure_domains=[]))
+    assert [f.failure_mode for f in found] == ["A"]
+
+
+def test_a_salvaged_reply_is_counted_and_an_object_reply_is_never_salvaged():
+    import pytest
+    llm.reset_call_count()
+    llm.parse_json_list_leniently('[{"a": 1}, {"a": 2 "b": 3}, {"a": 4}]')
+    assert llm.get_salvage_count() == 1
+    with pytest.raises(ValueError):                                      # a dict root must not turn into a list
+        llm.parse_json_list_leniently('{"failure_modes": [{"a": 1}, {"a": 2 "b": 3}, {"a": 4}], "x": 1}')
+    assert llm.get_salvage_count() == 1
+
+
+def test_valid_escapes_keep_their_meaning_even_when_the_model_meant_a_path():
+    # Known limit: "C:\temp\new" is valid JSON for a tab and a newline; only escapes JSON does not define are repaired.
+    out = json.loads(llm.extract_json_text(r'''{"p": "a\tb\nc"}'''))
+    assert out["p"] == "a\tb\nc"
