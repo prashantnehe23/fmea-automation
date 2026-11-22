@@ -14,7 +14,8 @@ Enterprises ask for Azure OpenAI, AWS Bedrock, Anthropic and self-hosted models.
 3. **No embedding model for any of the three.** Scenario matching then relies on exact names and finding identity (B-031); embedding similarity is skipped, as ADR-011 foresaw for providers without embeddings.
 4. **Unknown prices are estimates.** Anthropic models have no built-in price; the live LiteLLM refresh supplies one when it lists the model. Until then, and for custom hosted models without a user-entered price, cost uses the gpt-5.1 rate (which can be higher or lower than the real price), so that spend limits still act, and the interface flags the price as assumed. Local models cost 0.
 5. **Provider quirks live in the registry:** `omit_temperature` (Anthropic rejects temperature below 1 on newer models), the token parameter name, and `stream_usage`.
-6. **AWS Bedrock is a later phase** with a native adapter (boto3 and SigV4); it is not part of this change.
+6. **Google Gemini (added 2026-11-22)** through Google's OpenAI-compatible endpoint (`https://generativelanguage.googleapis.com/v1beta/openai/`), with the user's own model names and Google's embedding model. Google documents the layer as beta and does not state the token-parameter name or temperature handling there; `max_tokens` is used and live behaviour is unverified.
+7. **AWS Bedrock is a later phase** with a native adapter (boto3 and SigV4); it is not part of this change.
 
 ## What the providers' documentation says (read 2026-11-22)
 - Anthropic describes its OpenAI-SDK layer as meant for testing and comparison and "not production-ready for most use cases"; it supports `max_tokens`, streaming and tools, accepts only `json_schema` response formats (the platform sends none), requires temperature 1 or none on newer models, ignores `reasoning_effort`, returns usage, and does not state embeddings.
