@@ -981,6 +981,19 @@ def get_latest_snapshot(workspace_id: int) -> dict | None:
         conn.close()
 
 
+def get_snapshot_for_scan(workspace_id: int, scan_id: int) -> dict | None:
+    """The stored snapshot of one saved scan of one project: {id, findings}. None when there is no exact match (B-056)."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, findings_json FROM scan_snapshots WHERE workspace_id=? AND scan_id=? ORDER BY id DESC LIMIT 1",
+            (workspace_id, scan_id),
+        ).fetchone()
+        return {"id": row["id"], "findings": json.loads(row["findings_json"])} if row else None
+    finally:
+        conn.close()
+
+
 def add_imported_findings(workspace_id: int, import_id: str, tool: str, items: list[tuple[str, dict]]) -> tuple[int, int]:
     """Store parsed SARIF results for a project. Returns (added, duplicates).
 

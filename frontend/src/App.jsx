@@ -344,6 +344,8 @@ function Workspace({ user, status, onLogout }) {
   const liveContext   = scanResult ? getContextSummary(scanResult) : null;
   const workspaceId   = sel.projectId ? (scanHistory[sel.projectId]?.workspace_id ?? null) : null;
   workspaceIdRef.current = workspaceId;
+  // the saved scan of the selected project: fixes are written from what the database stored (B-056)
+  const liveDbScanId  = sel.projectId ? (scanHistory[sel.projectId]?.result?.db_scan_id ?? null) : null;
   useEffect(() => { refreshAdjustments(workspaceId); }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Persona / scope switching ─────────────────────────────────────────────────
@@ -405,6 +407,7 @@ function Workspace({ user, status, onLogout }) {
             liveRisks={liveRisks}
             liveContext={liveContext}
             liveScanId={liveScanId}
+            liveDbScanId={liveDbScanId}
             workspaceId={workspaceId}
             onScanComplete={onScanComplete}
             onUpdateProjectRepo={updateProjectRepo}

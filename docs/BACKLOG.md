@@ -43,7 +43,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 | 15 | B-049 | Fixes as pull requests | no | B-043 |
 | 16 | B-016 | Ticketing (Jira, Linear) and Slack / Teams alerts (moved from P3, widened) | no | B-031 |
 | 17 | B-052 | Model selection from published cyber benchmarks and our own evals (added 2026-11-22, engineer-approved at P1; before B-028 phase B) | **yes** (ADR for the default model and the eval method) | B-046 |
-| 18 | B-056 — *added 2026-11-23, engineer-approved for today (P0, demo)* | Fix proposals that survive a restart, use the cited code and give a real diff (A, B, C) | **yes** (ADR-033, Proposed) | B-053 |
+| 18 | B-056 — *added 2026-11-23, engineer-approved for today (P0, demo)* | Fix proposals that survive a restart, use the cited code and give a real diff (A, B, C) | **yes** (ADR-033, Accepted 2026-11-23) | B-053 |
 | 19 | B-054 steps 2 and 3 — *engineer-approved 2026-11-23, after B-056* | Left pane: counts (step 2); project switcher, breadcrumb and component picker (step 3, **ADR-034 Proposed**) | step 3 only | B-054 step 1 |
 | 20 | B-057 — *proposed 2026-11-23, not yet prioritised by the engineer* | Fixes in the language of the code, and a check that a fix parses beyond Python | no | B-056 |
 
@@ -354,7 +354,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-056 · Fix Proposals that Survive a Restart, Use the Cited Code and Give a Real Diff `[ ]` APPROVED 2026-11-23 — P0 (demo) — *ADR-033 Proposed: build starts once the engineer accepts it*
+### B-056 · Fix Proposals that Survive a Restart, Use the Cited Code and Give a Real Diff `[x]` DONE 2026-11-23 — P0 (demo) — *ADR-033 accepted 2026-11-23*
 
 **Why:** the first real use of the Remediate button (B-053) failed with "This scan is no longer available on the server": fixes were looked up in server memory, which a restart empties, the model was shown 60 lines picked by keyword guess even when the finding cites exact files and lines, and the diff was written by the model and could not be trusted to apply. The engineer's requirement: if the page shows a fix action, Remediate must produce rewritten code.
 
@@ -366,16 +366,18 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 - **Not in this item:** raising a pull request (B-049), storing proposals, per-project access control (known limit, see ADR-033), measuring fix quality.
 
 **Acceptance criteria:**
-- [ ] After the in-memory store is emptied (simulated restart), a fix is proposed for a scan found in the database (test)
-- [ ] The snapshot is matched on both ids exactly: a different project's scan id, or an id that exists only in memory, is a 404 and never produces a fix for other code (test)
-- [ ] A scan whose sources are not stored gets a 409 with a plain message and no model call (test)
-- [ ] The prompt contains the files and lines the finding cites and the chosen action, and the fallback heuristic is used and labelled only when nothing is cited (tests)
-- [ ] Edits outside the shown files, outside the file's lines, or overlapping are dropped with a reason; the rest are applied (tests)
-- [ ] The returned diff applies with `git apply --check` to the original files (test using a temporary repository)
-- [ ] A changed Python file that does not parse is returned flagged (test)
-- [ ] A person's edited replacement gives a rebuilt diff; the audit entry names the files and a diff hash, and no code (test)
-- [ ] The panel shows one section per file with an editable replacement, the rebuilt diff after accepting, and the flag when present; Accept, Edit and Reject keep working (JS tests)
-- [ ] A live proposal on the seeded chain-api repository after a server restart, recorded (the engineer's demo path)
+- [x] After the in-memory store is emptied (simulated restart), a fix is proposed for a scan found in the database (test)
+- [x] The snapshot is matched on both ids exactly: a different project's scan id, or an id that exists only in memory, is a 404 and never produces a fix for other code (test)
+- [x] A scan whose sources are not stored gets a 409 with a plain message and no model call (test)
+- [x] The prompt contains the files and lines the finding cites and the chosen action, and the fallback heuristic is used and labelled only when nothing is cited (tests)
+- [x] Edits outside the shown files, outside the file's lines, or overlapping are dropped with a reason; the rest are applied (tests)
+- [x] The returned diff applies with `git apply --check` to the original files (test using a temporary repository)
+- [x] A changed Python file that does not parse is returned flagged (test)
+- [x] A person's edited replacement gives a rebuilt diff; the audit entry names the files and a diff hash, and no code (test)
+- [x] The panel shows one section per file with an editable replacement, the rebuilt diff after accepting, and the flag when present; Accept, Edit and Reject keep working (JS tests)
+- [x] A live proposal on the seeded chain-api repository after a server restart (2026-11-23): the proposal was written from the stored scan, one file, `context: cited`, no dropped edits, parses; through the panel it showed three sections, Accept recorded it and gave the final diff to copy or download. About 66 seconds with GPT-6.2 Sol.
+
+**Independent review (2026-11-23), fixed before merge:** an insertion and a replacement at one line could lose the insertion depending on order; an insertion after a last line without a line ending glued onto it; lines were split on characters git does not count (form feed and similar), and CRLF files got mixed endings; edits to lines the model was never shown (large files are shown as windows) were applied; an accepted or edited decision could be recorded with no edits; paths starting with a dot were not matched; a path with a newline could forge a diff header; edit numbers were not strictly integers and the number of edits was unbounded; the panel could show the previous fix while a new one loaded and could record a decision twice. Eight of these have a test that failed before the fix. **Known limits kept:** no per-project access check (ADR-033), the proposal itself is not stored so the server cannot prove an accepted edit is the one it proposed (only the hash of what was accepted is recorded), and a rescan of identical code replaces the stored snapshot's scan id.
 
 ---
 

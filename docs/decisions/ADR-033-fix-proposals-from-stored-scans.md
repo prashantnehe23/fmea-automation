@@ -1,6 +1,6 @@
 # ADR-033: Fix Proposals from Stored Scans, Targeted Context, Server-Built Diffs
 
-**Status:** Proposed (written 2026-11-23 for the engineer's approval; work on B-056 starts once it is accepted)  **Date:** 2026-11-23  **Backlog:** B-056 (builds on B-053; prepares B-049)  **Builds on:** [ADR-018](ADR-018-remediation-actions.md) (actions), [ADR-027](ADR-027-authentication-roles-and-repository-access.md) (server-side results and roles), B-042 (stored sources and their retention)
+**Status:** Accepted (engineer, 2026-11-23: "Accept ADR-033, start B-056"), as written  **Date:** 2026-11-23  **Backlog:** B-056 (builds on B-053; prepares B-049)  **Builds on:** [ADR-018](ADR-018-remediation-actions.md) (actions), [ADR-027](ADR-027-authentication-roles-and-repository-access.md) (server-side results and roles), B-042 (stored sources and their retention)
 
 ## Context
 B-053 added a **Remediate** button on each corrective and preventive action. In use it failed on the first real try ("This scan is no longer available on the server"), for three reasons:
@@ -36,5 +36,5 @@ The database already stores each scan's full result and its source files (`scan_
 - Python is the only language with a syntax check; the prompt's language wording is a separate small item (B-057).
 - Source code goes to the model provider when a fix is requested, as it does for scans.
 
-## For the engineer to decide
-Accept, change or reject the seven points. In particular: point 2 (no re-fetch when sources are gone), point 5 (a proposal that does not parse is shown flagged rather than refused), and the limit of 3 files per proposal.
+## Decided
+Accepted with all seven points as written, including no re-fetch when sources are gone, a flagged (not refused) proposal that does not parse, and the 3-file limit.

@@ -120,9 +120,9 @@ export function ActionList({ title, color, actions, onRemediate }) {
 
 // ── Expanded remediation panel ────────────────────────────────────────────────
 
-function RemediationDetail({ r, scanId }) {
+function RemediationDetail({ r, workspaceId, scanId }) {
   const [fixFor, setFixFor] = useState(null);
-  const onRemediate = scanId ? setFixFor : undefined;      // a fix can only be proposed for a scan the server still holds
+  const onRemediate = workspaceId && scanId ? setFixFor : undefined;      // a fix needs the project and its saved scan
   return (
     <div className="border-t border-gray-100 bg-gray-50 px-6 py-5 space-y-0">
       <ControlsSection r={r} />
@@ -132,14 +132,14 @@ function RemediationDetail({ r, scanId }) {
         <p className="text-xs text-gray-400 italic mb-4">No corrective actions available for this scenario.</p>
       )}
       <ActionList title="🛡️ Preventive actions" color="text-purple-600" actions={r.preventive} onRemediate={onRemediate} />
-      {fixFor && <FixPanel scanId={scanId} failureMode={r.name} action={fixFor} onClose={() => setFixFor(null)} />}
+      {fixFor && <FixPanel workspaceId={workspaceId} scanId={scanId} failureMode={r.name} action={fixFor} onClose={() => setFixFor(null)} />}
     </div>
   );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function MitigationsPage({ persona, sel, scope, liveRisks, liveScanId, hierarchy = [] }) {
+export default function MitigationsPage({ persona, sel, scope, liveRisks, liveDbScanId, workspaceId, hierarchy = [] }) {
   const risks = liveRisks ?? [];
   const label = getSelectionLabel(sel, scope, hierarchy);
 
@@ -268,7 +268,7 @@ export default function MitigationsPage({ persona, sel, scope, liveRisks, liveSc
               </div>
 
               {/* Expanded remediation detail */}
-              {exp && <RemediationDetail r={r} scanId={liveScanId} />}
+              {exp && <RemediationDetail r={r} workspaceId={workspaceId} scanId={liveDbScanId} />}
             </div>
           );
         })}
