@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import ScopeHeader from '../components/ScopeHeader';
 import KpiRow from '../components/KpiRow';
 import KCard from '../components/KCard';
+import FixPanel from '../components/FixPanel';
 import AggTable from '../components/AggTable';
 import { Chip, PChip } from '../components/Chip';
 import { SCOPE_LABEL } from '../data';
@@ -84,7 +85,7 @@ const BAND = {
 };
 const BAND_ORDER = { now: 0, next: 1, later: 2 };
 
-export function ActionList({ title, color, actions }) {
+export function ActionList({ title, color, actions, onRemediate }) {
   if (!actions?.length) return null;
   const sorted = [...actions].sort((a, b) => (BAND_ORDER[a.urgency] ?? 1) - (BAND_ORDER[b.urgency] ?? 1));
   return (
@@ -105,6 +106,9 @@ export function ActionList({ title, color, actions }) {
                   </p>
                   {a.verification && <p className="text-xs text-green-700 mt-0.5">Verify: {a.verification}</p>}
                 </div>
+                {onRemediate && (
+                  <button onClick={() => onRemediate(a)} className="ml-auto flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100">Remediate</button>
+                )}
               </div>
             </li>
           );
@@ -116,23 +120,26 @@ export function ActionList({ title, color, actions }) {
 
 // ── Expanded remediation panel ────────────────────────────────────────────────
 
-function RemediationDetail({ r }) {
+function RemediationDetail({ r, scanId }) {
+  const [fixFor, setFixFor] = useState(null);
+  const onRemediate = scanId ? setFixFor : undefined;      // a fix can only be proposed for a scan the server still holds
   return (
     <div className="border-t border-gray-100 bg-gray-50 px-6 py-5 space-y-0">
       <ControlsSection r={r} />
       <EvidenceBlock evidence={r.evidence} />
-      <ActionList title="🔧 Corrective actions" color="text-green-600" actions={r.corrective} />
+      <ActionList title="🔧 Corrective actions" color="text-green-600" actions={r.corrective} onRemediate={onRemediate} />
       {!r.corrective?.length && (
         <p className="text-xs text-gray-400 italic mb-4">No corrective actions available for this scenario.</p>
       )}
-      <ActionList title="🛡️ Preventive actions" color="text-purple-600" actions={r.preventive} />
+      <ActionList title="🛡️ Preventive actions" color="text-purple-600" actions={r.preventive} onRemediate={onRemediate} />
+      {fixFor && <FixPanel scanId={scanId} failureMode={r.name} action={fixFor} onClose={() => setFixFor(null)} />}
     </div>
   );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function MitigationsPage({ persona, sel, scope, liveRisks, hierarchy = [] }) {
+export default function MitigationsPage({ persona, sel, scope, liveRisks, liveScanId, hierarchy = [] }) {
   const risks = liveRisks ?? [];
   const label = getSelectionLabel(sel, scope, hierarchy);
 
@@ -261,7 +268,7 @@ export default function MitigationsPage({ persona, sel, scope, liveRisks, hierar
               </div>
 
               {/* Expanded remediation detail */}
-              {exp && <RemediationDetail r={r} />}
+              {exp && <RemediationDetail r={r} scanId={liveScanId} />}
             </div>
           );
         })}

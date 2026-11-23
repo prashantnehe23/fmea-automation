@@ -235,6 +235,23 @@ export async function* streamRemediate(scanId) {
 }
 
 /**
+ * B-053: a proposed fix for one action of one finding, and the person's decision on it.
+ */
+async function _fixCall(path, body) {
+  const res = await apiFetch(`${BASE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `The request failed (HTTP ${res.status}).`);
+  }
+  return res.json();
+}
+export const proposeFix = (scanId, failureMode, actionId) =>
+  _fixCall('/api/remediate/finding', { scan_id: scanId, failure_mode: failureMode, action_id: actionId });
+export const recordFixDecision = (scanId, failureMode, actionId, decision) =>
+  _fixCall('/api/remediate/decision', { scan_id: scanId, failure_mode: failureMode, action_id: actionId, decision });
+
+/**
  * GET /api/remediate/{remediationId} — retrieve completed remediation results.
  */
 export async function getRemediation(remediationId) {

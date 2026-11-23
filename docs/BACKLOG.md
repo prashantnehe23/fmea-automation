@@ -292,6 +292,47 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
+### B-053 · Remediate Button and Fix Review Panel `[~]` IMPLEMENTED 2026-11-23, live check on a real scan partly done — P1 (engineer-requested for the demo; approved 2026-11-22)
+
+**Why:** corrective and preventive actions tell an engineer what to do; the next step is a proposed fix they can review.
+
+**Scope:** a **Remediate** button on each corrective and preventive action (Mitigations and Findings pages). It asks the model for a fix for that action (diff, replacement code, test) and opens a side panel where a developer or security engineer **accepts**, **rejects** or **edits** it. Every decision goes to the audit trail with the person's name. Accepted code can be copied or downloaded as a patch. **Not in this item:** raising a pull request (B-049, needs a GitHub write token and an ADR; engineer chose to skip it for the first demo), applying the change to a repository, Python-only fix generation limits (the existing remediation agent writes Python).
+
+**Found while checking it live (2026-11-23):** after a finding is renamed to its locked canonical name, its controls, fix plan and validation kept the old name, and the interface pairs them with the finding by name, so a rescanned finding could show no actions at all. The pipeline now renames all three with the finding (test in `tests/test_finding_lifecycle.py`; it failed before the fix). **Known limits:** the fix is written for Python code; the server keeps scans in memory, so after a server restart a fix can only be proposed after rescanning; in the development server the panel asks twice (React strict mode), in a production build once; the slow part is the model (GPT-6.2 Sol answered in 15 to 150 seconds in checks).
+
+**Acceptance criteria:**
+- [x] `POST /api/remediate/finding` returns a diff, replacement code and test for one chosen action of one finding; a missing scan or finding is a 404 with a plain message; a provider refusal is a plain message, not a trace (tests)
+- [x] The chosen action, not just the top one, steers the fix (test)
+- [x] `POST /api/remediate/decision` records accepted, edited or rejected with the user and the finding in the audit trail; only roles that may scan can call either route (tests, policy table)
+- [x] The button shows on both kinds of action; the panel shows the diff, lets the code be edited, and offers Accept, Reject and Edit; a rejected fix changes nothing (JS tests)
+- [x] Accepted or edited code can be copied and downloaded (JS test)
+
+---
+
+### B-054 · Left Pane and Navigation Redesign `[ ]` PROPOSED — P1 (engineer-requested 2026-11-22; research first)
+
+**Why:** the engineer finds the left pane unintuitive: seven numbered steps, some dimmed, a role switcher and a project tree all stacked together.
+
+**Stage 1 done 2026-11-23: the proposal is in `docs/design/left-pane-proposal.md`, waiting for the engineer's decision.** **Scope, stage 1 (approved 2026-11-22): research and proposal only.** Compare how comparable tools lay out navigation (Claude Code, GitHub security tab, Snyk, Linear, Semgrep and similar) and propose a design with trade-offs for the engineer to approve; no code until then. Builds on the open B-048 phase 1 items (navigation Overview / Findings / Coverage / Reports / Settings).
+
+**Acceptance criteria (stage 1):**
+- [x] A design note in `docs/` with the comparison, the proposed structure and its trade-offs, and screenshots or a sketch of the proposal
+- [ ] The engineer approves, changes or rejects it; build is a separate item
+
+---
+
+### B-055 · Dimmed Steps Read as Disabled `[x]` DONE 2026-11-23 — P0 (demo; engineer-reported)
+
+**Why:** Mitigations, Auto-Remediation and Dashboard look disabled for the signed-in role. They are only dimmed (steps outside the role's main ones), but the dimming and the dot read as "not available", and the engineer expected the steps to be enabled by role.
+
+**Scope:** every step is clearly available and clickable for every signed-in role; the role's main steps are marked as such instead of the others being faded. Whether a role may act on a step is shown by the step's own controls and by the server (already enforced). **Not in this item:** changing what each role may do (`api/policy.py`) or adding an SRE role (none exists today; SRE is only a view in demo mode).
+
+**Acceptance criteria:**
+- [x] No step is dimmed or dotted for any role; the role's main steps carry a visible marker (JS test for every role)
+- [x] Every step can be opened by every signed-in role (JS test)
+
+---
+
 ### B-050 · Control Mapping as Data `[ ]` PROPOSED — P2
 
 **Why:** Compliance alignment was claimed without an implementation (removed by B-044). Risk owners need findings mapped to the controls they report on.

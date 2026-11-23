@@ -335,6 +335,10 @@ def run_fmea(
 
     # A finding renamed to its locked canonical name keeps its root cause: align by position, not by the old name
     root_causes = [rc.model_copy(update={"failure_mode": f.failure_mode}) for rc, f in zip(root_causes, failures)]
+    # The same goes for controls, fix plans and validations: the interface pairs them with the finding by name
+    def _named_like(items):
+        return [i.model_copy(update={"failure_mode": f.failure_mode}) for i, f in zip(items, failures)] if len(items) == len(failures) else items
+    controls, remediations, validations = _named_like(controls), _named_like(remediations), _named_like(validations)
     domains = {rc.failure_mode: rc.primary for rc in root_causes if rc.primary != "unclassified"}
 
     # ── Track genuinely new scenarios (after dedup) ────────────────────────────

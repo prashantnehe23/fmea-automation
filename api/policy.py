@@ -59,6 +59,8 @@ POLICY: dict[tuple[str, str], str] = {
     ("POST", "/api/github/scan"): "scan",
     ("POST", "/api/github/preview"): "scan",
     ("POST", "/api/remediate"): "scan",
+    ("POST", "/api/remediate/finding"): "scan",
+    ("POST", "/api/remediate/decision"): "scan",
     # chat
     ("POST", "/api/chat"): "chat",
     ("POST", "/api/chat/stream"): "chat",

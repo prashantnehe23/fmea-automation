@@ -52,15 +52,17 @@ def generate_fix(
     failure: FailureMode,
     plan: RemediationPlan,
     code: str,
+    action_id: str | None = None,
 ) -> RemediationResult:
     """
     LLM call: generate a code diff, test stub, and patched function for this failure.
     Returns a RemediationResult with before_rpn=0 (caller fills it in).
     """
     relevant = _extract_relevant_code(code, failure)
-    corrective, _ = plan_actions(plan)
+    corrective, preventive = plan_actions(plan)
+    chosen = [a for a in corrective + preventive if a.id == action_id] if action_id else []      # B-053: the action the person chose
     top_fixes = [{"title": a.title, "detail": a.detail, "target": a.target, "verification": a.verification}
-                 for a in ([a for a in corrective if a.kind == "code_fix"] or corrective)[:3]]
+                 for a in (chosen or [a for a in corrective if a.kind == "code_fix"] or corrective)[:3]]
 
     prompt = f"""
 You are a senior security engineer implementing a fix for a known vulnerability.
