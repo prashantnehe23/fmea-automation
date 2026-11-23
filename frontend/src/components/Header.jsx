@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { PERSONAS, PROCESS_STEPS, HIERARCHY, SCOPE_LABEL } from '../data';
+import { PERSONAS, PROCESS_STEPS, NAV_GROUPS, HIERARCHY, SCOPE_LABEL } from '../data';
 import { ORG } from '../data';
 import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, setProviderEndpoint, addCustomModel, getReasoning, setReasoning, verifyProviderKey,
   listRepoCredentials, saveRepoCredential, deleteRepoCredential } from '../api';
@@ -128,6 +128,7 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
   };
   const current  = PERSONAS.find(p => p.id === persona);
   const stepInfo = PROCESS_STEPS.find(s => s.id === step);
+  const navGroup = NAV_GROUPS.find(g => g.steps.includes(step));
   const portfolio = HIERARCHY.find(p => p.id === sel.portfolioId);
   const project   = portfolio?.projects.find(p => p.id === sel.projectId);
 
@@ -155,10 +156,8 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
         </div>
         {/* Step title */}
         <div className="flex items-center gap-2">
-          <span>{stepInfo?.icon}</span>
-          <p className="text-sm font-bold text-gray-900">{stepInfo?.label}</p>
-          <span className="text-xs text-gray-300">·</span>
-          <p className="text-xs text-gray-400">Step {stepInfo?.step} of {PROCESS_STEPS.length}</p>
+          <span>{navGroup?.icon ?? stepInfo?.icon}</span>
+          <p className="text-sm font-bold text-gray-900">{navGroup?.label ?? stepInfo?.label}</p>
         </div>
       </div>
 

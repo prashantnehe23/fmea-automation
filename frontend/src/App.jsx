@@ -28,6 +28,7 @@ import {
   getProjectScan,
 } from './api';
 import LoginPage from './pages/LoginPage';
+import SubTabs from './components/SubTabs';
 
 // The view each real role gets; the persona switcher only exists in demo mode (B-015)
 const ROLE_PERSONA = { admin: 'security_engineer', security_engineer: 'security_engineer', risk_manager: 'risk_manager', developer: 'developer', viewer: 'executive' };
@@ -385,11 +386,13 @@ function Workspace({ user, status, onLogout }) {
         onScope={switchScope}
         onAddPortfolio={addPortfolio}
         onAddProject={addProject}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} settingsOpen={settingsOpen} onSettingsOpenChange={setSettingsOpen} isAdmin={user.role === 'admin'} />
         <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto bg-gray-50">
+          <SubTabs step={step} onStep={setStep} />
           <Content
             persona={persona}
             sel={sel}

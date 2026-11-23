@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { PERSONAS, PROCESS_STEPS, PERSONA_PRIMARY, PERSONA_SCOPE_OPTIONS, SCOPE_LABEL } from '../data';
+import { PERSONAS, NAV_GROUPS, PERSONA_PRIMARY, PERSONA_SCOPE_OPTIONS, SCOPE_LABEL } from '../data';
 import HierarchyTree from './HierarchyTree';
 
 const ROLE_LABEL = { admin: 'Administrator', security_engineer: 'Security engineer', risk_manager: 'Risk manager', developer: 'Developer', viewer: 'Viewer' };
 
-export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHistory, onPersona, onStep, onSelect, onScope, onAddPortfolio, onAddProject, user, canSwitchPersona, onLogout }) {
+export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHistory, onPersona, onStep, onSelect, onScope, onAddPortfolio, onAddProject, onOpenSettings, user, canSwitchPersona, onLogout }) {
   const [personaOpen, setPersonaOpen] = useState(false);
   const current      = PERSONAS.find(p => p.id === persona);
   const primarySteps = PERSONA_PRIMARY[persona];
@@ -103,29 +103,31 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
         </div>
       </div>
 
-      {/* Process steps nav */}
-      <div className="px-3 py-3 border-t border-blue-200 flex-shrink-0">
-        <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2 px-1">Process</p>
-        {PROCESS_STEPS.map(s => {
-          const isPrimary = primarySteps.includes(s.id);
-          const isActive  = step === s.id;
+      {/* Navigation: four plain entries (B-054 step 1) */}
+      <nav aria-label="Main" className="px-3 py-3 border-t border-blue-200 flex-shrink-0">
+        {NAV_GROUPS.map(g => {
+          const isMain   = g.steps.some(id => primarySteps.includes(id));
+          const isActive = g.steps.includes(step);
           return (
             <button
-              key={s.id}
-              onClick={() => onStep(s.id)}
+              key={g.id}
+              onClick={() => onStep(g.steps[0])}
+              aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs mb-0.5 transition-colors text-left font-semibold ${
-                isActive
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-gray-700 hover:bg-blue-200'
+                isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-700 hover:bg-blue-200'
               }`}
             >
-              <span>{s.icon}</span>
-              <span className="flex-1">{s.label}</span>
-              {isPrimary && <span data-main-step title="A main step for your role" className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+              <span>{g.icon}</span>
+              <span className="flex-1">{g.label}</span>
+              {isMain && <span data-main-step title="A main area for your role" className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
             </button>
           );
         })}
-      </div>
+        <button onClick={onOpenSettings}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs mt-2 text-gray-700 hover:bg-blue-200 text-left font-semibold">
+          <span>⚙️</span><span className="flex-1">Settings</span>
+        </button>
+      </nav>
 
       {/* User footer */}
       <div className="px-4 py-3 border-t border-blue-200 flex-shrink-0">

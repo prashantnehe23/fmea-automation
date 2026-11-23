@@ -309,7 +309,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-054 · Left Pane and Navigation Redesign `[ ]` PROPOSED — P1 (engineer-requested 2026-11-22; research first)
+### B-054 · Left Pane and Navigation Redesign `[~]` STEP 1 IMPLEMENTED 2026-11-23 — P1 (engineer-requested 2026-11-22; proposal approved 2026-11-23)
 
 **Why:** the engineer finds the left pane unintuitive: seven numbered steps, some dimmed, a role switcher and a project tree all stacked together.
 
@@ -317,7 +317,15 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 **Acceptance criteria (stage 1):**
 - [x] A design note in `docs/` with the comparison, the proposed structure and its trade-offs, and screenshots or a sketch of the proposal
-- [ ] The engineer approves, changes or rejects it; build is a separate item
+- [x] The engineer approves, changes or rejects it: approved 2026-11-23 (with the hierarchy direction), step 1 to be built before the demo
+
+**Step 1 (built 2026-11-23, tests in `frontend/src/__tests__/Sidebar.test.jsx` and `Header.test.jsx`):** the left pane lists Overview, Scan, Findings, Fixes and Settings with no numbered process; Findings holds Findings, Scenarios and Scoring as tabs, Fixes holds Fix actions and Auto-remediation as tabs; Settings opens the existing panel; the header no longer says "Step N of 7". The role was already shown under the name at the top, so no second role label was added. No page, API or permission changed. **Open (after the demo):** counts on Findings and Fixes, the project switcher and breadcrumb, folding the scenario and scoring views into Findings, and the project / portfolio / component direction in the proposal.
+
+**Acceptance criteria (step 1):**
+- [x] Four plain entries plus Settings, each opening the first page of its group; no numbering; the group stays highlighted on its other pages
+- [x] Scenarios, Scoring and Auto-remediation stay reachable as tabs
+- [x] No entry is dimmed; groups with a main step for the role are marked
+- [x] Settings in the left pane opens the settings panel; the header shows no step count
 
 ---
 

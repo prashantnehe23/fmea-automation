@@ -1,6 +1,6 @@
 # Left pane and navigation: comparison and proposal (B-054, stage 1)
 
-Status: **proposal for the engineer's decision**. No code changes are made from this note until it is approved.
+Status: **approved by the engineer on 2026-11-23**, including the hierarchy direction below. Step 1 is built (see B-054 in `docs/BACKLOG.md`); steps 2 to 4 and the hierarchy work wait until after the demo.
 
 ## What is wrong today
 
@@ -69,7 +69,20 @@ Common to all four: **a short list of nouns people already use** (Overview, Find
 3. Project switcher.
 4. Fold the scenario and scoring views into Findings, and merge the two fix pages, after the review queue exists.
 
-## Decisions I need
+## Project, portfolio and component structure (stage 2, approved 2026-11-23, not built)
+
+- One place to say where you are: a **project switcher** at the top of the left pane (search, grouped by portfolio) plus a breadcrumb in the page header. The tree and the View level buttons go.
+- **Portfolio is a page**: a table of its projects (findings by priority, highest RPN, last scan); click a row to open the project.
+- **Component is a filter** on Findings (and a grouping), not a level. Roles limited to one component start with it preset.
+- **Projects come from scanning**: the first run asks for a repository URL or pasted code and creates the project, with a default portfolio. New Portfolio and New Project stay as small actions in the switcher.
+- Role scope stays enforced on the server.
+- Order after the demo: switcher and breadcrumb, portfolio table, Component filter, create-on-scan. It changes the selection state in `App.jsx`, so it is larger and riskier than step 1.
+
+## Decisions I needed (answered 2026-11-23)
+
+Approved the structure; build step 1 before the demo; the Scenarios and Scoring tables survive as tabs inside Findings.
+
+## Original decision list
 
 1. Approve the structure above, change it, or reject it.
 2. Whether to build step 1 before the demo or after.
