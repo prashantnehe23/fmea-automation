@@ -155,5 +155,6 @@ async def propose_fix(req: FixRequest):
 async def record_fix_decision(req: FixDecision, request: Request):
     """Record accepted, edited or rejected with the person's name. The code itself is not stored here."""
     _stored_failure_and_plan(req)
-    auth.record_event(request.state.user, f"fix_{req.decision}", f"{req.failure_mode} | action {req.action_id} | scan {req.scan_id}")
+    clean = lambda text: " ".join(str(text).replace("|", "/").split())[:160]          # model-written text: one line, no separators
+    auth.record_event(request.state.user, f"fix_{req.decision}", f"{clean(req.failure_mode)} | action {clean(req.action_id)} | scan {req.scan_id}")
     return {"decision": req.decision, "failure_mode": req.failure_mode, "action_id": req.action_id}

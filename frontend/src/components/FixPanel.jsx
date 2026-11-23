@@ -91,8 +91,8 @@ export default function FixPanel({ scanId, failureMode, action, onClose }) {
           <div className="flex gap-2">
             <button onClick={() => { navigator.clipboard?.writeText(code); setCopied(true); }}
                     className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">{copied ? 'Copied' : 'Copy code'}</button>
-            <a href={`data:text/plain;charset=utf-8,${encodeURIComponent(patchText)}`} download="fix.patch"
-               className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">Download patch</a>
+            <a href={`data:text/plain;charset=utf-8,${encodeURIComponent(patchText)}`} download="fix-proposal.txt"
+               className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">Download proposal</a>
           </div>
         </div>
       )}

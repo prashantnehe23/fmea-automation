@@ -44,7 +44,7 @@ describe('Remediate button and fix review panel (B-053)', () => {
     await user.click(await screen.findByRole('button', { name: 'Accept' }));
     await waitFor(() => expect(api.recordFixDecision).toHaveBeenCalledWith(5, 'SQL Injection', 'c1', 'accepted'));
     expect(await screen.findByRole('button', { name: 'Copy code' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Download patch' })).toHaveAttribute('download');
+    expect(screen.getByRole('link', { name: 'Download proposal' })).toHaveAttribute('download');
   });
 
   it('records an edited fix as edited, and keeps the edit', async () => {

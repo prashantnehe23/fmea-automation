@@ -337,7 +337,10 @@ def run_fmea(
     root_causes = [rc.model_copy(update={"failure_mode": f.failure_mode}) for rc, f in zip(root_causes, failures)]
     # The same goes for controls, fix plans and validations: the interface pairs them with the finding by name
     def _named_like(items):
-        return [i.model_copy(update={"failure_mode": f.failure_mode}) for i, f in zip(items, failures)] if len(items) == len(failures) else items
+        if len(items) != len(failures):
+            logging.getLogger(__name__).warning("per-finding results (%d) and findings (%d) differ in number; names left as they are", len(items), len(failures))
+            return items
+        return [i.model_copy(update={"failure_mode": f.failure_mode}) for i, f in zip(items, failures)]
     controls, remediations, validations = _named_like(controls), _named_like(remediations), _named_like(validations)
     domains = {rc.failure_mode: rc.primary for rc in root_causes if rc.primary != "unclassified"}
 
