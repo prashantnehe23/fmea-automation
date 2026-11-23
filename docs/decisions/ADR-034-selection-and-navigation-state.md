@@ -29,3 +29,9 @@ The approved direction (proposal, 2026-11-23) replaces the tree with a project s
 
 ## Decided
 Accepted with all six points as written, including what each role starts with (point 3) and no router now (point 5).
+
+## Implementation notes (2026-11-23)
+- **A component is a file a finding cites.** Findings carry no separate component field (the earlier "component" was a label that was never filled), so the picker lists the files named by each finding's exploit path and evidence, with how many findings cite each; choosing one keeps the findings that cite it. A finding that cites no file is in "All components" only. Grouping files into folders or services is a later refinement.
+- **A role that works only at component level** (the developer) has no "All components" choice and starts with the most cited component once a scan is loaded.
+- **The saved selection** keeps its shape and is cut back to what the role may use when it is read, so a selection saved as one role never gives another role a deeper view than it may have.
+- The tree component and the View level buttons are removed; the inline forms and the scan badge moved to `components/NewEntityForms.jsx`.

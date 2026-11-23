@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import { PERSONAS, NAV_GROUPS, PERSONA_PRIMARY, PERSONA_SCOPE_OPTIONS, SCOPE_LABEL } from '../data';
-import HierarchyTree from './HierarchyTree';
+import { PERSONAS, NAV_GROUPS, PERSONA_PRIMARY } from '../data';
+import ProjectSwitcher from './ProjectSwitcher';
 
 const ROLE_LABEL = { admin: 'Administrator', security_engineer: 'Security engineer', risk_manager: 'Risk manager', developer: 'Developer', viewer: 'Viewer' };
 
-export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHistory, onPersona, onStep, onSelect, onScope, onAddPortfolio, onAddProject, onOpenSettings, user, canSwitchPersona, onLogout, counts }) {
+export default function Sidebar({ persona, step, sel, hierarchy, scanHistory, onPersona, onStep, onSelect, onAddPortfolio, onAddProject, onOpenSettings, user, canSwitchPersona, onLogout, counts }) {
   const [personaOpen, setPersonaOpen] = useState(false);
   const current      = PERSONAS.find(p => p.id === persona);
   const primarySteps = PERSONA_PRIMARY[persona];
-  const scopeOptions = PERSONA_SCOPE_OPTIONS[persona];
 
   return (
     <div className="w-56 flex-shrink-0 h-screen flex flex-col" style={{ backgroundColor: '#DBEAFE' }}>
@@ -66,42 +65,16 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
         )}
       </div>
 
-      {/* Scope switcher — only shown when persona has >1 scope option */}
-      {scopeOptions.length > 1 && (
-        <div className="px-3 pb-3 flex-shrink-0">
-          <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1.5 px-1">View level</p>
-          <div className="flex flex-col gap-0.5">
-            {scopeOptions.map(l => (
-              <button
-                key={l}
-                onClick={() => onScope(l)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors text-left ${
-                  scope === l ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-blue-200'
-                }`}
-              >
-                <span>{l === 'component' ? '📄' : l === 'project' ? '🗂️' : l === 'portfolio' ? '📁' : '🏢'}</span>
-                {SCOPE_LABEL[l]}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Hierarchy tree */}
-      <div className="flex-1 overflow-hidden flex flex-col border-t border-blue-200">
-        <p className="px-4 pt-2.5 pb-1 text-xs font-bold text-blue-400 uppercase tracking-wider flex-shrink-0">Workspace</p>
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
-          <HierarchyTree
-            persona={persona}
-            sel={sel}
-            hierarchy={hierarchy}
-            scanHistory={scanHistory}
-            onSelect={onSelect}
-            onAddPortfolio={onAddPortfolio}
-            onAddProject={onAddProject}
-          />
-        </div>
-      </div>
+      {/* Where you are: one switcher replaces the View level buttons and the tree (ADR-034) */}
+      <ProjectSwitcher
+        persona={persona}
+        sel={sel}
+        hierarchy={hierarchy}
+        scanHistory={scanHistory}
+        onSelect={onSelect}
+        onAddPortfolio={onAddPortfolio}
+        onAddProject={onAddProject}
+      />
 
       {/* Navigation: four plain entries (B-054 step 1) */}
       <nav aria-label="Main" className="px-3 py-3 border-t border-blue-200 flex-shrink-0">

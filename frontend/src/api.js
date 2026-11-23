@@ -6,6 +6,8 @@
  * in development.  Set VITE_API_URL in production if needed.
  */
 
+import { findingFiles } from './selection';
+
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
 // B-015: every request carries the session cookie and the header the server requires on changes.
@@ -658,6 +660,7 @@ export function normalizeScanResult(apiResult, sel) {
       status:    'Open',
       // ── Workspace / hierarchy ─────────────────────────────────────────────
       comp:      sel?.componentName ?? 'Scanned',
+      files:     findingFiles(f),                       // the components this finding cites (ADR-034)
       project:   sel?.projectId     ?? 'pr1',
       portfolio: sel?.portfolioId   ?? 'p1',
       owner:     'Dev Team',

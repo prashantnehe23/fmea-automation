@@ -10,10 +10,10 @@ import RemediationPage from './pages/RemediationPage';
 import DashboardPage   from './pages/DashboardPage';
 import ChatPanel       from './components/ChatPanel';
 import { navCounts } from './helpers';
+import { EMPTY_SEL, deriveScope, limitSel, componentsOf, filterByComponent, defaultComponent, keepValidComponent } from './selection';
 import {
   PROCESS_STEPS,
   PERSONA_PRIMARY,
-  PERSONA_DEFAULT_SCOPE,
 } from './data';
 import {
   normalizeScanResult,
@@ -64,8 +64,6 @@ function ls(key, fallback) {
 function lsSave(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
-
-const EMPTY_SEL = { portfolioId: null, projectId: null, componentId: null, componentName: null };
 
 function validateSel(sel, hierarchy) {
   if (!sel?.portfolioId) return EMPTY_SEL;
@@ -144,16 +142,27 @@ function Workspace({ user, status, onLogout }) {
   // Real users get the view of their role; the switcher exists only in demo mode (B-015)
   const [persona, setPersona] = useState(ROLE_PERSONA[user.role] ?? 'developer');
   const [step,    setStep]    = useState('scan');
-  const [scope,   setScope]   = useState('project');
   const [chatOpen, setChatOpen] = useState(() => ls(KEY_CHAT_OPEN, false));
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sel,     setSel]     = useState(init.sel);
+  const [selState, setSel]    = useState(init.sel);
 
   const [hierarchy,   setHierarchyState]   = useState(init.hierarchy);
   const [scanHistory, setScanHistoryState] = useState(init.scanHistory);
   const [scanResult,  setScanResult]       = useState(init.scanResult);
   const [liveScanId,  setLiveScanId]       = useState(init.liveScanId);
   const [adjustments, setAdjustments]     = useState({});   // failure_mode → latest score adjustment
+
+  // What the role may use of the saved selection, and the scope that follows from it (ADR-034).
+  // The project's findings come from that project's own stored scan, so a project switch never shows another project's components.
+  const limitedSel   = useMemo(() => limitSel(selState, persona), [selState, persona]);
+  const projectScan  = limitedSel.projectId ? (scanHistory[limitedSel.projectId]?.result ?? null) : null;
+  const projectRisks = useMemo(() => {
+    const risks = projectScan ? normalizeScanResult(projectScan, { ...limitedSel, componentName: null }) : null;
+    return risks && applyAdjustments(risks, adjustments);
+  }, [projectScan, limitedSel.portfolioId, limitedSel.projectId, adjustments]); // eslint-disable-line react-hooks/exhaustive-deps
+  const projectComponents = useMemo(() => (limitedSel.projectId ? componentsOf(projectRisks) : []), [projectRisks, limitedSel.projectId]);
+  const sel   = useMemo(() => keepValidComponent(limitedSel, projectComponents), [limitedSel, projectComponents]);
+  const scope = deriveScope(sel, persona);
 
   // Ref lets the project-switch effect always read latest scanHistory without
   // re-firing on every scan (we only want to fire on project *selection* changes)
@@ -209,7 +218,7 @@ function Workspace({ user, status, onLogout }) {
   const toggleChat = () => setChatOpen(v => { lsSave(KEY_CHAT_OPEN, !v); return !v; });
 
   // ── Persist sel whenever it changes ─────────────────────────────────────────
-  useEffect(() => { lsSave(KEY_SEL, sel); }, [sel]);
+  useEffect(() => { lsSave(KEY_SEL, selState); }, [selState]);
 
   // ── Restore scan result when the user switches to a different project ────────
   useEffect(() => {
@@ -252,7 +261,6 @@ function Workspace({ user, status, onLogout }) {
         : p,
     ));
     setSel({ portfolioId, projectId: newProject.id, componentId: null, componentName: null });
-    setScope('project');
     setStep('scan');
     return newProject.id;
   };
@@ -308,10 +316,17 @@ function Workspace({ user, status, onLogout }) {
   // For project/component scope: use the active scan result.
   // For portfolio/org scope: aggregate risks from every scanned project in scope,
   // tagging each risk with the correct projectId and portfolioId for aggregation tables.
+  // a role that works only at component level always has one selected
+  useEffect(() => {
+    if (sel.projectId && !sel.componentName) {
+      const first = defaultComponent(persona, projectComponents);
+      if (first) setSel(s => ({ ...s, componentName: first }));
+    }
+  }, [persona, sel.projectId, sel.componentName, projectComponents]);
+
   const liveRisks = useMemo(() => {
     if (scope === 'project' || scope === 'component') {
-      const risks = scanResult ? normalizeScanResult(scanResult, sel) : null;
-      return risks && applyAdjustments(risks, adjustments);
+      return filterByComponent(projectRisks, scope === 'component' ? sel.componentName : null);
     }
     if (scope === 'portfolio') {
       const portfolio = hierarchy.find(p => p.id === sel.portfolioId);
@@ -340,7 +355,7 @@ function Workspace({ user, status, onLogout }) {
       return risks.length ? risks : null;
     }
     return null;
-  }, [scope, scanResult, sel, hierarchy, scanHistory, adjustments]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scope, projectRisks, sel, hierarchy, scanHistory, adjustments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const liveContext   = scanResult ? getContextSummary(scanResult) : null;
   const workspaceId   = sel.projectId ? (scanHistory[sel.projectId]?.workspace_id ?? null) : null;
@@ -353,23 +368,10 @@ function Workspace({ user, status, onLogout }) {
 
   const switchPersona = p => {
     setPersona(p);
-    const defaultScope = PERSONA_DEFAULT_SCOPE[p];
-    setScope(defaultScope);
     setStep(PROCESS_STEPS.find(s => PERSONA_PRIMARY[p].includes(s.id))?.id ?? 'scenarios');
-    if (defaultScope === 'portfolio') setSel(s => ({ ...s, projectId: null, componentId: null, componentName: null }));
-    if (defaultScope === 'org')       setSel(EMPTY_SEL);
-  };
-
-  const switchScope = s => {
-    setScope(s);
-    if (s === 'org' || s === 'portfolio') {
-      setSel(p => ({ portfolioId: p.portfolioId ?? null, projectId: null, componentId: null, componentName: null }));
-    }
   };
 
   const Content = PAGES[step];
-  // No component picker exists yet: a 'component' scope without a component means the selected project
-  const pageScope = scope === 'component' && !sel.componentName ? 'project' : scope;
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
@@ -377,7 +379,6 @@ function Workspace({ user, status, onLogout }) {
         persona={persona}
         step={step}
         sel={sel}
-        scope={scope}
         hierarchy={hierarchy}
         scanHistory={scanHistory}
         onPersona={switchPersona}
@@ -386,21 +387,20 @@ function Workspace({ user, status, onLogout }) {
         onLogout={onLogout}
         onStep={setStep}
         onSelect={setSel}
-        onScope={switchScope}
         onAddPortfolio={addPortfolio}
         onAddProject={addProject}
         onOpenSettings={() => setSettingsOpen(true)}
         counts={navCounts(liveRisks)}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header persona={persona} step={step} sel={sel} scope={scope} chatOpen={chatOpen} onToggleChat={toggleChat} settingsOpen={settingsOpen} onSettingsOpenChange={setSettingsOpen} isAdmin={user.role === 'admin'} />
+        <Header persona={persona} step={step} sel={sel} hierarchy={hierarchy} components={projectComponents} onSelect={setSel} chatOpen={chatOpen} onToggleChat={toggleChat} settingsOpen={settingsOpen} onSettingsOpenChange={setSettingsOpen} isAdmin={user.role === 'admin'} />
         <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto bg-gray-50">
           <SubTabs step={step} onStep={setStep} />
           <Content
             persona={persona}
             sel={sel}
-            scope={pageScope}
+            scope={scope}
             settingsOpen={settingsOpen}
             onOpenSettings={() => setSettingsOpen(true)}
             canDecideFindings={['admin', 'security_engineer'].includes(user.role)}
