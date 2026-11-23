@@ -1,6 +1,6 @@
 # FMEA Platform — Product Backlog
 
-> Last updated: 2026-11-21 (re-prioritised for go-to-market from `docs/DISCOVERY-2026-11.md`; added B-042..B-051)  
+> Last updated: 2026-11-23 (system design review `docs/SYSTEM-DESIGN-REVIEW-2026-11.md`: B-058..B-069 approved in the suggested order); 2026-11-21 (re-prioritised for go-to-market from `docs/DISCOVERY-2026-11.md`; added B-042..B-051)  
 > Single source of truth — `docs/BACKLOG.md`  
 > Status: `[x]` Done · `[~]` In progress · `[ ]` Not started · Priorities: P0 must-have, P1 next, P2 later, P3 strategic
 
@@ -46,6 +46,27 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 | 18 | B-056 — *added 2026-11-23, engineer-approved for today (P0, demo)* | Fix proposals that survive a restart, use the cited code and give a real diff (A, B, C) | **yes** (ADR-033, Accepted 2026-11-23) | B-053 |
 | 19 | B-054 steps 2 and 3 — *engineer-approved 2026-11-23; step 2 done 2026-11-23* | Left pane: counts (step 2, done); project switcher, breadcrumb and component picker (step 3, **ADR-034 Accepted 2026-11-23**) | step 3 only | B-054 step 1 |
 | 20 | B-057 — *proposed 2026-11-23, not yet prioritised by the engineer* | Fixes in the language of the code, and a check that a fix parses beyond Python | no | B-056 |
+
+### Approved from the system design review — *engineer accepted the suggested order 2026-11-23*
+
+From `docs/SYSTEM-DESIGN-REVIEW-2026-11.md` (gaps G1-G12, evidence and reasons there). Order and priorities accepted by the engineer 2026-11-23. Items marked *ADR first* need an accepted ADR before code.
+
+| Order | Item | Title | Priority | ADR first | Depends on | Size |
+|---|---|---|---|---|---|---|
+| 1 | B-058 | CI for this repository and a reproducible image (G5) | P0 | no | none | S |
+| 2 | B-059 | Pre-pilot proof run: close every open live criterion (G10) | P0 | no | B-058, keys and a budget | M |
+| 3 | B-063 | Spend ceiling on every scan type (G8) | P1 | no | none | S |
+| 4 | B-061 | Stable finding id across API, UI and child records (G2) | P1 | **yes** | B-031 | M |
+| 5 | B-060 | Scans as durable jobs with one id and a bounded queue (G1) | P1 | **yes** | B-061 | M |
+| 6 | B-062 | Versioned migrations, backup, restore and upgrade runbook (G3) | P1 | no | B-058 | S-M |
+| 7 | B-064 | Project membership and project-scoped access (G6) | P1 | ADR-027 amendment | B-060 | M |
+| 8 | B-065 | System threat model and customer data-flow statement (G11) | P1 | no | none | S-M |
+| 9 | B-067 | Operator observability and diagnostic bundle (G7) | P2 | no | B-060 | M |
+| 10 | B-068 | Outcome signal from human decisions; triage-acceptance metric (G9) | P2 (metric P1) | **yes** (extends ADR-005) | B-061 | M |
+| 11 | B-066 | Move JSON state into the database (G4) | P2 | no | B-062 | S-M |
+| 12 | B-069 | Remove the legacy Streamlit app from what ships (G12) | P2 | no | none | S |
+
+B-061 comes before B-016, B-049 and B-011, because those publish finding references to external systems.
 
 ### Paused — resume after the P1 list (moved to P2)
 
@@ -391,6 +412,167 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 - [ ] The prompt carries the language of the cited files (tests for each supported language)
 - [ ] A changed file in a supported language that no longer parses is flagged (tests)
 - [ ] An unsupported language is proposed without a parse check and says so
+
+---
+
+### B-058 · CI for This Repository and a Reproducible Image `[ ]` APPROVED 2026-11-23 — P0
+
+**Why:** there is no `.github/` workflow; every "tests green" in this file rests on one machine, the container has never been built (B-042), and `cryptography` is unpinned. Design review G5.
+
+**Scope:** a GitHub Actions workflow on every push and pull request: pytest, vitest, frontend build, Docker image build, container smoke test (health, first-run sign-in, one scan with a fake provider), dependency audit; pinned Python dependencies.
+
+**Acceptance criteria:**
+- [ ] A pull request shows a required check that runs the Python and JS suites and fails on one failing test (recorded)
+- [ ] The image builds in CI and the smoke test passes against the running container (recorded)
+- [ ] Python dependencies are pinned; the audit step fails on a known-vulnerable pin (test with a deliberately old pin, then reverted)
+
+---
+
+### B-059 · Pre-Pilot Proof Run `[ ]` APPROVED 2026-11-23 — P0
+
+**Why:** several shipped items are implemented but unproven at their real edges, which is where a pilot breaks first. Design review G10.
+
+**Scope:** close, with a recorded run, the open live criteria of B-042 (`docker compose up` plus a benchmark scan), B-028 phase 0 (Quick-depth cost and B-026 recall), B-012 (live re-run with the diff filter), B-043 (real private repository), B-045 (one real Semgrep or CodeQL export), B-047 (one new hosted provider), B-015 (one real identity provider). Licence file chosen. No new features.
+
+**Acceptance criteria:**
+- [ ] Each listed criterion is ticked in its own item with the date, model, cost and result file, or recorded as failed with the follow-up item
+- [ ] Total spend stays within the budget the engineer sets before starting
+
+---
+
+### B-060 · Scans as Durable Jobs with One Id and a Bounded Queue `[ ]` APPROVED 2026-11-23 — P1, *ADR first*
+
+**Why:** a scan runs inside the SSE request (`api/routers/scan.py`, `api/routers/github.py`) on the default thread pool; its UI id is a process counter (`api/store.py`) unrelated to the database id; no queue, no cancel, no record of a running scan. A dropped connection hides a result that is still being paid for; a restart loses it; PR-check volume has no backpressure. Design review G1.
+
+**Scope:** ADR; `scan_jobs` table (state, owner, project, started, finished, cost so far, error); bounded worker pool with a per-install concurrency limit; the stream reads the job; one database id everywhere; `GET /api/scans/{id}` and cancel; `scan_store` and the counters retired.
+
+**Acceptance criteria:**
+- [ ] ADR accepted
+- [ ] Closing the stream mid-scan does not stop the scan; reopening shows progress and the result (test)
+- [ ] With the limit at N, scan N+1 waits in `queued` and starts when one finishes (test)
+- [ ] A restart marks running jobs `failed` with a plain reason; no result is attributed to the wrong id (test)
+- [ ] Cancel stops further model calls within one in-flight call (test with a fake model)
+- [ ] No route reads `scan_store` (grep test)
+
+---
+
+### B-061 · Stable Finding Id Across API, UI and Child Records `[ ]` APPROVED 2026-11-23 — P1, *ADR first*
+
+**Why:** routes and the UI address findings by `failure_mode` name (`api/routers/remediation.py`); controls, fix plans and validations are paired to findings by name (B-053 found a bug from this). Tickets, pull requests and reports would carry names into other systems. Design review G2.
+
+**Scope:** ADR; `finding_id` stable across scans (from the B-031 identity), on every finding and every child record; routes take the id; names are display text; old snapshots get ids on read.
+
+**Acceptance criteria:**
+- [ ] ADR accepted
+- [ ] Two findings with the same name keep their own controls, plans and fixes (test)
+- [ ] A finding renamed to its locked canonical name keeps its id and children (test)
+- [ ] The same finding in two scans has the same id; the fix and decision routes accept only ids (tests)
+- [ ] Stored scans from before the change load with ids (test on a fixture snapshot)
+
+---
+
+### B-062 · Versioned Migrations, Backup, Restore and Upgrade Runbook `[ ]` APPROVED 2026-11-23 — P1
+
+**Why:** `memory/db.py::get_db` applies a list of `ALTER TABLE` statements on every connection and ignores errors; there is no schema version, backup or restore. Self-hosted installs (ADR-026) upgrade on their own. Design review G3.
+
+**Scope:** `PRAGMA user_version` with numbered migrations; an online SQLite backup before each migration; backup and restore commands that cover the database and the data volume; an upgrade and rollback runbook; CI runs the previous release's database through the upgrade (B-058).
+
+**Acceptance criteria:**
+- [ ] A database from the previous release upgrades and the existing data loads (test)
+- [ ] A failing migration leaves the database at its earlier version and the backup restorable (test)
+- [ ] Backup then restore on a clean volume gives the same projects, scans, findings, users and settings (test)
+- [ ] The runbook is in `docs/` and was followed once by hand (recorded)
+
+---
+
+### B-063 · Spend Ceiling on Every Scan Type `[ ]` APPROVED 2026-11-23 — P1
+
+**Why:** `core/budget.py` guards the PR check only; interactive multi-batch and deep scans show an estimate but have no limit, and the customer pays the provider directly. Design review G8. Brings forward the budget part of B-028 phase D.
+
+**Scope:** per-scan USD ceiling (default from settings, lowerable per request) and a per-project daily ceiling, for pasted, GitHub, deep and PR scans; reaching it ends the scan with residual risk and a notice.
+
+**Acceptance criteria:**
+- [ ] Every scan type stops within one in-flight call of its ceiling (tests with a fake model)
+- [ ] Reaching the ceiling returns the findings so far and lists what was not examined, not an error (test)
+- [ ] The daily project ceiling refuses a new scan with a plain message (test)
+- [ ] Only administrators can raise the defaults (policy test)
+
+---
+
+### B-064 · Project Membership and Project-Scoped Access `[ ]` APPROVED 2026-11-23 — P1 (ADR-027 amendment)
+
+**Why:** roles are organisation-wide; any user who may scan can read any project's findings and source, and ask for fixes on any scan id; a repository token reaches every repository of its owner. Several teams in one install would see each other's code. Design review G6; B-015 open point.
+
+**Scope:** project membership (owner, member, viewer) on top of the organisation role; every project-scoped route checks it; allowed-repository list per token; admins see all.
+
+**Acceptance criteria:**
+- [ ] A user who is not a member gets 404 on another project's scans, findings, sources, fixes and chat (policy matrix test)
+- [ ] A scan of a repository outside the token's allowed list is refused (test)
+- [ ] Existing installs migrate with every user a member of every existing project (test), so nothing disappears on upgrade
+
+---
+
+### B-065 · System Threat Model and Customer Data-Flow Statement `[ ]` APPROVED 2026-11-23 — P1
+
+**Why:** the product reads hostile input by design, but the handling is spread over ADR-014, 017, 024 and 033; model-derived finding names enter prompts unsanitised (B-031 note); buyers will ask "where does my code go" before a pilot. Design review G11.
+
+**Scope:** one threat model in `docs/` (trust boundaries: scanned code, README, SARIF uploads, model output, pull-request authors, CI tokens, identity provider) with the control and test for each; sanitise model-derived text before it re-enters a prompt; a one-page data-flow and security statement for customers.
+
+**Acceptance criteria:**
+- [ ] Each boundary in the document names its control and at least one test that exercises it
+- [ ] A finding name containing prompt instructions reaches later prompts only inside an untrusted-data block (test)
+- [ ] The customer statement matches the code (engineer review) and the landing page claims nothing beyond it
+
+---
+
+### B-066 · Move JSON State into the Database `[ ]` APPROVED 2026-11-23 — P2
+
+**Why:** the analysis cache, learning memory and non-secret settings are whole-file JSON read-modify-write stores; concurrent scans can lose updates, a crash can truncate a file, backup covers two stores, and workspace directories are keyed by slugged names (`core/workspace.py::_slugify`). Design review G4.
+
+**Scope:** tables keyed by workspace id for cache and learning memory; settings in the database (keys stay encrypted); one-time import of existing JSON files.
+
+**Acceptance criteria:**
+- [ ] Two concurrent scans of different projects both keep their cache and learning updates (test)
+- [ ] Two projects with the same names in different portfolios do not share cache or memory (test)
+- [ ] Existing JSON files are imported once and the app runs with them removed (test)
+
+---
+
+### B-067 · Operator Observability and Diagnostic Bundle `[ ]` APPROVED 2026-11-23 — P2
+
+**Why:** on a customer install the vendor has no visibility, and the admin has none either beyond product telemetry; the likely first incident (a provider key failing every PR check) would be found by users. Design review G7.
+
+**Scope:** structured JSON logs with run id; an admin-only operations page (recent failures, provider and key status, queue depth, retention runs); optional metrics endpoint; a downloadable diagnostic bundle with secrets and code removed.
+
+**Acceptance criteria:**
+- [ ] Every scan failure is logged once with run id, project, stage and error code, without code or keys (test)
+- [ ] The operations page shows the last failures and provider status to admins only (policy test)
+- [ ] The diagnostic bundle contains no key, token or source text (test with planted secrets)
+
+---
+
+### B-068 · Outcome Signal from Human Decisions; Triage-Acceptance Metric `[ ]` APPROVED 2026-11-23 — P2 (metric part P1 for pilots), *ADR first (extends ADR-005)*
+
+**Why:** learning memory counts the system's own output (`memory/learning_memory.py`); human decisions in `finding_events`, `adjustments` and `audit_events` are never read back. The pilot's success metric, the share of findings accepted as real, cannot be computed in the product. Design review G9; Layer 1 of the System of Context target.
+
+**Scope:** ADR; outcome events derived from existing decisions (signal, source human / automated / self, confidence); per-project triage acceptance and fix acceptance on the Overview; learning memory weighted by outcome only after the ADR is accepted.
+
+**Acceptance criteria:**
+- [ ] ADR accepted
+- [ ] Confirm fixed, Still present, state changes, adjustments and fix decisions each produce one outcome event with the actor (tests)
+- [ ] The Overview shows triage acceptance and fix acceptance for the project, matching a hand count on a fixture (test)
+
+---
+
+### B-069 · Remove the Legacy Streamlit App from What Ships `[ ]` APPROVED 2026-11-23 — P2
+
+**Why:** `dashboard.py` (1,389 lines, 9 uses of `unsafe_allow_html`, not reviewed for injection) and `app.py` are superseded by the React app, but `streamlit` is still in `requirements.txt` and installed in the image. Design review G12.
+
+**Scope:** delete the Streamlit app and its dependency (or move them to an optional extra), after the engineer confirms nothing uses them.
+
+**Acceptance criteria:**
+- [ ] `streamlit` is not installed in the image (test on the built image's package list)
+- [ ] Full test suite green
 
 ---
 
