@@ -1,6 +1,6 @@
 # Left pane and navigation: comparison and proposal (B-054, stage 1)
 
-Status: **approved by the engineer on 2026-11-23**, including the hierarchy direction below. Step 1 is built (see B-054 in `docs/BACKLOG.md`); steps 2 to 4 and the hierarchy work wait until after the demo.
+Status: **approved by the engineer on 2026-11-23**, including the hierarchy direction below. Steps 1 to 3 (navigation, counts, project switcher with breadcrumb and component picker) are built (see B-054 in `docs/BACKLOG.md` and ADR-034); the portfolio page, folding Scenarios and Scoring into Findings, create-on-scan and deep links come later.
 
 ## What is wrong today
 

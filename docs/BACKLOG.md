@@ -44,7 +44,7 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 | 16 | B-016 | Ticketing (Jira, Linear) and Slack / Teams alerts (moved from P3, widened) | no | B-031 |
 | 17 | B-052 | Model selection from published cyber benchmarks and our own evals (added 2026-11-22, engineer-approved at P1; before B-028 phase B) | **yes** (ADR for the default model and the eval method) | B-046 |
 | 18 | B-056 — *added 2026-11-23, engineer-approved for today (P0, demo)* | Fix proposals that survive a restart, use the cited code and give a real diff (A, B, C) | **yes** (ADR-033, Accepted 2026-11-23) | B-053 |
-| 19 | B-054 steps 2 and 3 — *engineer-approved 2026-11-23; step 2 done 2026-11-23* | Left pane: counts (step 2, done); project switcher, breadcrumb and component picker (step 3, **ADR-034 Accepted 2026-11-23**) | step 3 only | B-054 step 1 |
+| 19 | B-054 steps 2 and 3 — *engineer-approved 2026-11-23; both done 2026-11-23* | Left pane: counts (step 2, done); project switcher, breadcrumb and component picker (step 3, done, **ADR-034 Accepted 2026-11-23**) | step 3 only | B-054 step 1 |
 | 20 | B-057 — *proposed 2026-11-23, not yet prioritised by the engineer* | Fixes in the language of the code, and a check that a fix parses beyond Python | no | B-056 |
 
 ### Approved from the system design review — *engineer accepted the suggested order 2026-11-23*
@@ -335,7 +335,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-054 · Left Pane and Navigation Redesign `[~]` STEPS 1 AND 2 IMPLEMENTED 2026-11-23 — P1 (engineer-requested 2026-11-22; proposal approved 2026-11-23)
+### B-054 · Left Pane and Navigation Redesign `[~]` STEPS 1, 2 AND 3 IMPLEMENTED 2026-11-23 — P1 (engineer-requested 2026-11-22; proposal approved 2026-11-23)
 
 **Why:** the engineer finds the left pane unintuitive: seven numbered steps, some dimmed, a role switcher and a project tree all stacked together.
 
@@ -351,7 +351,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 *Step 2, counts (no ADR) — **built 2026-11-23, tests in `frontend/src/__tests__/navCounts.test.jsx`; also checked in the browser on a real scan (Findings 1, Fixes 1)**:* a count beside Findings (findings in the selected scope) and beside Fixes (findings in that scope that have at least one corrective action in the Now band). Numbers come from the results the page already holds; no new store. Acceptance: the counts match the findings list for the selection; zero shows nothing (no "0" badge); a count never blocks navigation; tests for each role and for no selection.
 
-*Step 3, project switcher, breadcrumb and component picker (**ADR-034 accepted 2026-11-23; not built yet**):* replaces the tree and the View level buttons as described in the ADR and in the proposal's hierarchy section. Acceptance: one place to choose a project and component; scope follows the selection; roles start at their natural depth; saved selections still load; "New portfolio" and "New project" still work; the tree and View level buttons are removed only after the same behaviours pass in tests; the existing pages keep working with the computed scope.
+*Step 3, project switcher, breadcrumb and component picker (**ADR-034 accepted 2026-11-23; built 2026-11-23, tests in `selection.test.js`, `ProjectSwitcher.test.jsx`, `Breadcrumb.test.jsx`; checked in the browser on a real scan: the switcher listed the portfolio and its projects, the component picker listed the two files the finding cites, choosing one kept the finding and showed the component in the page heading**):* replaces the tree and the View level buttons as described in the ADR and in the proposal's hierarchy section. Acceptance: one place to choose a project and component; scope follows the selection; roles start at their natural depth; saved selections still load; "New portfolio" and "New project" still work; the tree and View level buttons are removed only after the same behaviours pass in tests; the existing pages keep working with the computed scope.
 
 *Later in stage 2 (not scheduled):* portfolio page (table of projects), Component filter and grouping on Findings, projects created by scanning, folding Scenarios and Scoring into Findings, deep links (own ADR).
 

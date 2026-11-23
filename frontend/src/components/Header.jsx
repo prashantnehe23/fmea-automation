@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { PERSONAS, PROCESS_STEPS, NAV_GROUPS, HIERARCHY, SCOPE_LABEL } from '../data';
-import { ORG } from '../data';
+import { PERSONAS, PROCESS_STEPS, NAV_GROUPS } from '../data';
+import { selectable, allowsAllComponents } from '../selection';
 import { getModels, setActiveModel, getProviders, setProviderKey, deleteProviderKey, setProviderEndpoint, addCustomModel, getReasoning, setReasoning, verifyProviderKey,
   listRepoCredentials, saveRepoCredential, deleteRepoCredential } from '../api';
 
@@ -21,7 +21,7 @@ const TIER_BADGE = {
   Power:    'bg-purple-50 text-purple-700',
 };
 
-export default function Header({ persona, step, sel, scope, chatOpen, onToggleChat, settingsOpen, onSettingsOpenChange, isAdmin }) {
+export default function Header({ persona, step, sel, hierarchy = [], components = [], onSelect, chatOpen, onToggleChat, settingsOpen, onSettingsOpenChange, isAdmin }) {
   const showSettings    = settingsOpen;
   const setShowSettings = onSettingsOpenChange;
   const [models, setModels]             = useState([]);
@@ -129,31 +129,31 @@ export default function Header({ persona, step, sel, scope, chatOpen, onToggleCh
   const current  = PERSONAS.find(p => p.id === persona);
   const stepInfo = PROCESS_STEPS.find(s => s.id === step);
   const navGroup = NAV_GROUPS.find(g => g.steps.includes(step));
-  const portfolio = HIERARCHY.find(p => p.id === sel.portfolioId);
+  const portfolio = hierarchy.find(p => p.id === sel.portfolioId);
   const project   = portfolio?.projects.find(p => p.id === sel.projectId);
-
-  const crumbs = [{ label: ORG.name }];
-  if (['portfolio', 'project', 'component'].includes(scope) && portfolio)
-    crumbs.push({ label: portfolio.name });
-  if (['project', 'component'].includes(scope) && project)
-    crumbs.push({ label: project.name });
-  if (scope === 'component' && sel.componentName)
-    crumbs.push({ label: sel.componentName, mono: true });
+  const can       = selectable(persona);
+  const showPicker = can.component && !!project && components.length > 0;
 
   return (
     <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-4 flex-shrink-0 shadow-sm">
       <div className="flex-1 min-w-0">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1 text-xs mb-0.5">
-          {crumbs.map((c, i) => (
-            <span key={i} className="flex items-center gap-1">
-              {i > 0 && <span className="text-gray-200 mx-0.5">/</span>}
-              <span className={`${c.mono ? 'font-mono' : 'font-medium'} ${i < crumbs.length - 1 ? 'text-gray-300' : 'text-gray-600'}`}>
-                {c.label}
-              </span>
-            </span>
-          ))}
-        </div>
+        {/* Where you are (ADR-034) */}
+        <nav aria-label="Where you are" className="flex items-center gap-1 text-xs mb-0.5">
+          <span className={`font-medium ${portfolio ? 'text-gray-300' : 'text-gray-600'}`}>All portfolios</span>
+          {portfolio && <><span className="text-gray-200 mx-0.5">/</span><span className={`font-medium ${project ? 'text-gray-300' : 'text-gray-600'}`}>{portfolio.name}</span></>}
+          {project && <><span className="text-gray-200 mx-0.5">/</span><span className="font-medium text-gray-600">{project.name}</span></>}
+          {showPicker && (
+            <>
+              <span className="text-gray-200 mx-0.5">/</span>
+              <select aria-label="Component" value={sel.componentName ?? ''}
+                      onChange={e => onSelect?.({ ...sel, componentId: null, componentName: e.target.value || null })}
+                      className="text-xs font-mono text-gray-700 bg-white border border-gray-200 rounded px-1 py-0.5 max-w-[16rem]">
+                {allowsAllComponents(persona) && <option value="">All components</option>}
+                {components.map(c => <option key={c.name} value={c.name}>{`${c.name} (${c.count})`}</option>)}
+              </select>
+            </>
+          )}
+        </nav>
         {/* Step title */}
         <div className="flex items-center gap-2">
           <span>{navGroup?.icon ?? stepInfo?.icon}</span>
