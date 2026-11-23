@@ -43,6 +43,9 @@ Items 1 and 2 can run in parallel with the ADR work for items 3 and 4.
 | 15 | B-049 | Fixes as pull requests | no | B-043 |
 | 16 | B-016 | Ticketing (Jira, Linear) and Slack / Teams alerts (moved from P3, widened) | no | B-031 |
 | 17 | B-052 | Model selection from published cyber benchmarks and our own evals (added 2026-11-22, engineer-approved at P1; before B-028 phase B) | **yes** (ADR for the default model and the eval method) | B-046 |
+| 18 | B-056 — *added 2026-11-23, engineer-approved for today (P0, demo)* | Fix proposals that survive a restart, use the cited code and give a real diff (A, B, C) | **yes** (ADR-033, Proposed) | B-053 |
+| 19 | B-054 steps 2 and 3 — *engineer-approved 2026-11-23, after B-056* | Left pane: counts (step 2); project switcher, breadcrumb and component picker (step 3, **ADR-034 Proposed**) | step 3 only | B-054 step 1 |
+| 20 | B-057 — *proposed 2026-11-23, not yet prioritised by the engineer* | Fixes in the language of the code, and a check that a fix parses beyond Python | no | B-056 |
 
 ### Paused — resume after the P1 list (moved to P2)
 
@@ -300,6 +303,8 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 **Found while checking it live (2026-11-23):** after a finding is renamed to its locked canonical name, its controls, fix plan and validation kept the old name, and the interface pairs them with the finding by name, so a rescanned finding could show no actions at all. The pipeline now renames all three with the finding (test in `tests/test_finding_lifecycle.py`; it failed before the fix). **Known limits (from the independent review):** any signed-in user who may scan can ask for a fix on any scan id the server holds (the scan store has no owner; the older scan routes share the gap; matters once several teams share one server); the audit trail proves a person called the decision route, not what code was shown or accepted, and the downloaded file is a readable proposal (diff, code, test), not a patch for `git apply`; scanned code can steer the model, so the panel says to review first; the fix is written for Python code; the server keeps scans in memory, so after a server restart a fix can only be proposed after rescanning; in the development server the panel asks twice (React strict mode), in a production build once; the slow part is the model (GPT-6.2 Sol answered in 15 to 150 seconds in checks).
 
+**Superseded in part by B-056 (2026-11-23):** the first real use failed with "scan no longer available" after a server restart, because fixes were taken from the server's memory. B-056 (ADR-033) replaces where the code comes from, what the model is shown, and how the diff is made; the panel, the audit trail and the Remediate button stay.
+
 **Acceptance criteria:**
 - [x] `POST /api/remediate/finding` returns a diff, replacement code and test for one chosen action of one finding; a missing scan or finding is a 404 with a plain message; a provider refusal is a plain message, not a trace (tests)
 - [x] The chosen action, not just the top one, steers the fix (test)
@@ -321,6 +326,14 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 **Step 1 (built 2026-11-23, tests in `frontend/src/__tests__/Sidebar.test.jsx` and `Header.test.jsx`):** the left pane lists Overview, Scan, Findings, Fixes and Settings with no numbered process; Findings holds Findings, Scenarios and Scoring as tabs, Fixes holds Fix actions and Auto-remediation as tabs; Settings opens the existing panel; the header no longer says "Step N of 7". The role was already shown under the name at the top, so no second role label was added. No page, API or permission changed. **Open (after the demo):** counts on Findings and Fixes, the project switcher and breadcrumb, folding the scenario and scoring views into Findings, and the project / portfolio / component direction in the proposal.
 
+**Steps 2 and 3, approved 2026-11-23 (to follow B-056):**
+
+*Step 2, counts (no ADR):* a count beside Findings (findings in the selected scope) and beside Fixes (findings in that scope that have at least one corrective action in the Now band). Numbers come from the results the page already holds; no new store. Acceptance: the counts match the findings list for the selection; zero shows nothing (no "0" badge); a count never blocks navigation; tests for each role and for no selection.
+
+*Step 3, project switcher, breadcrumb and component picker (**ADR-034 Proposed, build starts after it is accepted**):* replaces the tree and the View level buttons as described in the ADR and in the proposal's hierarchy section. Acceptance: one place to choose a project and component; scope follows the selection; roles start at their natural depth; saved selections still load; "New portfolio" and "New project" still work; the tree and View level buttons are removed only after the same behaviours pass in tests; the existing pages keep working with the computed scope.
+
+*Later in stage 2 (not scheduled):* portfolio page (table of projects), Component filter and grouping on Findings, projects created by scanning, folding Scenarios and Scoring into Findings, deep links (own ADR).
+
 **Acceptance criteria (step 1):**
 - [x] Four plain entries plus Settings, each opening the first page of its group; no numbering; the group stays highlighted on its other pages
 - [x] Scenarios, Scoring and Auto-remediation stay reachable as tabs
@@ -338,6 +351,44 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 **Acceptance criteria:**
 - [x] No step is dimmed or dotted for any role; the role's main steps carry a visible marker (JS test for every role)
 - [x] Every step can be opened by every signed-in role (JS test)
+
+---
+
+### B-056 · Fix Proposals that Survive a Restart, Use the Cited Code and Give a Real Diff `[ ]` APPROVED 2026-11-23 — P0 (demo) — *ADR-033 Proposed: build starts once the engineer accepts it*
+
+**Why:** the first real use of the Remediate button (B-053) failed with "This scan is no longer available on the server": fixes were looked up in server memory, which a restart empties, the model was shown 60 lines picked by keyword guess even when the finding cites exact files and lines, and the diff was written by the model and could not be trusted to apply. The engineer's requirement: if the page shows a fix action, Remediate must produce rewritten code.
+
+**Scope (A, B, C as approved 2026-11-23):**
+- **A. From the stored snapshot:** the request carries `workspace_id` and `db_scan_id`; the server loads the saved findings, fix plans and source files of that exact scan. No match is a plain 404; sources not stored (retention 0 or purged) is a plain 409 that says why and what to do. No re-fetch from the repository.
+- **B. The cited code:** the model sees the files named by the exploit path or the evidence (up to 3 files, size-limited, with line numbers), with the chosen action leading; the keyword heuristic stays as a labelled fallback.
+- **C. Server-built diff:** the model returns edits (`file`, line range, replacement) plus a test; the server validates them, applies them, builds a standard unified diff with `difflib`, and flags a changed Python file that does not parse. The panel shows each file's change with an editable replacement; the decision route rebuilds the diff from the person's final text and audits the files and a SHA-256 of the diff.
+- Because the response is a list of edits, a proposal can span up to 3 files (the old "D"); the languages beyond Python and the parse check for them are B-057.
+- **Not in this item:** raising a pull request (B-049), storing proposals, per-project access control (known limit, see ADR-033), measuring fix quality.
+
+**Acceptance criteria:**
+- [ ] After the in-memory store is emptied (simulated restart), a fix is proposed for a scan found in the database (test)
+- [ ] The snapshot is matched on both ids exactly: a different project's scan id, or an id that exists only in memory, is a 404 and never produces a fix for other code (test)
+- [ ] A scan whose sources are not stored gets a 409 with a plain message and no model call (test)
+- [ ] The prompt contains the files and lines the finding cites and the chosen action, and the fallback heuristic is used and labelled only when nothing is cited (tests)
+- [ ] Edits outside the shown files, outside the file's lines, or overlapping are dropped with a reason; the rest are applied (tests)
+- [ ] The returned diff applies with `git apply --check` to the original files (test using a temporary repository)
+- [ ] A changed Python file that does not parse is returned flagged (test)
+- [ ] A person's edited replacement gives a rebuilt diff; the audit entry names the files and a diff hash, and no code (test)
+- [ ] The panel shows one section per file with an editable replacement, the rebuilt diff after accepting, and the flag when present; Accept, Edit and Reject keep working (JS tests)
+- [ ] A live proposal on the seeded chain-api repository after a server restart, recorded (the engineer's demo path)
+
+---
+
+### B-057 · Fixes in the Language of the Code `[ ]` PROPOSED 2026-11-23 — P1 (engineer to confirm)
+
+**Why:** the fix prompt still says Python. Repositories in JavaScript, TypeScript, Java, Go or Rust would get Python-flavoured instructions.
+
+**Scope:** the prompt names the language from the file extension; a parse check for languages the code index already supports (JavaScript, TypeScript, Java via tree-sitter), flagged the same way as the Python check; tests per language with a faked model. **Not in this item:** running the generated test.
+
+**Acceptance criteria:**
+- [ ] The prompt carries the language of the cited files (tests for each supported language)
+- [ ] A changed file in a supported language that no longer parses is flagged (tests)
+- [ ] An unsupported language is proposed without a parse check and says so
 
 ---
 

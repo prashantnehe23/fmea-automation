@@ -45,3 +45,5 @@ is reversed, a new ADR supersedes it rather than editing the old one.
 | [ADR-030](ADR-030-more-model-providers.md) | More Model Providers over the OpenAI Protocol (Anthropic, Azure OpenAI, Local); Bedrock Later | Accepted | 2026-11-22 |
 | [ADR-031](ADR-031-frontend-test-framework.md) | Frontend Test Framework: Vitest, Testing Library, jsdom | Accepted | 2026-11-22 |
 | [ADR-032](ADR-032-model-selection-and-evals.md) | Model Selection and Our Own Evals; Workflow Changes They Support | Accepted | 2026-11-22 |
+| [ADR-033](ADR-033-fix-proposals-from-stored-scans.md) | Fix Proposals from Stored Scans, Targeted Context, Server-Built Diffs | **Proposed** | 2026-11-23 |
+| [ADR-034](ADR-034-selection-and-navigation-state.md) | Where You Are: Selection, Scope and the Project Switcher | **Proposed** | 2026-11-23 |
