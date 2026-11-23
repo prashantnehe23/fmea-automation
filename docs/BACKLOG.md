@@ -417,16 +417,18 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-058 · CI for This Repository and a Reproducible Image `[ ]` APPROVED 2026-11-23 — P0
+### B-058 · CI for This Repository and a Reproducible Image `[x]` DONE 2026-11-23 — P0 — *ADR-035 accepted 2026-11-23*
 
 **Why:** there is no `.github/` workflow; every "tests green" in this file rests on one machine, the container has never been built (B-042), and `cryptography` is unpinned. Design review G5.
 
 **Scope:** a GitHub Actions workflow on every push and pull request: pytest, vitest, frontend build, Docker image build, container smoke test (health, first-run sign-in, one scan with a fake provider), dependency audit; pinned Python dependencies.
 
 **Acceptance criteria:**
-- [ ] A pull request shows a required check that runs the Python and JS suites and fails on one failing test (recorded)
-- [ ] The image builds in CI and the smoke test passes against the running container (recorded)
-- [ ] Python dependencies are pinned; the audit step fails on a known-vulnerable pin (test with a deliberately old pin, then reverted)
+- [x] A pull request shows a check that runs the Python and JS suites and fails on one failing test. Recorded: [run 45278182644](https://github.com/prashantnehe23/fmea-automation/actions/runs/45278182644) all six jobs green; [run 45278642853](https://github.com/prashantnehe23/fmea-automation/actions/runs/45278642853) with one deliberate `assert False` (commit cad9d99, reverted in 802cf87): the three Python jobs failed, the others passed. **Making it a required check is a repository setting only the owner can switch on (Settings, Branches or Rules: require the CI checks before merging); `main` has no protection today.**
+- [x] The image builds in CI and the smoke test passes against the running container (run 45278182644, job "Container image builds and passes the smoke test": health, first administrator, sign-in, fake model, one finished scan)
+- [x] Python dependencies are pinned; the audit step fails on a known-vulnerable pin: `pip-audit` on `requests==2.19.0` found 37 vulnerabilities and exited 1 (run locally, file not committed); on the real pins it reports none and exits 0 (also in CI)
+
+**Found while building it (2026-11-23):** the first dependency audit of the pinned requirements reported 44 known vulnerabilities: `cryptography` 49.0.0 (PYSEC-2026-3552, fixed in 50.0.0, a direct pin; bumped) and `pillow` 12.3.0 (42 advisories, fixed only in 13.0.0, which `streamlit` 1.56.0 does not allow). Only `dashboard.py`, the original Streamlit prototype, imports `streamlit`, `plotly` or `pandas`, so those three moved to `requirements-legacy.txt`, which neither the image nor CI installs. This is the packaging half of B-069 (the prototype's files are still in the repository). Building the clean install also showed that `numpy` was imported by the product (`memory/`, `api/`) but never declared: it had only been there because `pandas` pulled it in, so a fresh install without the prototype's packages failed at import. It is now pinned (`numpy==2.2.3`), with `httpx`, which `core/` imports directly. **Not done in this item:** deleting `dashboard.py`, `app.py` and the rest of the prototype (B-069); a lock file for packages the pins pull in; making the check required in the repository settings (the repository owner switches that on).
 
 ---
 

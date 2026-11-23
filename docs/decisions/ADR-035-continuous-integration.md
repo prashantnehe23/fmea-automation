@@ -1,6 +1,6 @@
 # ADR-035: Continuous Integration, Pinned Dependencies, Container Smoke Test, Dependency Audit
 
-**Status:** Proposed (written 2026-11-23 for the engineer's approval; work on B-058 starts once it is accepted)  **Date:** 2026-11-23  **Backlog:** B-058 (design review gap G5; enables B-059, B-062)  **Builds on:** [ADR-026](ADR-026-deployment-model.md) (the image), [ADR-031](ADR-031-frontend-test-framework.md) (JS tests)
+**Status:** Accepted (engineer, 2026-11-23: "Accept ADR-035, start B-058"), as written  **Date:** 2026-11-23  **Backlog:** B-058 (design review gap G5; enables B-059, B-062)  **Builds on:** [ADR-026](ADR-026-deployment-model.md) (the image), [ADR-031](ADR-031-frontend-test-framework.md) (JS tests)
 
 ## Context
 Every "tests pass" in this project's history rests on one Windows machine. There is no `.github/` folder, so nothing checks a pull request; the container image (B-042) has never been built by anything but its author, and was never started in a test; `requirements.txt` uses lower bounds (`>=`) for most packages, so two installs a month apart can differ, and a new machine (the engineer's MacBook) can get versions nobody tested. The Windows machine, the Mac and the container are three different environments that currently share no check.
@@ -32,5 +32,5 @@ Every "tests pass" in this project's history rests on one Windows machine. There
 - The fake model server and the smoke test are new code that must be kept in step with the API; they are small and tested by running in CI.
 - Branch protection (making the check required) is a GitHub setting only the repository owner can switch on; until then the check informs but does not block.
 
-## For the engineer to decide
-Accept, change or reject points 1 to 5. In particular: the Mac and Python 3.11 jobs (point 1), exact pins without a lock file (point 2), and a canned fake model for the smoke test (point 4).
+## Decided
+Accepted with all five points as written, including the Mac and Python 3.11 jobs, exact pins without a lock file, and a canned fake model for the smoke test.

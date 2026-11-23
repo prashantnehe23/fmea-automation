@@ -1,16 +1,16 @@
-openai>=1.0.0
-pydantic>=2.0.0
-fastapi>=0.100.0
-uvicorn[standard]>=0.22.0
-streamlit>=1.28.0
-plotly>=5.18.0
-pandas>=2.0.0
+# Exact pins (B-058, ADR-035): the versions the test suite passes with. Packages these pull in are not locked.
+# Test-only packages are in requirements-dev.txt.
+openai==2.31.0
+pydantic==2.12.5
+fastapi==0.135.3
+numpy==2.2.3             # embeddings (memory/, api/); was only present because pandas pulled it in, which hid that it was missing
+httpx==0.28.1             # imported by core/; installed with openai, named here because the code uses it directly
+uvicorn[standard]==0.44.0
 # Code index (B-036, ADR-025): official per-language grammars, pinned; static, nothing is downloaded at run time
 tree-sitter==0.26.1
 tree-sitter-python==0.25.0
 tree-sitter-java==0.23.5
 tree-sitter-c-sharp==0.23.5
 tree-sitter-typescript==0.23.2
-cryptography>=42.0.0
-jsonschema>=4.0          # tests validate the SARIF export against the official schema (B-045)
-Authlib>=1.3
+cryptography==50.0.0
+Authlib==1.9.10

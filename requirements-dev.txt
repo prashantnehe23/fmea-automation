@@ -1,0 +1,4 @@
+# Test-only packages (B-058, ADR-035). The image installs requirements.txt only.
+-r requirements.txt
+pytest==9.0.3
+jsonschema==4.26.0          # tests validate the SARIF export against the official schema (B-045)
