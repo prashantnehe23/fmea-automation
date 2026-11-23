@@ -417,7 +417,7 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 
 ---
 
-### B-058 · CI for This Repository and a Reproducible Image `[ ]` APPROVED 2026-11-23 — P0
+### B-058 · CI for This Repository and a Reproducible Image `[~]` IN PROGRESS 2026-11-23 — P0 — *ADR-035 accepted 2026-11-23*
 
 **Why:** there is no `.github/` workflow; every "tests green" in this file rests on one machine, the container has never been built (B-042), and `cryptography` is unpinned. Design review G5.
 
@@ -427,6 +427,8 @@ B-036 phase 3 (land the open branch, then pause the two remaining criteria) · B
 - [ ] A pull request shows a required check that runs the Python and JS suites and fails on one failing test (recorded)
 - [ ] The image builds in CI and the smoke test passes against the running container (recorded)
 - [ ] Python dependencies are pinned; the audit step fails on a known-vulnerable pin (test with a deliberately old pin, then reverted)
+
+**Found while building it (2026-11-23):** the first dependency audit of the pinned requirements reported 44 known vulnerabilities: `cryptography` 49.0.0 (PYSEC-2026-3552, fixed in 50.0.0, a direct pin; bumped) and `pillow` 12.3.0 (42 advisories, fixed only in 13.0.0, which `streamlit` 1.56.0 does not allow). Only `dashboard.py`, the original Streamlit prototype, imports `streamlit`, `plotly` or `pandas`, so those three moved to `requirements-legacy.txt`, which neither the image nor CI installs. This is the packaging half of B-069 (the prototype's files are still in the repository). Building the clean install also showed that `numpy` was imported by the product (`memory/`, `api/`) but never declared: it had only been there because `pandas` pulled it in, so a fresh install without the prototype's packages failed at import. It is now pinned (`numpy==2.2.3`), with `httpx`, which `core/` imports directly. **Not done in this item:** deleting `dashboard.py`, `app.py` and the rest of the prototype (B-069); a lock file for packages the pins pull in; making the check required in the repository settings (the repository owner switches that on).
 
 ---
 

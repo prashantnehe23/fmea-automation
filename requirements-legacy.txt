@@ -1,0 +1,6 @@
+# Only for dashboard.py, the original Streamlit prototype (B-058, ADR-035; removal is B-069). Not installed by the image or by CI.
+# The React app is the supported interface. These packages pull in pillow, which had known vulnerabilities when this was split out.
+-r requirements.txt
+streamlit==1.56.0
+plotly==6.7.0
+pandas==2.2.3

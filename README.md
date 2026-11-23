@@ -90,7 +90,7 @@ cd frontend && npm test               # 23 passing on 2026-11-22 (Vitest, Testin
 
 `make test`, `make test-ui`, `make build`, `make bench` and `make bench-report` wrap the common commands (see `Makefile`). `make bench` scans the benchmark repositories in `benchmarks/repos/` and **spends real provider credit**. See [ADR-023](docs/decisions/ADR-023-benchmark-methodology.md).
 
-`dashboard.py` is the original Streamlit prototype. The React app is the supported interface.
+`dashboard.py` is the original Streamlit prototype. The React app is the supported interface. To run the prototype anyway: `pip install -r requirements-legacy.txt`, then `streamlit run dashboard.py`; it is not installed by the container image or checked by CI.
 
 ---
 
