@@ -10,6 +10,7 @@ import { useState, useEffect, useRef } from 'react';
 import ScopeHeader from '../components/ScopeHeader';
 import { PChip, DomainChip, CweChip } from '../components/Chip';
 import { ActionList } from './MitigationsPage';
+import FixPanel from '../components/FixPanel';
 import { SCOPE_LABEL } from '../data';
 import { getSelectionLabel } from '../helpers';
 import { getFindings, setFindingState } from '../api';
@@ -46,7 +47,8 @@ function Section({ title, children }) {
   );
 }
 
-function Detail({ r, state, events, canDecide, onDecide, error }) {
+function Detail({ r, state, events, canDecide, onDecide, error, scanId }) {
+  const [fixFor, setFixFor] = useState(null);
   const heading = useRef(null);
   useEffect(() => { heading.current?.focus(); }, [r.name]);       // a keyboard or screen-reader user lands on the finding
   const words = describeScore(r.s, r.o, r.d);
@@ -133,9 +135,10 @@ function Detail({ r, state, events, canDecide, onDecide, error }) {
         {actions.length === 0
           ? <p className="text-sm text-gray-500">No fix actions were produced for this finding.</p>
           : <>
-              <ActionList title="Corrective actions" color="text-green-600" actions={r.corrective} />
-              <ActionList title="Preventive actions" color="text-purple-600" actions={r.preventive} />
+              <ActionList title="Corrective actions" color="text-green-600" actions={r.corrective} onRemediate={scanId ? setFixFor : undefined} />
+              <ActionList title="Preventive actions" color="text-purple-600" actions={r.preventive} onRemediate={scanId ? setFixFor : undefined} />
             </>}
+        {fixFor && <FixPanel scanId={scanId} failureMode={r.name} action={fixFor} onClose={() => setFixFor(null)} />}
       </Section>
 
       <Section title="History">
@@ -160,7 +163,7 @@ function Detail({ r, state, events, canDecide, onDecide, error }) {
   );
 }
 
-export default function FindingsPage({ scope, sel, liveRisks, hierarchy = [], workspaceId, canDecideFindings }) {
+export default function FindingsPage({ scope, sel, liveRisks, liveScanId, hierarchy = [], workspaceId, canDecideFindings }) {
   const risks = liveRisks ?? [];
   const label = getSelectionLabel(sel, scope, hierarchy);
   const [data, setData] = useState(null);
@@ -246,7 +249,7 @@ export default function FindingsPage({ scope, sel, liveRisks, hierarchy = [], wo
             </div>
             <div className="lg:col-span-3">
               {selected
-                ? <Detail r={selected} state={states[selected.name]} events={(data?.events ?? []).filter(e => e.failure_mode === selected.name)}
+                ? <Detail r={selected} scanId={liveScanId} state={states[selected.name]} events={(data?.events ?? []).filter(e => e.failure_mode === selected.name)}
                           canDecide={!!canDecideFindings && !!workspaceId} onDecide={decide} error={error} />
                 : <p className="text-sm text-gray-500">Select a finding to review its evidence, score, fix and history.</p>}
             </div>

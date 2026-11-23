@@ -116,14 +116,12 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs mb-0.5 transition-colors text-left font-semibold ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-sm'
-                  : isPrimary
-                  ? 'text-gray-700 hover:bg-blue-200'
-                  : 'text-gray-400 hover:bg-blue-100'
+                  : 'text-gray-700 hover:bg-blue-200'
               }`}
             >
-              <span className={isActive ? '' : 'opacity-70'}>{s.icon}</span>
+              <span>{s.icon}</span>
               <span className="flex-1">{s.label}</span>
-              {!isPrimary && !isActive && <span className="text-gray-300 text-xs">·</span>}
+              {isPrimary && <span data-main-step title="A main step for your role" className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
             </button>
           );
         })}

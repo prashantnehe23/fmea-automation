@@ -117,6 +117,17 @@ def test_a_renamed_finding_in_a_moved_file_is_matched_by_identity_and_keeps_its_
     assert h.states(ws) == {"SQL injection in login": "confirmed"}
 
 
+def test_a_renamed_finding_keeps_its_controls_fix_plan_and_validation_under_the_canonical_name(h):
+    """The interface pairs these with the finding by name, so after a rename to the locked name they must carry it too."""
+    h.scan([failure("SQL injection in login", "src/auth.py:12 `q = 'SELECT * FROM users WHERE n=' + user`")])
+    second = h.scan([failure("Unsafe query construction", "app/accounts/login.py:3 `q = 'SELECT * FROM users WHERE n=' + user`")],
+                    code="code v2 (file moved)")
+    name = "SQL injection in login"
+    assert [c.failure_mode for c in second["controls"]] == [name]
+    assert [p.failure_mode for p in second["remediations"]] == [name]
+    assert [v.failure_mode for v in second["validations"]] == [name]
+
+
 # ── AC1: locked findings do not take a new finding's place ────────────────────
 
 def test_seven_locked_findings_plus_a_new_vulnerability_reports_the_new_one(h):
