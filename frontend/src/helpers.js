@@ -55,3 +55,13 @@ export function aggregateBy(risks, groupFn, labelFn) {
     mitigated: g.risks.filter(r => r.status === 'Mitigated').length,
   })).sort((a, b) => b.maxRpn - a.maxRpn);
 }
+
+// B-054 step 2: the numbers beside Findings and Fixes in the left pane. Nothing is counted when there is no scan.
+// Fixes = findings in scope with at least one corrective action in the Now band.
+export function navCounts(risks) {
+  if (!risks) return {};
+  return {
+    findings: risks.length,
+    fixes: risks.filter(r => (r.corrective ?? []).some(a => a.urgency === 'now')).length,
+  };
+}

@@ -4,7 +4,7 @@ import HierarchyTree from './HierarchyTree';
 
 const ROLE_LABEL = { admin: 'Administrator', security_engineer: 'Security engineer', risk_manager: 'Risk manager', developer: 'Developer', viewer: 'Viewer' };
 
-export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHistory, onPersona, onStep, onSelect, onScope, onAddPortfolio, onAddProject, onOpenSettings, user, canSwitchPersona, onLogout }) {
+export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHistory, onPersona, onStep, onSelect, onScope, onAddPortfolio, onAddProject, onOpenSettings, user, canSwitchPersona, onLogout, counts }) {
   const [personaOpen, setPersonaOpen] = useState(false);
   const current      = PERSONAS.find(p => p.id === persona);
   const primarySteps = PERSONA_PRIMARY[persona];
@@ -108,17 +108,22 @@ export default function Sidebar({ persona, step, sel, scope, hierarchy, scanHist
         {NAV_GROUPS.map(g => {
           const isMain   = g.steps.some(id => primarySteps.includes(id));
           const isActive = g.steps.includes(step);
+          const count    = counts?.[g.id === 'fixes' ? 'fixes' : g.id === 'findings' ? 'findings' : null];
+          const noun       = count === 1 ? 'finding' : 'findings';
+          const countWords = g.id === 'fixes' ? `${count} ${noun} with an urgent fix` : `${count} ${noun}`;
           return (
             <button
               key={g.id}
               onClick={() => onStep(g.steps[0])}
               aria-current={isActive ? 'page' : undefined}
+              aria-label={count > 0 ? `${g.label}, ${countWords}` : undefined}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs mb-0.5 transition-colors text-left font-semibold ${
                 isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-700 hover:bg-blue-200'
               }`}
             >
               <span>{g.icon}</span>
               <span className="flex-1">{g.label}</span>
+              {count > 0 && <span className={`text-xs font-bold px-1.5 rounded-full ${isActive ? 'bg-white text-blue-700' : 'bg-blue-200 text-blue-800'}`}>{count}</span>}
               {isMain && <span data-main-step title="A main area for your role" className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
             </button>
           );

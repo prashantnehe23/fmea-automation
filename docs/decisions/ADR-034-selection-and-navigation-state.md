@@ -1,6 +1,6 @@
 # ADR-034: Where You Are: Selection, Scope and the Project Switcher
 
-**Status:** Proposed (written 2026-11-23 for the engineer's approval; step 3 of B-054 starts once it is accepted)  **Date:** 2026-11-23  **Backlog:** B-054 (steps 2 and 3, and the hierarchy direction approved 2026-11-23)  **Builds on:** [ADR-027](ADR-027-authentication-roles-and-repository-access.md) (roles), `docs/design/left-pane-proposal.md`
+**Status:** Accepted (engineer, 2026-11-23: "Accept ADR-034"), as written  **Date:** 2026-11-23  **Backlog:** B-054 (steps 2 and 3, and the hierarchy direction approved 2026-11-23)  **Builds on:** [ADR-027](ADR-027-authentication-roles-and-repository-access.md) (roles), `docs/design/left-pane-proposal.md`
 
 ## Context
 Two controls in the left pane both say where you are: the tree (portfolio, project, and the components listed under a project) and the "View level" buttons (Component, Project, Portfolio). They can disagree (a project selected with Component on), and a role limits which levels exist (`PERSONA_SCOPE_OPTIONS`). The selection is an object in the top component (`sel`: portfolio id, project id, component id and name) saved in the browser's local storage, with a separate `scope`. Pages read both.
@@ -27,5 +27,5 @@ The approved direction (proposal, 2026-11-23) replaces the tree with a project s
 - The tree's quick browsing of a large portfolio is replaced by search and the portfolio page; the portfolio page itself (a table of projects) and the Component filter on Findings are separate steps after this one (B-054 stage 2).
 - Browser back, bookmarks and shared links still do not work; that is the cost of postponing routing.
 
-## For the engineer to decide
-Accept, change or reject points 1 to 6, in particular point 3 (what each role starts with) and point 5 (no router now).
+## Decided
+Accepted with all six points as written, including what each role starts with (point 3) and no router now (point 5).
