@@ -55,6 +55,17 @@ export const PROCESS_STEPS = [
   { id: 'dashboard',   label: 'Dashboard',         icon: '📈', step: 7 },
 ];
 
+// B-054 step 1: what the left pane shows. Each entry opens its first page; the other pages of the group are tabs inside it.
+export const NAV_GROUPS = [
+  { id: 'dashboard', label: 'Overview', icon: '🏠', steps: ['dashboard'] },
+  { id: 'scan',      label: 'Scan',     icon: '🔍', steps: ['scan'] },
+  { id: 'findings',  label: 'Findings', icon: '🧾', steps: ['findings', 'scenarios', 'scoring'] },
+  { id: 'fixes',     label: 'Fixes',    icon: '🛠️', steps: ['mitigations', 'remediation'] },
+];
+export const STEP_TAB_LABEL = {
+  findings: 'Findings', scenarios: 'Scenarios', scoring: 'Scoring', mitigations: 'Fix actions', remediation: 'Auto-remediation',
+};
+
 // Which steps are "primary" (full opacity) vs "available" (muted) per persona
 export const PERSONA_PRIMARY = {
   developer:         ['scan', 'findings', 'scenarios', 'remediation'],

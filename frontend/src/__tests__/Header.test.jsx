@@ -66,3 +66,11 @@ describe('API key in Settings (B-048 follow-up)', () => {
     expect(screen.queryByText('Risk Registry')).not.toBeInTheDocument();      // a static "Active" label carried no information
   });
 });
+
+describe('Header (B-054 step 1)', () => {
+  it('no longer numbers the pages as steps of a process', () => {
+    api.getModels.mockResolvedValue([]); api.getProviders.mockResolvedValue([]); api.getReasoning.mockResolvedValue({ level: 'off' });
+    render(<Header persona={PERSONAS[0].id} step={PROCESS_STEPS[0].id} sel={{}} scope="project" settingsOpen={false} onSettingsOpenChange={() => {}} isAdmin={false} />);
+    expect(screen.queryByText(/Step \d+ of \d+/)).not.toBeInTheDocument();
+  });
+});
