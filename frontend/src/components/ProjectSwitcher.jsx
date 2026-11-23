@@ -15,17 +15,18 @@ export default function ProjectSwitcher({ persona, sel, hierarchy = [], scanHist
   const [addingTo, setAddingTo] = useState(null);       // portfolio id whose new-project form is showing
   const [addingPort, setAddingPort] = useState(false);
   const box = useRef(null);
+  const toggle = useRef(null);
 
   const portfolio = hierarchy.find(p => p.id === sel.portfolioId);
   const project   = portfolio?.projects.find(p => p.id === sel.projectId);
   const label = project ? `${portfolio.name} / ${project.name}` : portfolio ? portfolio.name : (can.org ? 'All portfolios' : 'Choose a project');
 
-  const close = () => { setOpen(false); setQuery(''); setAddingTo(null); setAddingPort(false); };
+  const close = (restoreFocus = false) => { setOpen(false); setQuery(''); setAddingTo(null); setAddingPort(false); if (restoreFocus) toggle.current?.focus(); };
   const pick = (next) => { onSelect(next); close(); };
 
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const onKey = (e) => { if (e.key === 'Escape') close(true); };
     const onDown = (e) => { if (box.current && !box.current.contains(e.target)) close(); };
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);
@@ -45,6 +46,7 @@ export default function ProjectSwitcher({ persona, sel, hierarchy = [], scanHist
     <div ref={box} className="relative px-3 pb-3 flex-shrink-0">
       <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1.5 px-1">Project</p>
       <button
+        ref={toggle}
         onClick={() => setOpen(o => !o)}
         aria-haspopup="true" aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-blue-100 shadow-sm hover:shadow-md text-left"
@@ -85,7 +87,7 @@ export default function ProjectSwitcher({ persona, sel, hierarchy = [], scanHist
                   <ScanBadge history={scanHistory[pr.id]} />
                 </button>
               ))}
-              {!q && (addingTo === p.id ? (
+              {!q && can.project && (addingTo === p.id ? (
                 <NewProjectForm
                   onSave={(name, repoUrl, tier, userType) => { onAddProject?.(p.id, name, repoUrl, tier, userType); close(); }}
                   onCancel={() => setAddingTo(null)}

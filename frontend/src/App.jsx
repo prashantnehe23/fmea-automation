@@ -10,11 +10,10 @@ import RemediationPage from './pages/RemediationPage';
 import DashboardPage   from './pages/DashboardPage';
 import ChatPanel       from './components/ChatPanel';
 import { navCounts } from './helpers';
-import { EMPTY_SEL, deriveScope, limitSel, componentsOf, filterByComponent, defaultComponent } from './selection';
+import { EMPTY_SEL, deriveScope, limitSel, componentsOf, filterByComponent, defaultComponent, keepValidComponent } from './selection';
 import {
   PROCESS_STEPS,
   PERSONA_PRIMARY,
-  PERSONA_DEFAULT_SCOPE,
 } from './data';
 import {
   normalizeScanResult,
@@ -146,15 +145,24 @@ function Workspace({ user, status, onLogout }) {
   const [chatOpen, setChatOpen] = useState(() => ls(KEY_CHAT_OPEN, false));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selState, setSel]    = useState(init.sel);
-  // what the role may use of the saved selection, and the scope that follows from it (ADR-034)
-  const sel   = useMemo(() => limitSel(selState, persona), [selState, persona]);
-  const scope = deriveScope(sel, persona);
 
   const [hierarchy,   setHierarchyState]   = useState(init.hierarchy);
   const [scanHistory, setScanHistoryState] = useState(init.scanHistory);
   const [scanResult,  setScanResult]       = useState(init.scanResult);
   const [liveScanId,  setLiveScanId]       = useState(init.liveScanId);
   const [adjustments, setAdjustments]     = useState({});   // failure_mode → latest score adjustment
+
+  // What the role may use of the saved selection, and the scope that follows from it (ADR-034).
+  // The project's findings come from that project's own stored scan, so a project switch never shows another project's components.
+  const limitedSel   = useMemo(() => limitSel(selState, persona), [selState, persona]);
+  const projectScan  = limitedSel.projectId ? (scanHistory[limitedSel.projectId]?.result ?? null) : null;
+  const projectRisks = useMemo(() => {
+    const risks = projectScan ? normalizeScanResult(projectScan, { ...limitedSel, componentName: null }) : null;
+    return risks && applyAdjustments(risks, adjustments);
+  }, [projectScan, limitedSel.portfolioId, limitedSel.projectId, adjustments]); // eslint-disable-line react-hooks/exhaustive-deps
+  const projectComponents = useMemo(() => (limitedSel.projectId ? componentsOf(projectRisks) : []), [projectRisks, limitedSel.projectId]);
+  const sel   = useMemo(() => keepValidComponent(limitedSel, projectComponents), [limitedSel, projectComponents]);
+  const scope = deriveScope(sel, persona);
 
   // Ref lets the project-switch effect always read latest scanHistory without
   // re-firing on every scan (we only want to fire on project *selection* changes)
@@ -308,13 +316,6 @@ function Workspace({ user, status, onLogout }) {
   // For project/component scope: use the active scan result.
   // For portfolio/org scope: aggregate risks from every scanned project in scope,
   // tagging each risk with the correct projectId and portfolioId for aggregation tables.
-  // the project's findings before any component filter: the component list is taken from these
-  const projectRisks = useMemo(() => {
-    const risks = scanResult ? normalizeScanResult(scanResult, { ...sel, componentName: null }) : null;
-    return risks && applyAdjustments(risks, adjustments);
-  }, [scanResult, sel.portfolioId, sel.projectId, adjustments]); // eslint-disable-line react-hooks/exhaustive-deps
-  const projectComponents = useMemo(() => (sel.projectId ? componentsOf(projectRisks) : []), [projectRisks, sel.projectId]);
-
   // a role that works only at component level always has one selected
   useEffect(() => {
     if (sel.projectId && !sel.componentName) {
@@ -367,10 +368,7 @@ function Workspace({ user, status, onLogout }) {
 
   const switchPersona = p => {
     setPersona(p);
-    const defaultScope = PERSONA_DEFAULT_SCOPE[p];
     setStep(PROCESS_STEPS.find(s => PERSONA_PRIMARY[p].includes(s.id))?.id ?? 'scenarios');
-    if (defaultScope === 'portfolio') setSel(s => ({ ...s, projectId: null, componentId: null, componentName: null }));
-    if (defaultScope === 'org')       setSel(EMPTY_SEL);
   };
 
   const Content = PAGES[step];

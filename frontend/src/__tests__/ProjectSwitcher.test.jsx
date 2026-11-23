@@ -100,6 +100,20 @@ describe('Project switcher (B-054 step 3, ADR-034)', () => {
     expect(screen.getByText('No project matches')).toBeInTheDocument();
   });
 
+  it('does not offer to create a project to a role that cannot open one', async () => {
+    const { user } = setup('executive', { ...EMPTY, portfolioId: 'p1' });
+    await user.click(screen.getByRole('button', { name: /Big/ }));
+    expect(screen.queryByRole('button', { name: /New project/ })).not.toBeInTheDocument();
+  });
+
+  it('puts the focus back on its button when Escape closes it', async () => {
+    const { user } = setup('security_engineer');
+    const button = screen.getByRole('button', { name: /Choose a project/ });
+    await user.click(button);
+    await user.keyboard('{Escape}');
+    expect(button).toHaveFocus();
+  });
+
   it('closes with Escape', async () => {
     const { user } = setup('security_engineer');
     await user.click(screen.getByRole('button', { name: /Choose a project/ }));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveScope, selectable, componentsOf, findingFiles, filterByComponent, limitSel, EMPTY_SEL } from '../selection';
+import { deriveScope, selectable, componentsOf, findingFiles, filterByComponent, limitSel, keepValidComponent, EMPTY_SEL } from '../selection';
 
 const sel = (p = null, pr = null, c = null) => ({ portfolioId: p, projectId: pr, componentId: null, componentName: c });
 
@@ -74,5 +74,22 @@ describe('components come from the files a finding cites', () => {
     expect(filterByComponent(risks, 'a.py').map(r => r.name)).toEqual(['x', 'y']);
     expect(filterByComponent(risks, null)).toBe(risks);
     expect(filterByComponent(null, 'a.py')).toBeNull();
+  });
+});
+
+describe('a component that no finding cites is dropped (review of step 3)', () => {
+  const list = [{ name: 'public.py', count: 2 }];
+  it('keeps a component the findings cite', () => {
+    const s = sel('p1', 'pr1', 'public.py');
+    expect(keepValidComponent(s, list)).toBe(s);
+  });
+  it('drops an old saved label, a file a rescan no longer cites, and any name when there are no components', () => {
+    expect(keepValidComponent(sel('p1', 'pr1', 'Scanned'), list)).toEqual(sel('p1', 'pr1'));
+    expect(keepValidComponent(sel('p1', 'pr1', 'gone.py'), list)).toEqual(sel('p1', 'pr1'));
+    expect(keepValidComponent(sel('p1', 'pr1', 'public.py'), [])).toEqual(sel('p1', 'pr1'));
+  });
+  it('leaves a selection without a component alone', () => {
+    const s = sel('p1', 'pr1');
+    expect(keepValidComponent(s, list)).toBe(s);
   });
 });

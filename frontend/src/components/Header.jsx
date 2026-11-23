@@ -139,7 +139,7 @@ export default function Header({ persona, step, sel, hierarchy = [], components 
       <div className="flex-1 min-w-0">
         {/* Where you are (ADR-034) */}
         <nav aria-label="Where you are" className="flex items-center gap-1 text-xs mb-0.5">
-          <span className={`font-medium ${portfolio ? 'text-gray-300' : 'text-gray-600'}`}>All portfolios</span>
+          {(can.org || !portfolio) && <span className={`font-medium ${portfolio ? 'text-gray-300' : 'text-gray-600'}`}>{can.org ? 'All portfolios' : 'No project selected'}</span>}
           {portfolio && <><span className="text-gray-200 mx-0.5">/</span><span className={`font-medium ${project ? 'text-gray-300' : 'text-gray-600'}`}>{portfolio.name}</span></>}
           {project && <><span className="text-gray-200 mx-0.5">/</span><span className="font-medium text-gray-600">{project.name}</span></>}
           {showPicker && (

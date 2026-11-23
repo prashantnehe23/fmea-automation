@@ -67,3 +67,9 @@ export function allowsAllComponents(persona) {
 export function defaultComponent(persona, components) {
   return !allowsAllComponents(persona) && selectable(persona).component && components?.length ? components[0].name : null;
 }
+
+/** A component that no finding of the project cites (an old saved label, or a file a rescan no longer cites) is dropped. */
+export function keepValidComponent(sel, components) {
+  if (!sel.componentName) return sel;
+  return (components ?? []).some(c => c.name === sel.componentName) ? sel : { ...sel, componentId: null, componentName: null };
+}

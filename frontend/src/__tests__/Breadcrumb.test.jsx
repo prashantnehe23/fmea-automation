@@ -63,6 +63,13 @@ describe('Breadcrumb and component picker (B-054 step 3, ADR-034 point 2)', () =
     expect(screen.queryByRole('combobox', { name: 'Component' })).not.toBeInTheDocument();
   });
 
+  it('does not offer All portfolios to a role that has no organisation view', () => {
+    head('developer', { portfolioId: null, projectId: null, componentId: null, componentName: null });
+    const nav = screen.getByRole('navigation', { name: 'Where you are' });
+    expect(nav).not.toHaveTextContent('All portfolios');
+    expect(nav).toHaveTextContent('No project selected');
+  });
+
   it('starts at All portfolios when nothing is selected', () => {
     head('risk_manager', { portfolioId: null, projectId: null, componentId: null, componentName: null }, { scope: 'org' });
     expect(screen.getByRole('navigation', { name: 'Where you are' })).toHaveTextContent('All portfolios');
