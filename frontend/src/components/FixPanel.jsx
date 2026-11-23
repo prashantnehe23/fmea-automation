@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { proposeFix, recordFixDecision } from '../api';
 
-// B-053: a proposed fix for one action, shown in a side panel for a person to accept, edit or reject.
-// Nothing is applied to any repository here; accepted code can be copied or downloaded as a patch.
+// B-053, B-056 (ADR-033): a proposed fix for one action, shown in a side panel for a person to accept, edit or reject.
+// The server shows the code the finding cites, checks every edit and builds the diff. Nothing is applied to any repository.
 
 function DiffView({ diff }) {
   return (
@@ -14,37 +14,48 @@ function DiffView({ diff }) {
   );
 }
 
-export default function FixPanel({ scanId, failureMode, action, onClose }) {
+const editBody = (e) => ({ file: e.file, start_line: e.start_line, end_line: e.end_line, replacement: e.replacement });
+
+export default function FixPanel({ workspaceId, scanId, failureMode, action, onClose }) {
   const [state, setState]       = useState('loading');     // loading | ready | error | done
   const [error, setError]       = useState('');
   const [proposal, setProposal] = useState(null);
-  const [code, setCode]         = useState('');
+  const [edits, setEdits]       = useState([]);
+  const [outcome, setOutcome]   = useState(null);          // what the server made of the final edits
   const [decision, setDecision] = useState('');
   const [copied, setCopied]     = useState(false);
+  const [deciding, setDeciding] = useState(false);
 
   useEffect(() => {
     let live = true;
-    proposeFix(scanId, failureMode, action.id)
-      .then(p => { if (live) { setProposal(p); setCode(p.patched_snippet); setState('ready'); } })
+    setState('loading'); setProposal(null); setEdits([]); setError(''); setOutcome(null);     // a new fix never shows the old one
+    proposeFix(workspaceId, scanId, failureMode, action.id)
+      .then(p => { if (live) { setProposal(p); setEdits(p.edits.map(editBody)); setState('ready'); } })
       .catch(e => { if (live) { setError(e.message); setState('error'); } });
     return () => { live = false; };
-  }, [scanId, failureMode, action.id]);
+  }, [workspaceId, scanId, failureMode, action.id]);
+
+  const changed = proposal && edits.some((e, i) => e.replacement !== proposal.edits[i].replacement);
 
   const decide = async (value) => {
+    if (deciding) return;
+    setDeciding(true);
     setError('');
     try {
-      await recordFixDecision(scanId, failureMode, action.id, value);
+      const result = await recordFixDecision(workspaceId, scanId, failureMode, action.id, value, value === 'rejected' ? [] : edits);
       if (value === 'rejected') { onClose(); return; }
+      setOutcome(result);
       setDecision(value);
       setState('done');
     } catch (e) { setError(e.message); }
+    finally { setDeciding(false); }
   };
 
-  const edited = proposal && code !== proposal.patched_snippet;
-  const patchText = proposal ? `${proposal.code_diff}\n\n# Fixed code\n${code}\n\n# Test\n${proposal.test_code}\n` : '';
+  const setReplacement = (i, text) => setEdits(edits.map((e, k) => (k === i ? { ...e, replacement: text } : e)));
+  const finalDiff = outcome?.diff ?? '';
 
   return (
-    <aside role="dialog" aria-label="Proposed fix" className="fixed top-0 right-0 z-50 h-full w-[34rem] max-w-full bg-white border-l border-gray-200 shadow-2xl flex flex-col">
+    <aside role="dialog" aria-label="Proposed fix" className="fixed top-0 right-0 z-50 h-full w-[36rem] max-w-full bg-white border-l border-gray-200 shadow-2xl flex flex-col">
       <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Proposed fix</p>
@@ -55,19 +66,33 @@ export default function FixPanel({ scanId, failureMode, action, onClose }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-        {state === 'loading' && <p className="text-sm text-gray-500">The model is writing a fix. This takes up to a minute.</p>}
+        {state === 'loading' && <p className="text-sm text-gray-500">The model is rewriting the code. This takes up to a minute.</p>}
         {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
         {proposal && (
           <>
+            {proposal.reason && <p className="text-sm text-gray-700">{proposal.reason}</p>}
+            {proposal.context === 'guess' && <p className="text-xs text-amber-600">The finding cites no file, so the code shown to the model was chosen by a keyword guess. Check that it is the right place.</p>}
+            {proposal.parse_errors?.length > 0 && <p className="text-xs text-red-600">{proposal.parse_errors.join(', ')} no longer parses after this change. Review it before use.</p>}
+            {proposal.dropped?.length > 0 && (
+              <div className="text-xs text-amber-700">
+                <p className="font-semibold">Not applied:</p>
+                <ul className="list-disc ml-4">{proposal.dropped.map((d, i) => <li key={i}>{d.file}: {d.reason}</li>)}</ul>
+              </div>
+            )}
+
+            {state === 'ready' && edits.map((e, i) => (
+              <div key={i}>
+                <p className="text-xs font-semibold text-gray-700 mb-1 font-mono">{e.file} <span className="text-gray-400">{e.end_line < e.start_line ? `insert before line ${e.start_line}` : `lines ${e.start_line}-${e.end_line}`}</span></p>
+                {proposal.edits[i].original && <pre className="text-xs font-mono rounded-lg bg-red-50 text-red-700 p-2 mb-1 overflow-x-auto">{proposal.edits[i].original}</pre>}
+                <textarea aria-label={`Replacement for ${e.file} lines ${e.start_line}-${e.end_line}`} value={e.replacement} onChange={ev => setReplacement(i, ev.target.value)}
+                          className="w-full h-28 text-xs font-mono border border-gray-200 rounded-xl p-2 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+              </div>
+            ))}
+            {state === 'ready' && changed && <p className="text-xs text-amber-600">You changed the code; it will be recorded as edited.</p>}
+
             <div>
-              <p className="text-xs font-semibold text-gray-700 mb-1">Change</p>
-              <DiffView diff={proposal.code_diff} />
-            </div>
-            <div>
-              <label htmlFor="fixed-code" className="text-xs font-semibold text-gray-700 block mb-1">Fixed code</label>
-              <textarea id="fixed-code" aria-label="Fixed code" value={code} onChange={e => setCode(e.target.value)} readOnly={state === 'done'}
-                        className="w-full h-48 text-xs font-mono border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-blue-300" />
-              {edited && state !== 'done' && <p className="text-xs text-amber-600 mt-1">You changed the code; it will be recorded as edited.</p>}
+              <p className="text-xs font-semibold text-gray-700 mb-1">{state === 'done' ? 'Final change' : 'Change as proposed'}</p>
+              <DiffView diff={state === 'done' ? finalDiff : proposal.diff} />
             </div>
             <div>
               <p className="text-xs font-semibold text-gray-700 mb-1">Test</p>
@@ -81,19 +106,21 @@ export default function FixPanel({ scanId, failureMode, action, onClose }) {
 
       {state === 'ready' && (
         <div className="px-5 py-3 border-t border-gray-100 flex gap-2">
-          <button onClick={() => decide(edited ? 'edited' : 'accepted')} className="px-4 py-2 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700">Accept</button>
-          <button onClick={() => decide('rejected')} className="px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50">Reject</button>
+          <button onClick={() => decide(changed ? 'edited' : 'accepted')} disabled={deciding} className="px-4 py-2 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700">Accept</button>
+          <button onClick={() => decide('rejected')} disabled={deciding} className="px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50">Reject</button>
         </div>
       )}
       {state === 'done' && (
         <div className="px-5 py-3 border-t border-gray-100 space-y-2">
           <p className="text-xs text-green-700 font-semibold">Fix {decision} and recorded in the audit trail. It has not been applied to your repository.</p>
+          {outcome?.parse_errors?.length > 0 && <p className="text-xs text-red-600">{outcome.parse_errors.join(', ')} no longer parses.</p>}
           <div className="flex gap-2">
-            <button onClick={() => { navigator.clipboard?.writeText(code); setCopied(true); }}
-                    className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">{copied ? 'Copied' : 'Copy code'}</button>
-            <a href={`data:text/plain;charset=utf-8,${encodeURIComponent(patchText)}`} download="fix-proposal.txt"
-               className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">Download proposal</a>
+            <button onClick={() => { navigator.clipboard?.writeText(finalDiff).then(() => setCopied(true)).catch(() => setCopied(false)); }}
+                    className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">{copied ? 'Copied' : 'Copy diff'}</button>
+            <a href={`data:text/plain;charset=utf-8,${encodeURIComponent(finalDiff)}`} download="fix.patch"
+               className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">Download patch</a>
           </div>
+          <p className="text-xs text-gray-400">Apply it yourself with <span className="font-mono">git apply fix.patch</span>.</p>
         </div>
       )}
     </aside>

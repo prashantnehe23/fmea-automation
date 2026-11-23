@@ -246,10 +246,11 @@ async function _fixCall(path, body) {
   }
   return res.json();
 }
-export const proposeFix = (scanId, failureMode, actionId) =>
-  _fixCall('/api/remediate/finding', { scan_id: scanId, failure_mode: failureMode, action_id: actionId });
-export const recordFixDecision = (scanId, failureMode, actionId, decision) =>
-  _fixCall('/api/remediate/decision', { scan_id: scanId, failure_mode: failureMode, action_id: actionId, decision });
+// B-056: the project and the saved scan (db_scan_id in every scan result), so a fix can be written after a server restart
+export const proposeFix = (workspaceId, scanId, failureMode, actionId) =>
+  _fixCall('/api/remediate/finding', { workspace_id: workspaceId, scan_id: scanId, failure_mode: failureMode, action_id: actionId });
+export const recordFixDecision = (workspaceId, scanId, failureMode, actionId, decision, edits = []) =>
+  _fixCall('/api/remediate/decision', { workspace_id: workspaceId, scan_id: scanId, failure_mode: failureMode, action_id: actionId, decision, edits });
 
 /**
  * GET /api/remediate/{remediationId} — retrieve completed remediation results.
