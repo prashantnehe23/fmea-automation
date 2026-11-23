@@ -46,3 +46,7 @@ memory/core/
 
 # Third-party sources, tools and the staged settings used for benchmarks (never committed)
 benchmarks/real/
+
+# Results of runs on real third-party projects are held until the engineer approves publishing them (B-046, ADR-032)
+benchmarks/results/paths-real*.json
+benchmarks/results/*real*.json
